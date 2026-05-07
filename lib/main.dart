@@ -43,27 +43,12 @@ void main() async {
     await assignmentService.clearAllOverrides();
   };
 
-  await authService.initialize();
+  // -- Boot critical path: local I/O only --
+  // Hydrate everything from caches so the first frame paints with data.
+  await authService.loadSession();
   await thirdPartyAuthService.initialize();
-  // Hydrate from cache before runApp so the Deadlines tab paints with data.
   assignmentService.loadCached();
-  // Best-effort: silently refresh any third-party token expiring within 48h.
-  // Fire-and-forget; UI will reflect new state via notifyListeners.
-  unawaited(thirdPartyAuthService.autoRenewIfNeeded());
-
-  // Load cached schedule data so widgets (e.g. home page) render immediately
   await scheduleService.loadCachedData();
-
-  // Fetch fresh data in the background.
-  if (authService.isLoggedIn) {
-    scheduleService.fetchAll(); // fire-and-forget, UI uses cache first
-  }
-  if (authService.isLoggedIn || thirdPartyAuthService.boundPlatforms.isNotEmpty) {
-    assignmentService.fetchAssignments(); // fire-and-forget, UI uses cache first
-  }
-  // After the explicit boot fetch, allow auto-refetch on auth/binding changes
-  // (login, bind, unbind, logout).
-  assignmentService.enableAutoRefetch();
 
   runApp(
     TechPieApp(
@@ -76,6 +61,22 @@ void main() async {
       thirdPartyAuthService: thirdPartyAuthService,
     ),
   );
+
+  // -- Background: every network call is fire-and-forget. UI updates via
+  // notifyListeners as each request resolves, so a slow / down backend
+  // never blocks the splash. --
+  if (authService.isLoggedIn) {
+    unawaited(authService.tryRenewSession());
+    unawaited(scheduleService.fetchAll());
+  }
+  if (authService.isLoggedIn ||
+      thirdPartyAuthService.boundPlatforms.isNotEmpty) {
+    unawaited(assignmentService.fetchAssignments());
+  }
+  unawaited(thirdPartyAuthService.autoRenewIfNeeded());
+  // Allow auto-refetch on subsequent auth / binding changes
+  // (login, bind, unbind, logout).
+  assignmentService.enableAutoRefetch();
 }
 
 class TechPieApp extends StatefulWidget {

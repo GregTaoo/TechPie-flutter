@@ -34,13 +34,17 @@ class AuthService extends ChangeNotifier {
 
   // -- Initialization & token renewal --
 
-  Future<void> initialize() async {
+  /// Load the persisted session from secure storage. Pure local I/O —
+  /// safe to await on the boot critical path. Network token renewal is
+  /// the caller's responsibility (kick it off after `runApp`).
+  Future<void> loadSession() async {
     _session = await _storage.loadSession();
-    if (_session != null) {
-      await tryRenewSession();
-    }
     notifyListeners();
   }
+
+  /// Backwards-compatible alias. Network renew is no longer awaited here;
+  /// use [tryRenewSession] explicitly if you need it.
+  Future<void> initialize() => loadSession();
 
   Future<bool> tryRenewSession() async {
     if (_session == null) return false;

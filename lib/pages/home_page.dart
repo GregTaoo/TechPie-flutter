@@ -347,10 +347,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   Widget _buildPendingAssignments(ThemeData theme) {
     final now = _now;
-    final pending = _assignments.visibleAssignments
-        .where((a) => !_assignments.isCompleted(a) && a.due.isAfter(now))
-        .toList()
-      ..sort((a, b) => a.due.compareTo(b.due));
+    final pending =
+        _assignments.visibleAssignments
+            .where((a) => !_assignments.isCompleted(a) && a.due.isAfter(now))
+            .toList()
+          ..sort((a, b) => a.due.compareTo(b.due));
 
     final showCount = pending.length.clamp(0, 5);
     final overflow = pending.length - showCount;
@@ -393,7 +394,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           const Divider(height: 1),
           for (int i = 0; i < showCount; i++) ...[
             _buildPendingItem(theme, pending[i], now),
-            if (i < showCount - 1) const Divider(height: 1, indent: 16),
+            if (i < showCount - 1) const Divider(height: 1),
           ],
           if (overflow > 0)
             Padding(
@@ -444,22 +445,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
         child: Row(
           children: [
-            Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: scheme.secondaryContainer,
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(
-                a.platform.toUpperCase(),
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: scheme.onSecondaryContainer,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -486,8 +471,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             ),
             const SizedBox(width: 8),
             Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
                 color: dueColor.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(6),
@@ -528,9 +512,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   Future<void> _openAssignmentUrl(Assignment a) async {
     final url = a.url;
     if (url == null || url.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('该作业没有链接')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('该作业没有链接')));
       return;
     }
     final uri = Uri.tryParse(url);
