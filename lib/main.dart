@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -44,6 +46,9 @@ void main() async {
   await thirdPartyAuthService.initialize();
   // Hydrate from cache before runApp so the Deadlines tab paints with data.
   assignmentService.loadCached();
+  // Best-effort: silently refresh any third-party token expiring within 48h.
+  // Fire-and-forget; UI will reflect new state via notifyListeners.
+  unawaited(thirdPartyAuthService.autoRenewIfNeeded());
 
   // Load cached schedule data so widgets (e.g. home page) render immediately
   await scheduleService.loadCachedData();

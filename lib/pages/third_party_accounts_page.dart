@@ -118,6 +118,7 @@ class _ThirdPartyTile extends StatelessWidget {
     final subtitleParts = <String>[
       acc.displayName,
       if (acc.expireAt != null) _expireLabel(acc.expireAt!),
+      if (acc.autoRenew) '自动更新 Token 已开启',
     ];
     if (platform == ThirdPartyPlatform.hydro) {
       final origin = acc.hydroOrigin ?? '';

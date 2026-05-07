@@ -48,6 +48,7 @@ class ThirdPartyAuthService extends ChangeNotifier {
     required String password,
     String? hydroOrigin,
     List<String>? hydroDomains,
+    bool autoRenew = false,
   }) async {
     final body = <String, dynamic>{
       'account': account,
@@ -105,6 +106,8 @@ class ThirdPartyAuthService extends ChangeNotifier {
           ? (hydroDomains == null || hydroDomains.isEmpty ? null : hydroDomains)
           : null,
       boundAt: DateTime.now(),
+      autoRenew: autoRenew,
+      password: autoRenew ? password : null,
     );
 
     await _storage.saveThirdPartyAccount(acc);
@@ -117,6 +120,39 @@ class ThirdPartyAuthService extends ChangeNotifier {
     _accounts.remove(platform);
     await _storage.clearThirdPartyAccount(platform);
     notifyListeners();
+  }
+
+  /// Boot-time best-effort renewal: for each bound account whose token is
+  /// either expired or expires within [window] (default 48h) AND has
+  /// auto-renew enabled with stored credentials, silently re-authenticate.
+  /// Errors are swallowed so app boot is never blocked by this.
+  Future<void> autoRenewIfNeeded({
+    Duration window = const Duration(hours: 48),
+  }) async {
+    final cutoff = DateTime.now().add(window);
+    final snapshot = _accounts.values.toList();
+    for (final acc in snapshot) {
+      if (!acc.autoRenew) continue;
+      final pw = acc.password;
+      if (pw == null || pw.isEmpty) continue;
+      final at = acc.expireAt;
+      // No expire info → don't auto-renew (we can't tell if it's needed).
+      if (at == null) continue;
+      if (at.isAfter(cutoff)) continue;
+      try {
+        await bind(
+          platform: acc.platform,
+          account: acc.account,
+          password: pw,
+          hydroOrigin: acc.hydroOrigin,
+          hydroDomains: acc.hydroDomains,
+          autoRenew: true,
+        );
+      } catch (_) {
+        // Surface nothing on boot; user can pull-to-refresh which will
+        // expose any 401 via assignment fetch path.
+      }
+    }
   }
 
   Future<void> clearAll() async {

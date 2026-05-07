@@ -22,6 +22,7 @@ class _ThirdPartyBindPageState extends State<ThirdPartyBindPage> {
   final _hydroDomainsCtrl = TextEditingController();
   bool _busy = false;
   bool _obscure = true;
+  bool _autoRenew = false;
 
   bool get _isHydro => widget.platform == ThirdPartyPlatform.hydro;
   bool get _isGradescope => widget.platform == ThirdPartyPlatform.gradescope;
@@ -33,6 +34,37 @@ class _ThirdPartyBindPageState extends State<ThirdPartyBindPage> {
     _hydroOriginCtrl.dispose();
     _hydroDomainsCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _onAutoRenewChanged(bool value) async {
+    if (!value) {
+      setState(() => _autoRenew = false);
+      return;
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('开启自动更新 Token'),
+        content: const Text(
+          '自动更新 Token 已打开,APP 将于本地加密存储你的账号和密码信息,'
+          '用于在过期前 48 小时内自动触发 Token 更新。\n\n'
+          '凭据仅存放在本设备的 Keychain / EncryptedSharedPreferences 中,'
+          '不会上传到服务器。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('我知道了,开启'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    setState(() => _autoRenew = ok == true);
   }
 
   Future<void> _submit() async {
@@ -59,6 +91,7 @@ class _ThirdPartyBindPageState extends State<ThirdPartyBindPage> {
         password: _passwordCtrl.text,
         hydroOrigin: _isHydro ? _hydroOriginCtrl.text.trim() : null,
         hydroDomains: domains,
+        autoRenew: _autoRenew,
       );
       messenger.showSnackBar(
         SnackBar(content: Text('${widget.platform.label} 绑定成功')),
@@ -141,7 +174,16 @@ class _ThirdPartyBindPageState extends State<ThirdPartyBindPage> {
                 },
               ),
             ],
-            const SizedBox(height: 24),
+            const SizedBox(height: 8),
+            CheckboxListTile(
+              value: _autoRenew,
+              onChanged: (v) => _onAutoRenewChanged(v ?? false),
+              title: const Text('自动更新 Token'),
+              subtitle: const Text('过期前 48 小时内自动重登,免去手动重绑'),
+              controlAffinity: ListTileControlAffinity.leading,
+              contentPadding: EdgeInsets.zero,
+            ),
+            const SizedBox(height: 16),
             FilledButton(
               onPressed: _busy ? null : _submit,
               child: _busy

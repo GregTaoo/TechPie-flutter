@@ -28,6 +28,11 @@ class ThirdPartyAccount {
   final String? hydroOrigin;
   final List<String>? hydroDomains;
   final DateTime boundAt;
+  // Auto-renew config. When [autoRenew] is true the password is also
+  // persisted (in the same secure-storage entry) so the app can silently
+  // re-authenticate when the token nears expiry.
+  final bool autoRenew;
+  final String? password;
 
   const ThirdPartyAccount({
     required this.platform,
@@ -41,6 +46,8 @@ class ThirdPartyAccount {
     this.hydroOrigin,
     this.hydroDomains,
     required this.boundAt,
+    this.autoRenew = false,
+    this.password,
   });
 
   DateTime? get expireAt =>
@@ -70,6 +77,8 @@ class ThirdPartyAccount {
     if (hydroOrigin != null) 'hydroOrigin': hydroOrigin,
     if (hydroDomains != null) 'hydroDomains': hydroDomains,
     'boundAt': boundAt.toIso8601String(),
+    'autoRenew': autoRenew,
+    if (password != null) 'password': password,
   };
 
   factory ThirdPartyAccount.fromJson(Map<String, dynamic> json) {
@@ -87,6 +96,8 @@ class ThirdPartyAccount {
       hydroDomains: (json['hydroDomains'] as List?)?.map((e) => e as String).toList(),
       boundAt: DateTime.tryParse(json['boundAt'] as String? ?? '') ??
           DateTime.now(),
+      autoRenew: json['autoRenew'] as bool? ?? false,
+      password: json['password'] as String?,
     );
   }
 
@@ -99,6 +110,8 @@ class ThirdPartyAccount {
     Map<String, dynamic>? raw,
     String? hydroOrigin,
     List<String>? hydroDomains,
+    bool? autoRenew,
+    String? password,
   }) {
     return ThirdPartyAccount(
       platform: platform,
@@ -112,6 +125,8 @@ class ThirdPartyAccount {
       hydroOrigin: hydroOrigin ?? this.hydroOrigin,
       hydroDomains: hydroDomains ?? this.hydroDomains,
       boundAt: boundAt,
+      autoRenew: autoRenew ?? this.autoRenew,
+      password: password ?? this.password,
     );
   }
 }
