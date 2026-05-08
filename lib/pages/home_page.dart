@@ -1,9 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../models/assignment.dart';
 import '../models/course.dart';
 import '../models/course_table.dart';
+import '../services/assignment_service.dart';
 import '../services/schedule_service.dart';
 import '../services/service_provider.dart';
 
@@ -16,6 +20,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   late ScheduleService _schedule;
+  late AssignmentService _assignments;
   List<Course> _todayCourses = [];
   List<Period> _periods = defaultPeriods.toList();
   bool _initialized = false;
@@ -42,7 +47,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     if (!_initialized) {
       _initialized = true;
       _schedule = ServiceProvider.of(context).scheduleService;
+      _assignments = ServiceProvider.of(context).assignmentService;
       _schedule.addListener(_rebuild);
+      _assignments.addListener(_onAssignmentsChanged);
       _doRebuild();
       _refreshTimer = Timer.periodic(
         const Duration(minutes: 1),
@@ -55,8 +62,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   void dispose() {
     _refreshTimer?.cancel();
     _schedule.removeListener(_rebuild);
+    _assignments.removeListener(_onAssignmentsChanged);
     _staggerController?.dispose();
     super.dispose();
+  }
+
+  void _onAssignmentsChanged() {
+    if (!mounted) return;
+    setState(() {});
   }
 
   void _rebuild() {
@@ -275,17 +288,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           const SizedBox(height: 16),
           _buildTodayClasses(theme, auth.isLoggedIn),
           const SizedBox(height: 8),
-          Card.outlined(
-            child: ListTile(
-              leading: Icon(
-                Icons.assignment_outlined,
-                color: theme.colorScheme.tertiary,
-              ),
-              title: const Text('Pending assignments'),
-              subtitle: const Text('All caught up!'),
-              trailing: const Icon(Icons.chevron_right),
-            ),
-          ),
+          _buildPendingAssignments(theme),
           if (isDebug) ...[const SizedBox(height: 16), _buildDebugPanel(theme)],
         ],
       ),
@@ -340,6 +343,183 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         ),
       ),
     );
+  }
+
+  Widget _buildPendingAssignments(ThemeData theme) {
+    final now = _now;
+    final pending =
+        _assignments.visibleAssignments
+            .where((a) => !_assignments.isCompleted(a) && a.due.isAfter(now))
+            .toList()
+          ..sort((a, b) => a.due.compareTo(b.due));
+
+    final showCount = pending.length.clamp(0, 5);
+    final overflow = pending.length - showCount;
+
+    Widget content;
+    if (pending.isEmpty) {
+      content = _buildEmptyContent(
+        key: const ValueKey('no-pending'),
+        theme: theme,
+        icon: Icons.assignment_turned_in_outlined,
+        title: '没有待办作业',
+        subtitle: 'All caught up!',
+      );
+    } else {
+      content = Column(
+        key: ValueKey('pending-${pending.length}-${now.day}-${now.hour}'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.assignment_outlined,
+                  size: 18,
+                  color: theme.colorScheme.tertiary,
+                ),
+                const SizedBox(width: 8),
+                Text('待办作业', style: theme.textTheme.titleSmall),
+                const Spacer(),
+                Text(
+                  '${pending.length} 项',
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          for (int i = 0; i < showCount; i++) ...[
+            _buildPendingItem(theme, pending[i], now),
+            if (i < showCount - 1) const Divider(height: 1),
+          ],
+          if (overflow > 0)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              child: Text(
+                '还有 $overflow 项,前往 Deadlines 查看全部',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+        ],
+      );
+    }
+
+    return Card.outlined(
+      clipBehavior: Clip.antiAlias,
+      child: AnimatedSize(
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOutCubic,
+        alignment: Alignment.topCenter,
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 300),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          transitionBuilder: (child, animation) =>
+              FadeTransition(opacity: animation, child: child),
+          layoutBuilder: (currentChild, previousChildren) {
+            return Stack(
+              alignment: Alignment.topCenter,
+              children: [...previousChildren, ?currentChild],
+            );
+          },
+          child: content,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPendingItem(ThemeData theme, Assignment a, DateTime now) {
+    final scheme = theme.colorScheme;
+    final dueColor = _dueColor(a.due, now, scheme);
+    final dueLabel = _dueLabel(a.due, now);
+
+    return InkWell(
+      onTap: () => _openAssignmentUrl(a),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    a.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    a.course,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: dueColor.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                dueLabel,
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: dueColor,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _dueLabel(DateTime due, DateTime now) {
+    final diff = due.difference(now);
+    if (diff.inDays >= 3) {
+      return DateFormat('MM/dd HH:mm').format(due);
+    }
+    if (diff.inDays >= 1) return '${diff.inDays} 天内';
+    if (diff.inHours >= 1) return '${diff.inHours} 小时内';
+    final minutes = diff.inMinutes;
+    if (minutes >= 1) return '$minutes 分钟内';
+    return '< 1 分钟';
+  }
+
+  Color _dueColor(DateTime due, DateTime now, ColorScheme scheme) {
+    final diff = due.difference(now);
+    if (diff.inHours < 24) return scheme.error;
+    if (diff.inDays < 3) return Colors.orange.shade700;
+    return scheme.onSurfaceVariant;
+  }
+
+  Future<void> _openAssignmentUrl(Assignment a) async {
+    final url = a.url;
+    if (url == null || url.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('该作业没有链接')));
+      return;
+    }
+    final uri = Uri.tryParse(url);
+    if (uri == null) return;
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
   Widget _buildEmptyContent({
