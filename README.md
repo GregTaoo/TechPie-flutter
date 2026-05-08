@@ -1,3 +1,10 @@
+
+<center>
+
+![TechPie](/assets/logo/Logo-1.png)
+
+</center>
+
 # TechPie
 
 GeekPie 开发的 ShanghaiTech 非官方客户端。
