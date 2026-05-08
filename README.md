@@ -1,13 +1,14 @@
 
-<center>
-
-![TechPie](/assets/logo/Logo-1.png)
-
-</center>
+<div align="center">
+<a href="https://techpie.geekpie.club">
+<img src="./assets/logo/Logo-1.png" alt="TechPie logo" style="border-radius:50%"/>
+</a>
 
 # TechPie
 
-GeekPie 开发的 ShanghaiTech 非官方客户端。
+**🥧 **TechPie** 是一个由 GeekPie 开发的 **开源、轻量、美观** 的 ShanghaiTech 第三方校园服务平台！ 🚀**
+
+</div>
 
 ## Support Platform
 
