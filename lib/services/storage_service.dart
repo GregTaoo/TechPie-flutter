@@ -14,6 +14,7 @@ class StorageService {
   static const _schoolNameKey = 'cached_school_name';
   static const _phoneKey = 'cached_phone';
   static const _themeModeKey = 'theme_mode';
+  static const _colorSchemeKey = 'color_scheme';
   static const _useLocalhostKey = 'use_localhost';
 
   final FlutterSecureStorage _secure;
@@ -94,6 +95,10 @@ class StorageService {
   String get themeMode => _prefs.getString(_themeModeKey) ?? 'system';
   Future<void> setThemeMode(String mode) =>
       _prefs.setString(_themeModeKey, mode);
+
+  String get colorScheme => _prefs.getString(_colorSchemeKey) ?? 'system';
+  Future<void> setColorScheme(String scheme) =>
+      _prefs.setString(_colorSchemeKey, scheme);
 
   bool get useLocalhost => _prefs.getBool(_useLocalhostKey) ?? false;
   Future<void> setUseLocalhost(bool value) =>

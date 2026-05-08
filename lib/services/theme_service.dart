@@ -14,8 +14,17 @@ enum AppThemeMode {
   final IconData icon;
 }
 
+enum AppColorScheme {
+  system('System', Icons.colorize_outlined),
+  techRed('TechRed', Icons.palette_outlined);
+
+  const AppColorScheme(this.label, this.icon);
+  final String label;
+  final IconData icon;
+}
+
 class ThemeService extends ChangeNotifier {
-  static const _seed = Colors.deepPurple;
+  static const _techRedSeed = Color(0xFFA30B19);
   static const _iosLightAccent = Color(0xFF007AFF);
   static const _iosDarkAccent = Color(0xFF0A84FF);
   static const _iosLightBackground = Color(0xFFFFFFFF);
@@ -41,10 +50,20 @@ class ThemeService extends ChangeNotifier {
     : _mode = AppThemeMode.values.firstWhere(
         (m) => m.name == _storage.themeMode,
         orElse: () => AppThemeMode.system,
+      ),
+      _colorScheme = AppColorScheme.values.firstWhere(
+        (s) => s.name == _storage.colorScheme,
+        orElse: () => AppColorScheme.system,
       );
 
   AppThemeMode _mode;
   AppThemeMode get mode => _mode;
+
+  AppColorScheme _colorScheme;
+  AppColorScheme get colorScheme => _colorScheme;
+
+  ColorScheme? _systemLight;
+  ColorScheme? _systemDark;
 
   Future<void> setMode(AppThemeMode mode) async {
     if (_mode == mode) return;
@@ -52,6 +71,23 @@ class ThemeService extends ChangeNotifier {
     notifyListeners();
     await _storage.setThemeMode(mode.name);
   }
+
+  Future<void> setColorScheme(AppColorScheme scheme) async {
+    if (_colorScheme == scheme) return;
+    _colorScheme = scheme;
+    notifyListeners();
+    await _storage.setColorScheme(scheme.name);
+  }
+
+  void updateSystemSchemes(ColorScheme? light, ColorScheme? dark) {
+    if (_systemLight == light && _systemDark == dark) return;
+    _systemLight = light;
+    _systemDark = dark;
+    notifyListeners();
+  }
+
+  bool get systemDynamicColorAvailable =>
+      _systemLight != null || _systemDark != null;
 
   ThemeMode get themeMode {
     switch (_mode) {
@@ -68,10 +104,23 @@ class ThemeService extends ChangeNotifier {
   bool get _usesIosTheme =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
 
+  ColorScheme _resolveScheme(Brightness brightness) {
+    if (_colorScheme == AppColorScheme.system) {
+      final system = brightness == Brightness.light
+          ? _systemLight
+          : _systemDark;
+      if (system != null) return system;
+    }
+    return ColorScheme.fromSeed(
+      seedColor: _techRedSeed,
+      brightness: brightness,
+    );
+  }
+
   ThemeData get lightTheme {
     final base = ThemeData(
       useMaterial3: true,
-      colorScheme: ColorScheme.fromSeed(seedColor: _seed),
+      colorScheme: _resolveScheme(Brightness.light),
     );
 
     if (!_usesIosTheme) {
@@ -82,10 +131,7 @@ class ThemeService extends ChangeNotifier {
   }
 
   ThemeData get darkTheme {
-    final base = ColorScheme.fromSeed(
-      seedColor: _seed,
-      brightness: Brightness.dark,
-    );
+    final base = _resolveScheme(Brightness.dark);
 
     if (_mode == AppThemeMode.amoled) {
       if (_usesIosTheme) {

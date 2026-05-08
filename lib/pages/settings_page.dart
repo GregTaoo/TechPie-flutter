@@ -144,6 +144,40 @@ class _SettingsPageState extends State<SettingsPage> {
                   onTap: () => _showThemePicker(tileContext, themeService),
                 ),
               ),
+            if (usesIosLiquidGlass)
+              ListTile(
+                leading: Icon(themeService.colorScheme.icon),
+                title: const Text('Color'),
+                subtitle: Text(_colorSubtitle(themeService)),
+                trailing: IosGlassSelect(
+                  value: themeService.colorScheme.name,
+                  placeholder: 'Choose color',
+                  width: 156,
+                  options: [
+                    for (final scheme in AppColorScheme.values)
+                      IosGlassSelectOption(
+                        value: scheme.name,
+                        label: scheme.label,
+                      ),
+                  ],
+                  onChanged: (value) {
+                    final scheme = AppColorScheme.values.firstWhere(
+                      (item) => item.name == value,
+                      orElse: () => AppColorScheme.system,
+                    );
+                    themeService.setColorScheme(scheme);
+                  },
+                ),
+              )
+            else
+              Builder(
+                builder: (tileContext) => ListTile(
+                  leading: Icon(themeService.colorScheme.icon),
+                  title: const Text('Color'),
+                  subtitle: Text(_colorSubtitle(themeService)),
+                  onTap: () => _showColorPicker(tileContext, themeService),
+                ),
+              ),
             const Divider(),
 
             // General section
@@ -285,6 +319,103 @@ class _SettingsPageState extends State<SettingsPage> {
                     : null,
                 onTap: () {
                   themeService.setMode(mode);
+                  Navigator.pop(context);
+                },
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _colorSubtitle(ThemeService themeService) {
+    if (themeService.colorScheme == AppColorScheme.system &&
+        !themeService.systemDynamicColorAvailable) {
+      return '${themeService.colorScheme.label} (unavailable, using TechRed)';
+    }
+    return themeService.colorScheme.label;
+  }
+
+  void _showColorPicker(BuildContext context, ThemeService themeService) {
+    if (isDesktopLayout(context)) {
+      showDesktopPopover(
+        anchorContext: context,
+        width: 260,
+        placement: DesktopPopoverPlacement.belowEnd,
+        offset: const Offset(0, 8),
+        builder: (context, close) {
+          final theme = Theme.of(context);
+          return DesktopPopoverSurface(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+                  child: Text(
+                    'Choose color',
+                    style: theme.textTheme.titleSmall,
+                  ),
+                ),
+                const Divider(height: 1),
+                for (final scheme in AppColorScheme.values)
+                  DesktopMenuRow(
+                    leading: Icon(scheme.icon, size: 20),
+                    title: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            scheme.label,
+                            style: theme.textTheme.bodyMedium,
+                          ),
+                        ),
+                        if (themeService.colorScheme == scheme)
+                          Icon(
+                            Icons.check,
+                            size: 20,
+                            color: theme.colorScheme.primary,
+                          ),
+                      ],
+                    ),
+                    onTap: () {
+                      themeService.setColorScheme(scheme);
+                      close();
+                    },
+                  ),
+              ],
+            ),
+          );
+        },
+      );
+      return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text(
+                'Choose color',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+            for (final scheme in AppColorScheme.values)
+              ListTile(
+                leading: Icon(scheme.icon),
+                title: Text(scheme.label),
+                trailing: themeService.colorScheme == scheme
+                    ? Icon(
+                        Icons.check,
+                        color: Theme.of(context).colorScheme.primary,
+                      )
+                    : null,
+                onTap: () {
+                  themeService.setColorScheme(scheme);
                   Navigator.pop(context);
                 },
               ),
