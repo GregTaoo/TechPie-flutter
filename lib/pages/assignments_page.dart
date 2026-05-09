@@ -7,6 +7,8 @@ import '../models/assignment.dart';
 import '../models/assignment_overrides.dart';
 import '../services/assignment_service.dart';
 import '../services/service_provider.dart';
+import '../widgets/adaptive_feedback.dart';
+import '../widgets/adaptive_alert_dialog.dart';
 import '../widgets/blurred_app_bar.dart';
 import '../widgets/ios_liquid/ios_glass_dropdown_menu.dart';
 import '../widgets/swipeable_card.dart';
@@ -432,17 +434,17 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
     String key,
   ) {
     service.hide(a);
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.clearSnackBars();
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text('已忽略「${a.title}」'),
-        duration: const Duration(seconds: 5),
-        action: SnackBarAction(
-          label: '撤销',
-          onPressed: () => service.unhide(key),
-        ),
-      ),
+    final usesIosContextualFeedback =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+    if (usesIosContextualFeedback) return;
+
+    showAdaptiveFeedback(
+      context: context,
+      message: '已忽略「${a.title}」',
+      style: AdaptiveFeedbackStyle.info,
+      duration: const Duration(seconds: 4),
+      actionLabel: '撤销',
+      onAction: () => service.unhide(key),
     );
   }
 
@@ -452,29 +454,70 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
     Assignment a,
     String key,
   ) async {
+    final usesIosContextualFeedback =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
     if (_selectionMode) {
       _toggleSelection(key);
       return;
     }
     final url = a.url;
     if (url == null || url.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('该作业没有链接')));
+      if (usesIosContextualFeedback) {
+        await showAdaptiveAlertDialog<void>(
+          context: context,
+          title: '无法打开作业',
+          message: '这个作业没有可打开的链接。',
+          actions: const [
+            AdaptiveAlertAction<void>(label: 'Done', isDefault: true),
+          ],
+        );
+      } else {
+        showAdaptiveFeedback(
+          context: context,
+          message: '该作业没有链接',
+          style: AdaptiveFeedbackStyle.info,
+        );
+      }
       return;
     }
     final uri = Uri.tryParse(url);
     if (uri == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('链接无法解析')));
+      if (usesIosContextualFeedback) {
+        await showAdaptiveAlertDialog<void>(
+          context: context,
+          title: '无法打开作业',
+          message: '链接格式无效。',
+          actions: const [
+            AdaptiveAlertAction<void>(label: 'Done', isDefault: true),
+          ],
+        );
+      } else {
+        showAdaptiveFeedback(
+          context: context,
+          message: '链接无法解析',
+          style: AdaptiveFeedbackStyle.error,
+        );
+      }
       return;
     }
     final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!ok && context.mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('无法打开链接')));
+      if (usesIosContextualFeedback) {
+        await showAdaptiveAlertDialog<void>(
+          context: context,
+          title: '无法打开作业',
+          message: '目前无法打开这个链接。',
+          actions: const [
+            AdaptiveAlertAction<void>(label: 'Done', isDefault: true),
+          ],
+        );
+      } else {
+        showAdaptiveFeedback(
+          context: context,
+          message: '无法打开链接',
+          style: AdaptiveFeedbackStyle.error,
+        );
+      }
     }
   }
 }

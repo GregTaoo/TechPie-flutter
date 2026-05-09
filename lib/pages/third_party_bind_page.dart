@@ -6,6 +6,7 @@ import '../models/third_party_account.dart';
 import '../services/service_provider.dart';
 import '../services/third_party_auth_service.dart';
 import '../widgets/adaptive_alert_dialog.dart';
+import '../widgets/adaptive_feedback.dart';
 import '../widgets/blurred_app_bar.dart';
 
 class ThirdPartyBindPage extends StatefulWidget {
@@ -28,9 +29,12 @@ class _ThirdPartyBindPageState extends State<ThirdPartyBindPage> {
   bool _busy = false;
   bool _obscure = true;
   bool _autoRenew = false;
+  String? _inlineError;
 
   bool get _isHydro => widget.platform == ThirdPartyPlatform.hydro;
   bool get _isGradescope => widget.platform == ThirdPartyPlatform.gradescope;
+  bool get _usesIosContextualFeedback =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
 
   @override
   void dispose() {
@@ -72,7 +76,6 @@ class _ThirdPartyBindPageState extends State<ThirdPartyBindPage> {
     setState(() => _busy = true);
 
     final tpAuth = ServiceProvider.of(context).thirdPartyAuthService;
-    final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
 
     List<String>? domains;
@@ -93,14 +96,38 @@ class _ThirdPartyBindPageState extends State<ThirdPartyBindPage> {
         hydroDomains: domains,
         autoRenew: _autoRenew,
       );
-      messenger.showSnackBar(
-        SnackBar(content: Text('${widget.platform.label} 绑定成功')),
-      );
+      if (!mounted) return;
+      setState(() => _inlineError = null);
+      if (!_usesIosContextualFeedback) {
+        showAdaptiveFeedback(
+          context: context,
+          message: '${widget.platform.label} 绑定成功',
+          style: AdaptiveFeedbackStyle.success,
+        );
+      }
       navigator.pop();
     } on ThirdPartyBindException catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text(e.message)));
+      if (!mounted) return;
+      if (_usesIosContextualFeedback) {
+        setState(() => _inlineError = e.message);
+      } else {
+        showAdaptiveFeedback(
+          context: context,
+          message: e.message,
+          style: AdaptiveFeedbackStyle.error,
+        );
+      }
     } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+      if (!mounted) return;
+      if (_usesIosContextualFeedback) {
+        setState(() => _inlineError = e.toString());
+      } else {
+        showAdaptiveFeedback(
+          context: context,
+          message: e.toString(),
+          style: AdaptiveFeedbackStyle.error,
+        );
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -124,6 +151,10 @@ class _ThirdPartyBindPageState extends State<ThirdPartyBindPage> {
             16,
           ),
           children: [
+            if (_inlineError != null) ...[
+              _InlineBindFeedback(message: _inlineError!),
+              const SizedBox(height: 12),
+            ],
             TextFormField(
               controller: _accountCtrl,
               autofillHints: const [AutofillHints.username],
@@ -222,6 +253,41 @@ class _ThirdPartyBindPageState extends State<ThirdPartyBindPage> {
               '凭据将通过 HTTPS 发送到 techpie 后端,后端代为登录上游平台并返回 token。'
               'token 与原始 payload 仅在本设备加密保存。',
               style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InlineBindFeedback extends StatelessWidget {
+  const _InlineBindFeedback({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.errorContainer.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.info_outline, size: 18, color: scheme.onErrorContainer),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                message,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: scheme.onErrorContainer,
+                ),
+              ),
             ),
           ],
         ),

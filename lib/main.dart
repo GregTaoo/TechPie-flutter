@@ -16,15 +16,7 @@ import 'services/storage_service.dart';
 import 'services/theme_service.dart';
 import 'services/third_party_auth_service.dart';
 import 'widgets/app_shell/app_shell.dart';
-
-final GlobalKey<ScaffoldMessengerState> rootMessengerKey =
-    GlobalKey<ScaffoldMessengerState>();
-
-void _toast(String msg) {
-  rootMessengerKey.currentState
-    ?..clearSnackBars()
-    ..showSnackBar(SnackBar(content: Text(msg)));
-}
+import 'widgets/adaptive_feedback.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -91,9 +83,22 @@ void main() async {
     final mainOk = results[0] as bool;
     final failedTp = results[1] as List<ThirdPartyPlatform>;
 
-    if (!mainOk) _toast('登录已过期,请重新登录');
-    if (failedTp.isNotEmpty) {
-      _toast('${failedTp.map((p) => p.label).join('、')} 续期失败');
+    final usesIosFeedback =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+
+    if (!mainOk && !usesIosFeedback) {
+      showAdaptiveFeedback(
+        message: '登录已过期，请重新登录',
+        style: AdaptiveFeedbackStyle.error,
+        duration: const Duration(seconds: 4),
+      );
+    }
+    if (failedTp.isNotEmpty && !usesIosFeedback) {
+      showAdaptiveFeedback(
+        message: '${failedTp.map((p) => p.label).join('、')} 续期失败',
+        style: AdaptiveFeedbackStyle.error,
+        duration: const Duration(seconds: 4),
+      );
     }
 
     if (authService.isLoggedIn) {
