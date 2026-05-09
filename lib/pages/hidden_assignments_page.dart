@@ -76,26 +76,11 @@ class _HiddenAssignmentsPageState extends State<HiddenAssignmentsPage> {
         return Scaffold(
           extendBodyBehindAppBar: true,
           appBar: BlurredAppBar(
-            automaticallyImplyLeading: !_selectionMode && !usesIosLiquidGlass,
-            leadingWidth: usesIosLiquidGlass
-                ? 0
-                : (_selectionMode ? 152 : null),
-            leading: usesIosLiquidGlass
-                ? const SizedBox.shrink()
-                : (_selectionMode
-                      ? _NavigationTextAction(
-                          alignment: Alignment.centerLeft,
-                          padding: const EdgeInsetsDirectional.only(start: 12),
-                          label: selectedAll ? 'Deselect All' : 'Select All',
-                          width: selectedAll ? 124 : 108,
-                          onPressed: hiddenKeys.isEmpty
-                              ? null
-                              : () => _toggleSelectAll(hiddenKeys),
-                          usesIosLiquidGlass: false,
-                        )
-                      : null),
+            automaticallyImplyLeading: !usesIosLiquidGlass,
+            leadingWidth: usesIosLiquidGlass ? 0 : null,
+            leading: usesIosLiquidGlass ? const SizedBox.shrink() : null,
             centerTitle: false,
-            titleSpacing: usesIosLiquidGlass ? 8 : (_selectionMode ? 0 : null),
+            titleSpacing: usesIosLiquidGlass ? 8 : null,
             title: usesIosLiquidGlass
                 ? _HiddenAssignmentsTopContainer(
                     selectionMode: _selectionMode,
@@ -115,6 +100,17 @@ class _HiddenAssignmentsPageState extends State<HiddenAssignmentsPage> {
             actions: usesIosLiquidGlass
                 ? null
                 : [
+                    if (_selectionMode)
+                      _NavigationTextAction(
+                        alignment: Alignment.centerRight,
+                        padding: EdgeInsets.zero,
+                        label: selectedAll ? 'Deselect All' : 'Select All',
+                        width: selectedAll ? 124 : 108,
+                        onPressed: hiddenKeys.isEmpty
+                            ? null
+                            : () => _toggleSelectAll(hiddenKeys),
+                        usesIosLiquidGlass: false,
+                      ),
                     if (_selectionMode)
                       IconButton(
                         tooltip: '恢复',
