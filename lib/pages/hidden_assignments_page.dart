@@ -77,7 +77,9 @@ class _HiddenAssignmentsPageState extends State<HiddenAssignmentsPage> {
           extendBodyBehindAppBar: true,
           appBar: BlurredAppBar(
             automaticallyImplyLeading: !_selectionMode && !usesIosLiquidGlass,
-            leadingWidth: usesIosLiquidGlass ? 0 : null,
+            leadingWidth: usesIosLiquidGlass
+                ? 0
+                : (_selectionMode ? 152 : null),
             leading: usesIosLiquidGlass
                 ? const SizedBox.shrink()
                 : (_selectionMode
@@ -85,6 +87,7 @@ class _HiddenAssignmentsPageState extends State<HiddenAssignmentsPage> {
                           alignment: Alignment.centerLeft,
                           padding: const EdgeInsetsDirectional.only(start: 12),
                           label: selectedAll ? 'Deselect All' : 'Select All',
+                          width: selectedAll ? 124 : 108,
                           onPressed: hiddenKeys.isEmpty
                               ? null
                               : () => _toggleSelectAll(hiddenKeys),
@@ -108,10 +111,18 @@ class _HiddenAssignmentsPageState extends State<HiddenAssignmentsPage> {
                         ? null
                         : () => _toggleSelectAll(hiddenKeys),
                   )
-                : null,
+                : const Text('已忽略的作业'),
             actions: usesIosLiquidGlass
                 ? null
                 : [
+                    if (_selectionMode)
+                      IconButton(
+                        tooltip: '恢复',
+                        onPressed: _selected.isNotEmpty
+                            ? _restoreSelected
+                            : null,
+                        icon: const Icon(Icons.restore),
+                      ),
                     if (hiddenKeys.isNotEmpty)
                       _NavigationTextAction(
                         alignment: Alignment.centerRight,
@@ -225,12 +236,17 @@ class _HiddenAssignmentsTopContainer extends StatelessWidget {
       child: Row(
         children: [
           if (selectionMode)
-            IosGlassActionButton(
-              label: selectedAll ? 'Deselect All' : 'Select All',
-              sfSymbol: 'none',
-              width: selectedAll ? 132 : 120,
-              enabled: onToggleSelectAll != null,
-              onPressed: onToggleSelectAll ?? () {},
+            AnimatedSize(
+              duration: const Duration(milliseconds: 240),
+              curve: Curves.easeInOutCubic,
+              alignment: Alignment.centerLeft,
+              child: IosGlassActionButton(
+                label: selectedAll ? 'Deselect All' : 'Select All',
+                sfSymbol: 'none',
+                width: selectedAll ? 132 : 120,
+                enabled: onToggleSelectAll != null,
+                onPressed: onToggleSelectAll ?? () {},
+              ),
             )
           else
             IosGlassActionButton(
@@ -292,6 +308,7 @@ class _NavigationTextAction extends StatelessWidget {
     required this.label,
     required this.onPressed,
     required this.usesIosLiquidGlass,
+    this.width,
   });
 
   final Alignment alignment;
@@ -299,18 +316,34 @@ class _NavigationTextAction extends StatelessWidget {
   final String label;
   final VoidCallback? onPressed;
   final bool usesIosLiquidGlass;
+  final double? width;
 
   @override
   Widget build(BuildContext context) {
     final button = usesIosLiquidGlass
         ? const SizedBox.shrink()
-        : TextButton(
-            onPressed: onPressed,
-            style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        : AnimatedSize(
+            duration: const Duration(milliseconds: 240),
+            curve: Curves.easeInOutCubic,
+            alignment: alignment,
+            child: SizedBox(
+              width: width,
+              child: TextButton(
+                onPressed: onPressed,
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 8,
+                  ),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: Text(
+                  label,
+                  overflow: TextOverflow.fade,
+                  softWrap: false,
+                ),
+              ),
             ),
-            child: Text(label),
           );
 
     return Align(
