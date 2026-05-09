@@ -8,6 +8,7 @@ import '../services/third_party_auth_service.dart';
 import '../widgets/adaptive_alert_dialog.dart';
 import '../widgets/adaptive_feedback.dart';
 import '../widgets/blurred_app_bar.dart';
+import '../widgets/ios_liquid/ios_glass_switch.dart';
 
 class ThirdPartyBindPage extends StatefulWidget {
   final ThirdPartyPlatform platform;
@@ -50,6 +51,11 @@ class _ThirdPartyBindPageState extends State<ThirdPartyBindPage> {
       setState(() => _autoRenew = false);
       return;
     }
+
+    // Optimistically set to true so the native switch and Flutter state stay
+    // in sync. If the user cancels the native presenter, we'll revert to false.
+    setState(() => _autoRenew = true);
+
     final ok = await showAdaptiveAlertDialog<bool>(
       context: context,
       title: '开启自动更新 Token',
@@ -67,7 +73,11 @@ class _ThirdPartyBindPageState extends State<ThirdPartyBindPage> {
         ),
       ],
     );
+
     if (!mounted) return;
+
+    // If user didn't accept, revert to false so native presenter and switch
+    // UI are consistent.
     setState(() => _autoRenew = ok == true);
   }
 
@@ -221,9 +231,9 @@ class _ThirdPartyBindPageState extends State<ThirdPartyBindPage> {
                   contentPadding: EdgeInsets.zero,
                   title: const Text('自动更新 Token'),
                   subtitle: const Text('过期前 48 小时内自动重登,免去手动重绑'),
-                  trailing: CupertinoSwitch(
+                  trailing: IosGlassSwitch(
                     value: _autoRenew,
-                    onChanged: _onAutoRenewChanged,
+                    onChanged: (v) => _onAutoRenewChanged(v),
                   ),
                   onTap: () => _onAutoRenewChanged(!_autoRenew),
                 ),
