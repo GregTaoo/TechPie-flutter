@@ -1,10 +1,9 @@
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../models/third_party_account.dart';
 import '../services/service_provider.dart';
 import '../services/third_party_auth_service.dart';
+import '../utils/platform.dart';
 import '../widgets/adaptive_alert_dialog.dart';
 import '../widgets/adaptive_feedback.dart';
 import '../widgets/blurred_app_bar.dart';
@@ -34,8 +33,6 @@ class _ThirdPartyBindPageState extends State<ThirdPartyBindPage> {
 
   bool get _isHydro => widget.platform == ThirdPartyPlatform.hydro;
   bool get _isGradescope => widget.platform == ThirdPartyPlatform.gradescope;
-  bool get _usesIosContextualFeedback =>
-      !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
 
   @override
   void dispose() {
@@ -108,7 +105,7 @@ class _ThirdPartyBindPageState extends State<ThirdPartyBindPage> {
       );
       if (!mounted) return;
       setState(() => _inlineError = null);
-      if (!_usesIosContextualFeedback) {
+      if (!isIos()) {
         showAdaptiveFeedback(
           context: context,
           message: '${widget.platform.label} 绑定成功',
@@ -118,7 +115,7 @@ class _ThirdPartyBindPageState extends State<ThirdPartyBindPage> {
       navigator.pop();
     } on ThirdPartyBindException catch (e) {
       if (!mounted) return;
-      if (_usesIosContextualFeedback) {
+      if (isIos()) {
         setState(() => _inlineError = e.message);
       } else {
         showAdaptiveFeedback(
@@ -129,7 +126,7 @@ class _ThirdPartyBindPageState extends State<ThirdPartyBindPage> {
       }
     } catch (e) {
       if (!mounted) return;
-      if (_usesIosContextualFeedback) {
+      if (isIos()) {
         setState(() => _inlineError = e.toString());
       } else {
         showAdaptiveFeedback(
@@ -145,9 +142,6 @@ class _ThirdPartyBindPageState extends State<ThirdPartyBindPage> {
 
   @override
   Widget build(BuildContext context) {
-    final usesIosControls =
-        !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
-
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: BlurredAppBar(title: Text('Bind ${widget.platform.label}')),
@@ -225,7 +219,7 @@ class _ThirdPartyBindPageState extends State<ThirdPartyBindPage> {
               ),
             ],
             const SizedBox(height: 8),
-            if (usesIosControls)
+            if (isIos())
               MergeSemantics(
                 child: ListTile(
                   contentPadding: EdgeInsets.zero,

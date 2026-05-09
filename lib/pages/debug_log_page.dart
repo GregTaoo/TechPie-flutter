@@ -1,5 +1,6 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+
+import '../utils/platform.dart';
 
 import '../services/debug_logger.dart';
 import '../services/service_provider.dart';
@@ -13,15 +14,13 @@ class DebugLogPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final logger = ServiceProvider.of(context).debugLogger;
     final topPad = kToolbarHeight + MediaQuery.viewPaddingOf(context).top;
-    final usesIosLiquidGlass =
-        !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
 
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: BlurredAppBar(
         title: const Text('Debug Logs'),
         actions: [
-          if (usesIosLiquidGlass)
+          if (isIos())
             Padding(
               padding: const EdgeInsetsDirectional.only(end: 8),
               child: Center(

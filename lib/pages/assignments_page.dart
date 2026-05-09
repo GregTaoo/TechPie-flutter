@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -7,6 +6,7 @@ import '../models/assignment.dart';
 import '../models/assignment_overrides.dart';
 import '../services/assignment_service.dart';
 import '../services/service_provider.dart';
+import '../utils/platform.dart';
 import '../widgets/adaptive_feedback.dart';
 import '../widgets/adaptive_alert_dialog.dart';
 import '../widgets/blurred_app_bar.dart';
@@ -111,13 +111,10 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
     BuildContext context,
     AssignmentService service,
   ) {
-    final usesIosLiquidGlass =
-        !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
-
     return BlurredAppBar(
       title: const Text('Deadlines'),
       actions: [
-        if (usesIosLiquidGlass)
+        if (isIos())
           Padding(
             padding: const EdgeInsetsDirectional.only(end: 8),
             child: Center(
@@ -434,8 +431,7 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
     String key,
   ) {
     service.hide(a);
-    final usesIosContextualFeedback =
-        !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+    final usesIosContextualFeedback = isIos();
     if (usesIosContextualFeedback) return;
 
     showAdaptiveFeedback(
@@ -454,8 +450,7 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
     Assignment a,
     String key,
   ) async {
-    final usesIosContextualFeedback =
-        !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+    final usesIosContextualFeedback = isIos();
     if (_selectionMode) {
       _toggleSelection(key);
       return;

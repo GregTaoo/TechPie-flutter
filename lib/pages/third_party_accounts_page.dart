@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -9,6 +8,7 @@ import '../widgets/blurred_app_bar.dart';
 import '../widgets/ios_liquid/ios_glass_confirmation_button.dart';
 import 'login_page.dart';
 import 'third_party_bind_page.dart';
+import '../utils/platform.dart';
 
 class ThirdPartyAccountsPage extends StatelessWidget {
   const ThirdPartyAccountsPage({super.key});
@@ -105,8 +105,6 @@ class _ThirdPartyTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final acc = account;
-    final usesIosLiquidGlass =
-        !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
 
     if (acc == null) {
       return ListTile(
@@ -139,7 +137,7 @@ class _ThirdPartyTile extends StatelessWidget {
       title: Text(platform.label),
       subtitle: Text(subtitleParts.join('\n')),
       isThreeLine: subtitleParts.length > 1,
-      trailing: usesIosLiquidGlass
+      trailing: isIos()
           ? IosGlassConfirmationButton(
               label: 'Unbind',
               confirmTitle: '解绑 ${platform.label}?',

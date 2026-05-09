@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -14,6 +13,7 @@ import '../services/service_provider.dart';
 import '../widgets/adaptive_alert_dialog.dart';
 import '../widgets/adaptive_feedback.dart';
 import '../widgets/blurred_app_bar.dart';
+import '../utils/platform.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -520,11 +520,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   Future<void> _openAssignmentUrl(Assignment a) async {
-    final usesIosContextualFeedback =
-        !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
     final url = a.url;
     if (url == null || url.isEmpty) {
-      if (usesIosContextualFeedback) {
+      if (isIos()) {
         await showAdaptiveAlertDialog<void>(
           context: context,
           title: '无法打开作业',

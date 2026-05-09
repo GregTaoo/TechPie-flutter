@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../models/assignment.dart';
@@ -6,6 +5,7 @@ import '../models/assignment_overrides.dart';
 import '../services/service_provider.dart';
 import '../widgets/blurred_app_bar.dart';
 import '../widgets/ios_liquid/ios_glass_action_button.dart';
+import '../utils/platform.dart';
 
 class HiddenAssignmentsPage extends StatefulWidget {
   const HiddenAssignmentsPage({super.key});
@@ -63,8 +63,6 @@ class _HiddenAssignmentsPageState extends State<HiddenAssignmentsPage> {
     final service = ServiceProvider.of(context).assignmentService;
     final theme = Theme.of(context);
     final topPad = kToolbarHeight + MediaQuery.viewPaddingOf(context).top;
-    final usesIosLiquidGlass =
-        !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
 
     return ListenableBuilder(
       listenable: service,
@@ -76,12 +74,12 @@ class _HiddenAssignmentsPageState extends State<HiddenAssignmentsPage> {
         return Scaffold(
           extendBodyBehindAppBar: true,
           appBar: BlurredAppBar(
-            automaticallyImplyLeading: !usesIosLiquidGlass,
-            leadingWidth: usesIosLiquidGlass ? 0 : null,
-            leading: usesIosLiquidGlass ? const SizedBox.shrink() : null,
+            automaticallyImplyLeading: !isIos(),
+            leadingWidth: isIos() ? 0 : null,
+            leading: isIos() ? const SizedBox.shrink() : null,
             centerTitle: false,
-            titleSpacing: usesIosLiquidGlass ? 8 : null,
-            title: usesIosLiquidGlass
+            titleSpacing: isIos() ? 8 : null,
+            title: isIos()
                 ? _HiddenAssignmentsTopContainer(
                     selectionMode: _selectionMode,
                     selectedAll: selectedAll,
@@ -97,7 +95,7 @@ class _HiddenAssignmentsPageState extends State<HiddenAssignmentsPage> {
                         : () => _toggleSelectAll(hiddenKeys),
                   )
                 : const Text('已忽略的作业'),
-            actions: usesIosLiquidGlass
+            actions: isIos()
                 ? null
                 : [
                     if (_selectionMode)

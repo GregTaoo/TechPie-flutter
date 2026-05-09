@@ -1,9 +1,9 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../services/service_provider.dart';
 import '../services/theme_service.dart';
+import '../utils/platform.dart';
 import '../widgets/adaptive_alert_dialog.dart';
 import '../widgets/blurred_app_bar.dart';
 import '../widgets/desktop_popup.dart';
@@ -48,8 +48,6 @@ class _SettingsPageState extends State<SettingsPage> {
     final storage = sp.storageService;
     final themeService = sp.themeService;
     final tpAuth = sp.thirdPartyAuthService;
-    final usesIosLiquidGlass =
-        !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
     final topInset = kToolbarHeight + MediaQuery.viewPaddingOf(context).top;
 
     return Scaffold(
@@ -114,7 +112,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
             // Appearance section
             _sectionHeader(theme, 'Appearance'),
-            if (usesIosLiquidGlass)
+            if (isIos())
               ListTile(
                 leading: Icon(themeService.mode.icon),
                 title: const Text('Theme'),
@@ -145,7 +143,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   onTap: () => _showThemePicker(tileContext, themeService),
                 ),
               ),
-            if (usesIosLiquidGlass)
+            if (isIos())
               ListTile(
                 leading: Icon(themeService.colorScheme.icon),
                 title: const Text('Color'),
@@ -204,7 +202,7 @@ class _SettingsPageState extends State<SettingsPage> {
             // Developer section
             _sectionHeader(theme, 'Developer'),
             _AdaptiveSwitchTile(
-              usesIosLiquidGlass: usesIosLiquidGlass,
+              usesIosLiquidGlass: isIos(),
               secondary: const Icon(Icons.bug_report_outlined),
               title: 'Debug mode',
               subtitle: 'Log all API requests',
@@ -215,7 +213,7 @@ class _SettingsPageState extends State<SettingsPage> {
               },
             ),
             _AdaptiveSwitchTile(
-              usesIosLiquidGlass: usesIosLiquidGlass,
+              usesIosLiquidGlass: isIos(),
               secondary: const Icon(Icons.dns_outlined),
               title: 'Use localhost',
               subtitle: 'Connect to local development server',

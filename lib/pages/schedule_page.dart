@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../models/course.dart';
@@ -11,6 +10,7 @@ import '../widgets/desktop_popup.dart';
 import '../widgets/desktop_select_popover.dart';
 import '../widgets/ios_liquid/ios_glass_button_group.dart';
 import '../widgets/ios_liquid/ios_glass_dropdown_menu.dart';
+import '../utils/platform.dart';
 
 class SchedulePage extends StatefulWidget {
   const SchedulePage({super.key});
@@ -323,8 +323,6 @@ class _SchedulePageState extends State<SchedulePage> {
     final auth = ServiceProvider.of(context).authService;
     final actualCurrentWeek = _schedule.currentWeek().clamp(1, 25).toInt();
     final isViewingCurrentWeek = _currentWeek == actualCurrentWeek;
-    final usesIosLiquidGlass =
-        !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
 
     return Scaffold(
       extendBodyBehindAppBar: true,
@@ -340,7 +338,7 @@ class _SchedulePageState extends State<SchedulePage> {
                 slideDirection: _slideDirection,
                 onWeekChanged: _setWeek,
               )
-            else if (usesIosLiquidGlass)
+            else if (isIos())
               _IosWeekTitleMenu(
                 currentWeek: _currentWeek,
                 actualCurrentWeek: actualCurrentWeek,
@@ -370,7 +368,7 @@ class _SchedulePageState extends State<SchedulePage> {
           ],
         ),
         actions: [
-          if (usesIosLiquidGlass)
+          if (isIos())
             Padding(
               padding: const EdgeInsetsDirectional.only(end: 8),
               child: Center(
@@ -412,14 +410,14 @@ class _SchedulePageState extends State<SchedulePage> {
               onPressed: _nextWeek,
             ),
           ],
-          if (isDesktopLayout(context) && !usesIosLiquidGlass)
+          if (isDesktopLayout(context) && !isIos())
             IconButton(
               key: _viewSettingsAnchorKey,
               icon: const Icon(Icons.more_vert),
               tooltip: '视图设置',
               onPressed: _showViewSettingsMenu,
             )
-          else if (usesIosLiquidGlass)
+          else if (isIos())
             Padding(
               padding: const EdgeInsetsDirectional.only(end: 8),
               child: Center(
@@ -492,105 +490,106 @@ class _SchedulePageState extends State<SchedulePage> {
           top: kToolbarHeight + MediaQuery.viewPaddingOf(context).top,
         ),
         child: !auth.isLoggedIn
-          ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.login,
-                    size: 48,
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    '登录以查看课表',
-                    style: theme.textTheme.bodyLarge?.copyWith(
+            ? Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.login,
+                      size: 48,
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
-                  ),
-                ],
-              ),
-            )
-          : _schedule.loading && _courses.isEmpty
-          ? const Center(child: CircularProgressIndicator())
-          : _schedule.error != null && _courses.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.error_outline,
-                    size: 48,
-                    color: theme.colorScheme.error,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    '加载失败',
-                    style: theme.textTheme.bodyLarge?.copyWith(
+                    const SizedBox(height: 16),
+                    Text(
+                      '登录以查看课表',
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            : _schedule.loading && _courses.isEmpty
+            ? const Center(child: CircularProgressIndicator())
+            : _schedule.error != null && _courses.isEmpty
+            ? Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.error_outline,
+                      size: 48,
                       color: theme.colorScheme.error,
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  FilledButton.tonal(
-                    onPressed: _refresh,
-                    child: const Text('重试'),
-                  ),
-                ],
-              ),
-            )
-          : RefreshIndicator(
-              onRefresh: _refresh,
-              child: Column(
-                children: [
-                  _DayHeader(
-                    weekStart: _weekStart,
-                    today: today,
-                    visibleDays: _visibleDayIndices,
-                  ),
-                  const Divider(height: 1),
-                  Expanded(
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 300),
-                      switchInCurve: Curves.easeOut,
-                      switchOutCurve: Curves.easeIn,
-                      child:
-                          _courses
-                              .where(
-                                (c) => _visibleDayIndices.contains(c.dayOfWeek),
-                              )
-                              .isEmpty
-                          ? ListView(
-                              key: ValueKey<String>('empty-$_currentWeek'),
-                              children: [
-                                SizedBox(
-                                  height: 300,
-                                  child: Center(
-                                    child: Text(
-                                      '本周没有课程',
-                                      style: theme.textTheme.bodyLarge
-                                          ?.copyWith(
-                                            color: theme
-                                                .colorScheme
-                                                .onSurfaceVariant,
-                                          ),
+                    const SizedBox(height: 16),
+                    Text(
+                      '加载失败',
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        color: theme.colorScheme.error,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    FilledButton.tonal(
+                      onPressed: _refresh,
+                      child: const Text('重试'),
+                    ),
+                  ],
+                ),
+              )
+            : RefreshIndicator(
+                onRefresh: _refresh,
+                child: Column(
+                  children: [
+                    _DayHeader(
+                      weekStart: _weekStart,
+                      today: today,
+                      visibleDays: _visibleDayIndices,
+                    ),
+                    const Divider(height: 1),
+                    Expanded(
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 300),
+                        switchInCurve: Curves.easeOut,
+                        switchOutCurve: Curves.easeIn,
+                        child:
+                            _courses
+                                .where(
+                                  (c) =>
+                                      _visibleDayIndices.contains(c.dayOfWeek),
+                                )
+                                .isEmpty
+                            ? ListView(
+                                key: ValueKey<String>('empty-$_currentWeek'),
+                                children: [
+                                  SizedBox(
+                                    height: 300,
+                                    child: Center(
+                                      child: Text(
+                                        '本周没有课程',
+                                        style: theme.textTheme.bodyLarge
+                                            ?.copyWith(
+                                              color: theme
+                                                  .colorScheme
+                                                  .onSurfaceVariant,
+                                            ),
+                                      ),
                                     ),
                                   ),
-                                ),
-                              ],
-                            )
-                          : _TimetableGrid(
-                              key: ValueKey<int>(_currentWeek),
-                              courses: _courses,
-                              periods: _periods,
-                              weekStart: _weekStart,
-                              today: today,
-                              visibleDays: _visibleDayIndices,
-                            ),
+                                ],
+                              )
+                            : _TimetableGrid(
+                                key: ValueKey<int>(_currentWeek),
+                                courses: _courses,
+                                periods: _periods,
+                                weekStart: _weekStart,
+                                today: today,
+                                visibleDays: _visibleDayIndices,
+                              ),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
       ),
     );
   }

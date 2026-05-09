@@ -1,9 +1,9 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../services/service_provider.dart';
+import '../utils/platform.dart';
 import '../widgets/adaptive_feedback.dart';
 
 class LoginPage extends StatefulWidget {
@@ -26,9 +26,6 @@ class _LoginPageState extends State<LoginPage> {
   String? _smsInlineMessage;
   String? _egateInlineMessage;
 
-  bool get _usesIosContextualFeedback =>
-      !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
-
   Future<void> _sendSms() async {
     final phone = _phoneController.text.trim();
     if (phone.isEmpty) return;
@@ -36,7 +33,7 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => _sendingSms = true);
     try {
       await ServiceProvider.of(context).authService.sendSmsCode(phone);
-      if (mounted && !_usesIosContextualFeedback) {
+      if (mounted && !isIos()) {
         showAdaptiveFeedback(
           context: context,
           message: '验证码已发送',
@@ -49,7 +46,7 @@ class _LoginPageState extends State<LoginPage> {
       _startCooldown();
     } catch (e) {
       if (mounted) {
-        if (_usesIosContextualFeedback) {
+        if (isIos()) {
           setState(() => _smsInlineMessage = '发送失败：$e');
         } else {
           showAdaptiveFeedback(
@@ -93,7 +90,7 @@ class _LoginPageState extends State<LoginPage> {
       }
     } catch (e) {
       if (mounted) {
-        if (_usesIosContextualFeedback) {
+        if (isIos()) {
           setState(() => _smsInlineMessage = '登录失败：$e');
         } else {
           showAdaptiveFeedback(
@@ -122,7 +119,7 @@ class _LoginPageState extends State<LoginPage> {
       }
     } catch (e) {
       if (mounted) {
-        if (_usesIosContextualFeedback) {
+        if (isIos()) {
           setState(() => _egateInlineMessage = '登录失败：$e');
         } else {
           showAdaptiveFeedback(
