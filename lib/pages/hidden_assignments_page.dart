@@ -1,88 +1,321 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../models/assignment.dart';
 import '../models/assignment_overrides.dart';
 import '../services/service_provider.dart';
 import '../widgets/blurred_app_bar.dart';
+import '../widgets/ios_liquid/ios_glass_action_button.dart';
 
-class HiddenAssignmentsPage extends StatelessWidget {
+class HiddenAssignmentsPage extends StatefulWidget {
   const HiddenAssignmentsPage({super.key});
+
+  @override
+  State<HiddenAssignmentsPage> createState() => _HiddenAssignmentsPageState();
+}
+
+class _HiddenAssignmentsPageState extends State<HiddenAssignmentsPage> {
+  bool _selectionMode = false;
+  final Set<String> _selected = {};
+
+  void _enterSelectionMode() {
+    setState(() {
+      _selectionMode = true;
+    });
+  }
+
+  void _exitSelectionMode() {
+    setState(() {
+      _selectionMode = false;
+      _selected.clear();
+    });
+  }
+
+  void _toggleSelection(String key) {
+    setState(() {
+      if (_selected.remove(key)) return;
+      _selected.add(key);
+    });
+  }
+
+  void _toggleSelectAll(List<String> allKeys) {
+    setState(() {
+      if (_selected.length == allKeys.length) {
+        _selected.clear();
+      } else {
+        _selected
+          ..clear()
+          ..addAll(allKeys);
+      }
+    });
+  }
+
+  void _restoreSelected() {
+    final service = ServiceProvider.of(context).assignmentService;
+    for (final key in _selected.toList()) {
+      service.unhide(key);
+    }
+    _exitSelectionMode();
+  }
 
   @override
   Widget build(BuildContext context) {
     final service = ServiceProvider.of(context).assignmentService;
     final theme = Theme.of(context);
     final topPad = kToolbarHeight + MediaQuery.viewPaddingOf(context).top;
+    final usesIosLiquidGlass =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
 
-    return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: BlurredAppBar(
-        title: const Text('已忽略的作业'),
-        actions: [
-          ListenableBuilder(
-            listenable: service,
-            builder: (context, _) {
-              if (service.overrides.hidden.isEmpty) return const SizedBox();
-              return TextButton(
-                onPressed: () => service.unhideAll(),
-                child: const Text('全部恢复'),
+    return ListenableBuilder(
+      listenable: service,
+      builder: (context, _) {
+        final hiddenKeys = service.overrides.hidden.toList();
+        final selectedAll =
+            hiddenKeys.isNotEmpty && _selected.length == hiddenKeys.length;
+
+        return Scaffold(
+          extendBodyBehindAppBar: true,
+          appBar: BlurredAppBar(
+            automaticallyImplyLeading: !_selectionMode && !usesIosLiquidGlass,
+            leadingWidth: usesIosLiquidGlass ? 0 : null,
+            leading: usesIosLiquidGlass
+                ? const SizedBox.shrink()
+                : (_selectionMode
+                      ? _NavigationTextAction(
+                          alignment: Alignment.centerLeft,
+                          padding: const EdgeInsetsDirectional.only(start: 12),
+                          label: selectedAll ? 'Deselect All' : 'Select All',
+                          onPressed: hiddenKeys.isEmpty
+                              ? null
+                              : () => _toggleSelectAll(hiddenKeys),
+                          usesIosLiquidGlass: false,
+                        )
+                      : null),
+            centerTitle: false,
+            titleSpacing: usesIosLiquidGlass ? 8 : (_selectionMode ? 0 : null),
+            title: usesIosLiquidGlass
+                ? _HiddenAssignmentsTopContainer(
+                    selectionMode: _selectionMode,
+                    selectedAll: selectedAll,
+                    hasItems: hiddenKeys.isNotEmpty,
+                    hasSelection: _selected.isNotEmpty,
+                    onBack: () => Navigator.maybePop(context),
+                    onRestore: _restoreSelected,
+                    onToggleSelectionMode: _selectionMode
+                        ? _exitSelectionMode
+                        : _enterSelectionMode,
+                    onToggleSelectAll: hiddenKeys.isEmpty
+                        ? null
+                        : () => _toggleSelectAll(hiddenKeys),
+                  )
+                : null,
+            actions: usesIosLiquidGlass
+                ? null
+                : [
+                    if (hiddenKeys.isNotEmpty)
+                      _NavigationTextAction(
+                        alignment: Alignment.centerRight,
+                        padding: const EdgeInsetsDirectional.only(end: 12),
+                        label: _selectionMode ? 'Done' : 'Select',
+                        onPressed: _selectionMode
+                            ? _exitSelectionMode
+                            : _enterSelectionMode,
+                        usesIosLiquidGlass: false,
+                      ),
+                  ],
+          ),
+          body: hiddenKeys.isEmpty
+              ? Padding(
+                  padding: EdgeInsets.only(top: topPad),
+                  child: Center(
+                    child: Text(
+                      '没有被忽略的作业',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                )
+              : _buildList(context, service, hiddenKeys, theme, topPad),
+        );
+      },
+    );
+  }
+
+  Widget _buildList(
+    BuildContext context,
+    dynamic service,
+    List<String> hiddenKeys,
+    ThemeData theme,
+    double topPad,
+  ) {
+    final lookup = <String, Assignment>{
+      for (final a in service.assignments) AssignmentOverrides.keyFor(a): a,
+    };
+    return ListView.separated(
+      padding: EdgeInsets.only(top: topPad),
+      itemCount: hiddenKeys.length,
+      separatorBuilder: (_, _) => const Divider(height: 1),
+      itemBuilder: (context, i) {
+        final key = hiddenKeys[i];
+        final a = lookup[key];
+        final selected = _selected.contains(key);
+
+        return ListTile(
+          selected: selected,
+          selectedTileColor: theme.colorScheme.primaryContainer.withValues(
+            alpha: 0.22,
+          ),
+          leading: _selectionMode
+              ? Icon(
+                  selected ? Icons.check_circle : Icons.circle_outlined,
+                  color: selected
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.onSurfaceVariant,
+                )
+              : const Icon(Icons.visibility_off_outlined),
+          title: Text(a?.title ?? key),
+          subtitle: Text(
+            a == null
+                ? '(已无缓存数据)'
+                : '${a.platform.toUpperCase()} · ${a.course}',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          onTap: _selectionMode ? () => _toggleSelection(key) : null,
+          onLongPress: _selectionMode
+              ? null
+              : () {
+                  setState(() {
+                    _selectionMode = true;
+                    _selected.add(key);
+                  });
+                },
+        );
+      },
+    );
+  }
+}
+
+class _HiddenAssignmentsTopContainer extends StatelessWidget {
+  const _HiddenAssignmentsTopContainer({
+    required this.selectionMode,
+    required this.selectedAll,
+    required this.hasItems,
+    required this.hasSelection,
+    required this.onBack,
+    required this.onRestore,
+    required this.onToggleSelectionMode,
+    required this.onToggleSelectAll,
+  });
+
+  final bool selectionMode;
+  final bool selectedAll;
+  final bool hasItems;
+  final bool hasSelection;
+  final VoidCallback onBack;
+  final VoidCallback onRestore;
+  final VoidCallback onToggleSelectionMode;
+  final VoidCallback? onToggleSelectAll;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsetsDirectional.only(end: 8),
+      child: Row(
+        children: [
+          if (selectionMode)
+            IosGlassActionButton(
+              label: selectedAll ? 'Deselect All' : 'Select All',
+              sfSymbol: 'none',
+              width: selectedAll ? 132 : 120,
+              enabled: onToggleSelectAll != null,
+              onPressed: onToggleSelectAll ?? () {},
+            )
+          else
+            IosGlassActionButton(
+              label: 'Deadlines',
+              sfSymbol: 'chevron.left',
+              width: 120,
+              onPressed: onBack,
+            ),
+          const Spacer(),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 280),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeInCubic,
+            transitionBuilder: (child, animation) {
+              return FadeTransition(
+                opacity: animation,
+                child: SizeTransition(
+                  sizeFactor: animation,
+                  axis: Axis.horizontal,
+                  axisAlignment: 1,
+                  child: child,
+                ),
               );
             },
+            child: selectionMode
+                ? Row(
+                    key: const ValueKey('restore-action'),
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IosGlassActionButton(
+                        sfSymbol: 'arrow.uturn.backward',
+                        width: 44,
+                        enabled: hasSelection,
+                        variant: IosGlassActionButtonVariant.glass,
+                        onPressed: onRestore,
+                      ),
+                      const SizedBox(width: 16),
+                    ],
+                  )
+                : const SizedBox(key: ValueKey('restore-action-hidden')),
+          ),
+          IosGlassActionButton(
+            label: selectionMode ? 'Done' : 'Select',
+            sfSymbol: 'none',
+            width: 80,
+            enabled: hasItems,
+            onPressed: onToggleSelectionMode,
           ),
         ],
       ),
-      body: ListenableBuilder(
-        listenable: service,
-        builder: (context, _) {
-          final hiddenKeys = service.overrides.hidden;
-          if (hiddenKeys.isEmpty) {
-            return Padding(
-              padding: EdgeInsets.only(top: topPad),
-              child: Center(
-                child: Text(
-                  '没有被忽略的作业',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ),
-            );
-          }
+    );
+  }
+}
 
-          // Look up cached assignment metadata for each hidden key.
-          final lookup = <String, Assignment>{
-            for (final a in service.assignments) AssignmentOverrides.keyFor(a): a,
-          };
+class _NavigationTextAction extends StatelessWidget {
+  const _NavigationTextAction({
+    required this.alignment,
+    required this.padding,
+    required this.label,
+    required this.onPressed,
+    required this.usesIosLiquidGlass,
+  });
 
-          final entries = hiddenKeys.toList();
+  final Alignment alignment;
+  final EdgeInsetsGeometry padding;
+  final String label;
+  final VoidCallback? onPressed;
+  final bool usesIosLiquidGlass;
 
-          return ListView.separated(
-            padding: EdgeInsets.only(top: topPad),
-            itemCount: entries.length,
-            separatorBuilder: (_, _) => const Divider(height: 1),
-            itemBuilder: (context, i) {
-              final key = entries[i];
-              final a = lookup[key];
-              return ListTile(
-                leading: const Icon(Icons.visibility_off_outlined),
-                title: Text(a?.title ?? key),
-                subtitle: Text(
-                  a == null
-                      ? '(已无缓存数据)'
-                      : '${a.platform.toUpperCase()} · ${a.course}',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                trailing: TextButton.icon(
-                  icon: const Icon(Icons.restore, size: 18),
-                  label: const Text('恢复'),
-                  onPressed: () => service.unhide(key),
-                ),
-              );
-            },
+  @override
+  Widget build(BuildContext context) {
+    final button = usesIosLiquidGlass
+        ? const SizedBox.shrink()
+        : TextButton(
+            onPressed: onPressed,
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: Text(label),
           );
-        },
-      ),
+
+    return Align(
+      alignment: alignment,
+      child: Padding(padding: padding, child: button),
     );
   }
 }

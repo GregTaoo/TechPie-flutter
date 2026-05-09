@@ -33,6 +33,11 @@ enum NativeGlassRegistry {
       NativeGlassConfirmationButtonFactory(messenger: messenger),
       withId: NativeGlassConfirmationButtonPlatformView.viewType
     )
+    registrar.register(
+      NativeGlassActionButtonFactory(messenger: messenger),
+      withId: NativeGlassActionButtonPlatformView.viewType
+    )
+
     NativeGlassPresenterPlugin.register(with: registrar)
   }
 }
