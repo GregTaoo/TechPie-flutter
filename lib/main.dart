@@ -28,24 +28,24 @@ void _toast(String msg) {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // OHOS white-screen probe: render a placeholder first so we know the
-  // engine is alive, then try the real init. Any exception is shown on
-  // screen instead of silently aborting main().
-  runApp(const _BootProbe(message: '启动中…'));
+  // OHOS white-screen probe disabled to speed up startup. Re-enable by
+  // restoring the runApp(_BootProbe...) calls and wrapping init in try/catch.
+  // runApp(const _BootProbe(message: '启动中…'));
+  // final SharedPreferences prefs;
+  // try {
+  //   prefs = await SharedPreferences.getInstance();
+  // } catch (e, st) {
+  //   runApp(_BootProbe(message: 'SharedPreferences 失败:\n$e\n\n$st'));
+  //   return;
+  // }
+  // try {
+  //   await _realMain(prefs);
+  // } catch (e, st) {
+  //   runApp(_BootProbe(message: '初始化失败:\n$e\n\n$st'));
+  // }
 
-  final SharedPreferences prefs;
-  try {
-    prefs = await SharedPreferences.getInstance();
-  } catch (e, st) {
-    runApp(_BootProbe(message: 'SharedPreferences 失败:\n$e\n\n$st'));
-    return;
-  }
-
-  try {
-    await _realMain(prefs);
-  } catch (e, st) {
-    runApp(_BootProbe(message: '初始化失败:\n$e\n\n$st'));
-  }
+  final prefs = await SharedPreferences.getInstance();
+  await _realMain(prefs);
 }
 
 Future<void> _realMain(SharedPreferences prefs) async {
@@ -124,29 +124,31 @@ Future<void> _realMain(SharedPreferences prefs) async {
   assignmentService.enableAutoRefetch();
 }
 
-class _BootProbe extends StatelessWidget {
-  final String message;
-  const _BootProbe({required this.message});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      home: Scaffold(
-        body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: SingleChildScrollView(
-              child: SelectableText(
-                message,
-                style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
+// Disabled along with the boot probe above. Restore if the white-screen
+// diagnostic is needed again.
+// class _BootProbe extends StatelessWidget {
+//   final String message;
+//   const _BootProbe({required this.message});
+//
+//   @override
+//   Widget build(BuildContext context) {
+//     return MaterialApp(
+//       home: Scaffold(
+//         body: SafeArea(
+//           child: Padding(
+//             padding: const EdgeInsets.all(16),
+//             child: SingleChildScrollView(
+//               child: SelectableText(
+//                 message,
+//                 style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+//               ),
+//             ),
+//           ),
+//         ),
+//       ),
+//     );
+//   }
+// }
 
 class TechPieApp extends StatefulWidget {
   final AuthService authService;
