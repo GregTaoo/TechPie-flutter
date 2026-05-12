@@ -169,7 +169,7 @@ final class NativeGlassSelectPlatformView: NSObject, FlutterPlatformView {
         bottom: 10,
         trailing: 14
       )
-      configuration.imagePadding = 8
+      configuration.imagePadding = image == nil ? 0 : 8
       configuration.cornerStyle = .capsule
       button.configuration = configuration
       button.backgroundColor = .clear
@@ -223,6 +223,8 @@ final class NativeGlassSelectPlatformView: NSObject, FlutterPlatformView {
   }
 
   private func symbolImage(named systemName: String) -> UIImage? {
+    guard systemName != "none" else { return nil }
+
     let configuration = UIImage.SymbolConfiguration(
       pointSize: 14,
       weight: .semibold,

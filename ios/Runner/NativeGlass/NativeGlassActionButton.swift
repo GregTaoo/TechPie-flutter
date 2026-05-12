@@ -207,6 +207,9 @@ final class NativeGlassActionButtonPlatformView: NSObject, FlutterPlatformView {
       ? NativeGlassColors.destructiveRed
       : NativeGlassColors.floatingButtonForeground
     let image = symbolImage(named: sfSymbol)
+    let disabledAlpha = enabled ? 1.0 : 0.45
+    rootView.alpha = disabledAlpha
+    button.isEnabled = enabled
 
     let useClearGlass: Bool
     switch glassVariant {
@@ -229,7 +232,9 @@ final class NativeGlassActionButtonPlatformView: NSObject, FlutterPlatformView {
       bottom: 8,
       trailing: 12
     )
-    configuration.imagePadding = label == nil || label?.isEmpty == true ? 0 : 6
+    configuration.imagePadding = image == nil || label == nil || label?.isEmpty == true
+      ? 0
+      : 6
     configuration.cornerStyle = .capsule
 
     button.configuration = configuration
@@ -281,12 +286,14 @@ final class NativeGlassActionButtonPlatformView: NSObject, FlutterPlatformView {
       initialSpringVelocity: 0.18,
       options: [.beginFromCurrentState, .allowUserInteraction]
     ) {
-      self.rootView.alpha = 1
+      self.rootView.alpha = self.enabled ? 1.0 : 0.45
       self.rootView.transform = .identity
     }
   }
 
   private func symbolImage(named systemName: String) -> UIImage? {
+    guard systemName != "none" else { return nil }
+
     let configuration = UIImage.SymbolConfiguration(
       pointSize: 14,
       weight: .semibold,

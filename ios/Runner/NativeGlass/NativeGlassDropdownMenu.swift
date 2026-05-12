@@ -157,7 +157,7 @@ final class NativeGlassDropdownMenuPlatformView: NSObject, FlutterPlatformView {
         bottom: 10,
         trailing: 14
       )
-      configuration.imagePadding = label == nil ? 0 : 8
+      configuration.imagePadding = image == nil || label == nil ? 0 : 8
       configuration.cornerStyle = .capsule
       button.configuration = configuration
       button.backgroundColor = .clear
@@ -229,6 +229,8 @@ final class NativeGlassDropdownMenuPlatformView: NSObject, FlutterPlatformView {
   }
 
   private func symbolImage(named systemName: String) -> UIImage? {
+    guard systemName != "none" else { return nil }
+
     let configuration = UIImage.SymbolConfiguration(
       pointSize: 16,
       weight: .semibold,
