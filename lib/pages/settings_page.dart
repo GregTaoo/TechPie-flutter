@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:techpie/services/auth_service.dart';
 
 import '../services/service_provider.dart';
 import '../services/theme_service.dart';
@@ -239,7 +240,7 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  Future<void> _confirmLogout(dynamic auth) async {
+  Future<void> _confirmLogout(AuthService auth) async {
     final ok = await showAdaptiveAlertDialog<bool>(
       context: context,
       title: '退出登录',
