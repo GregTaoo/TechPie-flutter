@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -100,7 +102,8 @@ class _IosGlassActionButtonState extends State<IosGlassActionButton> {
     super.didUpdateWidget(oldWidget);
 
     if (!_usesNative) return;
-    if (_channel == null) return;
+    final channel = _channel;
+    if (channel == null) return;
 
     final changed =
         oldWidget.label != widget.label ||
@@ -111,13 +114,23 @@ class _IosGlassActionButtonState extends State<IosGlassActionButton> {
 
     if (!changed) return;
 
-    _channel!.invokeMethod('updateConfiguration', <String, Object?>{
-      'label': widget.label,
-      'sfSymbol': widget.sfSymbol,
-      'destructive': widget.destructive,
-      'enabled': widget.enabled,
-      'glassVariant': widget.variant.name,
-    });
+    unawaited(_sendConfigurationUpdate(channel));
+  }
+
+  Future<void> _sendConfigurationUpdate(MethodChannel channel) async {
+    try {
+      await channel.invokeMethod<void>('updateConfiguration', <String, Object?>{
+        'label': widget.label,
+        'sfSymbol': widget.sfSymbol,
+        'destructive': widget.destructive,
+        'enabled': widget.enabled,
+        'glassVariant': widget.variant.name,
+      });
+    } on PlatformException {
+      // Platform view may be tearing down.
+    } on MissingPluginException {
+      // Platform view may not be wired yet.
+    }
   }
 
   void _onPlatformViewCreated(int viewId) {
