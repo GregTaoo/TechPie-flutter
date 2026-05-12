@@ -431,8 +431,6 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
     String key,
   ) {
     service.hide(a);
-    final usesIosContextualFeedback = isIos();
-    if (usesIosContextualFeedback) return;
 
     showAdaptiveFeedback(
       context: context,

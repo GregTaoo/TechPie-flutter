@@ -72,7 +72,9 @@ class _IosGlassConfirmationButtonState
       height: widget.height,
       child: UiKitView(
         key: ValueKey<String>(
-          'ios-glass-confirm-${widget.label ?? ''}-${widget.confirmTitle}-${widget.confirmLabel}-${widget.destructive}',
+          'ios-glass-confirm-${widget.label ?? ''}-'
+          '${widget.confirmTitle}-${widget.confirmLabel}-'
+          '${widget.sfSymbol}-${widget.destructive}',
         ),
         viewType: _viewType,
         layoutDirection: Directionality.of(context),
