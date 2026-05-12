@@ -35,31 +35,11 @@ Future<T?> showAdaptiveAlertDialog<T>({
     );
   }
 
-  return showDialog<T>(
+  return _showFlutterAlertDialog<T>(
     context: context,
-    builder: (dialogContext) => AlertDialog(
-      title: Text(title),
-      content: Text(message),
-      actions: [
-        for (final action in actions)
-          action.isDefault && !action.isDestructive
-              ? FilledButton(
-                  onPressed: () => Navigator.pop(dialogContext, action.value),
-                  child: Text(action.label),
-                )
-              : TextButton(
-                  onPressed: () => Navigator.pop(dialogContext, action.value),
-                  child: Text(
-                    action.label,
-                    style: action.isDestructive
-                        ? TextStyle(
-                            color: Theme.of(dialogContext).colorScheme.error,
-                          )
-                        : null,
-                  ),
-                ),
-      ],
-    ),
+    title: title,
+    message: message,
+    actions: actions,
   );
 }
 
@@ -88,19 +68,54 @@ Future<T?> _showNativeIosAlert<T>({
   } on PlatformException {
     if (!fallbackContext.mounted) return null;
 
-    return showDialog<T>(
+    return _showFlutterAlertDialog<T>(
       context: fallbackContext,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(title),
-        content: Text(message),
-        actions: [
-          for (final action in actions)
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, action.value),
-              child: Text(action.label),
-            ),
-        ],
-      ),
+      title: title,
+      message: message,
+      actions: actions,
+    );
+  } on MissingPluginException {
+    if (!fallbackContext.mounted) return null;
+
+    return _showFlutterAlertDialog<T>(
+      context: fallbackContext,
+      title: title,
+      message: message,
+      actions: actions,
     );
   }
+}
+
+Future<T?> _showFlutterAlertDialog<T>({
+  required BuildContext context,
+  required String title,
+  required String message,
+  required List<AdaptiveAlertAction<T>> actions,
+}) {
+  return showDialog<T>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Text(title),
+      content: Text(message),
+      actions: [
+        for (final action in actions)
+          action.isDefault && !action.isDestructive
+              ? FilledButton(
+                  onPressed: () => Navigator.pop(dialogContext, action.value),
+                  child: Text(action.label),
+                )
+              : TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, action.value),
+                  child: Text(
+                    action.label,
+                    style: action.isDestructive
+                        ? TextStyle(
+                            color: Theme.of(dialogContext).colorScheme.error,
+                          )
+                        : null,
+                  ),
+                ),
+      ],
+    ),
+  );
 }
