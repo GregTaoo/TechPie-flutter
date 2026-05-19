@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:techpie/utils/platform.dart';
 
 import 'models/third_party_account.dart';
 import 'services/assignment_service.dart';
@@ -15,15 +16,7 @@ import 'services/storage_service.dart';
 import 'services/theme_service.dart';
 import 'services/third_party_auth_service.dart';
 import 'widgets/app_shell/app_shell.dart';
-
-final GlobalKey<ScaffoldMessengerState> rootMessengerKey =
-    GlobalKey<ScaffoldMessengerState>();
-
-void _toast(String msg) {
-  rootMessengerKey.currentState
-    ?..clearSnackBars()
-    ..showSnackBar(SnackBar(content: Text(msg)));
-}
+import 'widgets/adaptive_feedback.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -59,7 +52,10 @@ Future<void> _realMain(SharedPreferences prefs) async {
     httpClient,
     authService,
   );
-  final thirdPartyAuthService = ThirdPartyAuthService(storageService, httpClient);
+  final thirdPartyAuthService = ThirdPartyAuthService(
+    storageService,
+    httpClient,
+  );
   final assignmentService = AssignmentService(
     storageService,
     httpClient,
@@ -106,9 +102,19 @@ Future<void> _realMain(SharedPreferences prefs) async {
     final mainOk = results[0] as bool;
     final failedTp = results[1] as List<ThirdPartyPlatform>;
 
-    if (!mainOk) _toast('登录已过期,请重新登录');
-    if (failedTp.isNotEmpty) {
-      _toast('${failedTp.map((p) => p.label).join('、')} 续期失败');
+    if (!mainOk && !isIos()) {
+      showAdaptiveFeedback(
+        message: '登录已过期，请重新登录',
+        style: AdaptiveFeedbackStyle.error,
+        duration: const Duration(seconds: 4),
+      );
+    }
+    if (failedTp.isNotEmpty && !isIos()) {
+      showAdaptiveFeedback(
+        message: '${failedTp.map((p) => p.label).join('、')} 续期失败',
+        style: AdaptiveFeedbackStyle.error,
+        duration: const Duration(seconds: 4),
+      );
     }
 
     if (authService.isLoggedIn) {
@@ -177,32 +183,41 @@ class TechPieApp extends StatefulWidget {
 class _TechPieAppState extends State<TechPieApp> {
   @override
   Widget build(BuildContext context) {
+    if (!isAndroid()) {
+      widget.themeService.updateSystemSchemes(null, null);
+      return _buildApp();
+    }
+
     return DynamicColorBuilder(
       builder: (lightDynamic, darkDynamic) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           widget.themeService.updateSystemSchemes(lightDynamic, darkDynamic);
         });
-        return ListenableBuilder(
-          listenable: widget.themeService,
-          builder: (context, _) => ServiceProvider(
-            authService: widget.authService,
-            debugLogger: widget.debugLogger,
-            storageService: widget.storageService,
-            themeService: widget.themeService,
-            scheduleService: widget.scheduleService,
-            assignmentService: widget.assignmentService,
-            thirdPartyAuthService: widget.thirdPartyAuthService,
-            child: MaterialApp(
-              scaffoldMessengerKey: rootMessengerKey,
-              title: 'TechPie',
-              theme: widget.themeService.lightTheme,
-              darkTheme: widget.themeService.darkTheme,
-              themeMode: widget.themeService.themeMode,
-              home: const AppShell(),
-            ),
-          ),
-        );
+        return _buildApp();
       },
+    );
+  }
+
+  Widget _buildApp() {
+    return ListenableBuilder(
+      listenable: widget.themeService,
+      builder: (context, _) => ServiceProvider(
+        authService: widget.authService,
+        debugLogger: widget.debugLogger,
+        storageService: widget.storageService,
+        themeService: widget.themeService,
+        scheduleService: widget.scheduleService,
+        assignmentService: widget.assignmentService,
+        thirdPartyAuthService: widget.thirdPartyAuthService,
+        child: MaterialApp(
+          scaffoldMessengerKey: rootMessengerKey,
+          title: 'TechPie',
+          theme: widget.themeService.lightTheme,
+          darkTheme: widget.themeService.darkTheme,
+          themeMode: widget.themeService.themeMode,
+          home: const AppShell(),
+        ),
+      ),
     );
   }
 }

@@ -3,7 +3,11 @@ import 'package:flutter/material.dart';
 import '../models/third_party_account.dart';
 import '../services/service_provider.dart';
 import '../services/third_party_auth_service.dart';
+import '../utils/platform.dart';
+import '../widgets/adaptive_alert_dialog.dart';
+import '../widgets/adaptive_feedback.dart';
 import '../widgets/blurred_app_bar.dart';
+import '../widgets/ios_liquid/ios_glass_switch.dart';
 
 class ThirdPartyBindPage extends StatefulWidget {
   final ThirdPartyPlatform platform;
@@ -18,12 +22,14 @@ class _ThirdPartyBindPageState extends State<ThirdPartyBindPage> {
   final _formKey = GlobalKey<FormState>();
   final _accountCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
-  final _hydroOriginCtrl =
-      TextEditingController(text: 'https://acm.shanghaitech.edu.cn');
+  final _hydroOriginCtrl = TextEditingController(
+    text: 'https://acm.shanghaitech.edu.cn',
+  );
   final _hydroDomainsCtrl = TextEditingController();
   bool _busy = false;
   bool _obscure = true;
   bool _autoRenew = false;
+  String? _inlineError;
 
   bool get _isHydro => widget.platform == ThirdPartyPlatform.hydro;
   bool get _isGradescope => widget.platform == ThirdPartyPlatform.gradescope;
@@ -42,29 +48,33 @@ class _ThirdPartyBindPageState extends State<ThirdPartyBindPage> {
       setState(() => _autoRenew = false);
       return;
     }
-    final ok = await showDialog<bool>(
+
+    // Optimistically set to true so the native switch and Flutter state stay
+    // in sync. If the user cancels the native presenter, we'll revert to false.
+    setState(() => _autoRenew = true);
+
+    final ok = await showAdaptiveAlertDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('开启自动更新 Token'),
-        content: const Text(
-          '自动更新 Token 已打开,APP 将于本地加密存储你的账号和密码信息,'
+      title: '开启自动更新 Token',
+      message:
+          '打开后，APP 将于本地加密存储你的账号和密码信息,'
           '用于在过期前 48 小时内自动触发 Token 更新。\n\n'
-          '凭据仅存放在本设备的 Keychain / EncryptedSharedPreferences 中,'
+          '凭据仅存放在本设备的 Keychain / EncryptedSharedPreferences 中，'
           '不会上传到服务器。',
+      actions: const [
+        AdaptiveAlertAction<bool>(label: '取消', value: false),
+        AdaptiveAlertAction<bool>(
+          label: '我知道了,开启',
+          value: true,
+          isDefault: true,
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('我知道了,开启'),
-          ),
-        ],
-      ),
+      ],
     );
+
     if (!mounted) return;
+
+    // If user didn't accept, revert to false so native presenter and switch
+    // UI are consistent.
     setState(() => _autoRenew = ok == true);
   }
 
@@ -73,7 +83,6 @@ class _ThirdPartyBindPageState extends State<ThirdPartyBindPage> {
     setState(() => _busy = true);
 
     final tpAuth = ServiceProvider.of(context).thirdPartyAuthService;
-    final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
 
     List<String>? domains;
@@ -94,14 +103,38 @@ class _ThirdPartyBindPageState extends State<ThirdPartyBindPage> {
         hydroDomains: domains,
         autoRenew: _autoRenew,
       );
-      messenger.showSnackBar(
-        SnackBar(content: Text('${widget.platform.label} 绑定成功')),
-      );
+      if (!mounted) return;
+      setState(() => _inlineError = null);
+      if (!isIos()) {
+        showAdaptiveFeedback(
+          context: context,
+          message: '${widget.platform.label} 绑定成功',
+          style: AdaptiveFeedbackStyle.success,
+        );
+      }
       navigator.pop();
     } on ThirdPartyBindException catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text(e.message)));
+      if (!mounted) return;
+      if (isIos()) {
+        setState(() => _inlineError = e.message);
+      } else {
+        showAdaptiveFeedback(
+          context: context,
+          message: e.message,
+          style: AdaptiveFeedbackStyle.error,
+        );
+      }
     } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+      if (!mounted) return;
+      if (isIos()) {
+        setState(() => _inlineError = e.toString());
+      } else {
+        showAdaptiveFeedback(
+          context: context,
+          message: e.toString(),
+          style: AdaptiveFeedbackStyle.error,
+        );
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -122,6 +155,10 @@ class _ThirdPartyBindPageState extends State<ThirdPartyBindPage> {
             16,
           ),
           children: [
+            if (_inlineError != null) ...[
+              _InlineBindFeedback(message: _inlineError!),
+              const SizedBox(height: 12),
+            ],
             TextFormField(
               controller: _accountCtrl,
               autofillHints: const [AutofillHints.username],
@@ -132,8 +169,7 @@ class _ThirdPartyBindPageState extends State<ThirdPartyBindPage> {
                 labelText: _isGradescope ? '邮箱' : '用户名',
                 border: const OutlineInputBorder(),
               ),
-              validator: (v) =>
-                  (v == null || v.trim().isEmpty) ? '必填' : null,
+              validator: (v) => (v == null || v.trim().isEmpty) ? '必填' : null,
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -144,7 +180,9 @@ class _ThirdPartyBindPageState extends State<ThirdPartyBindPage> {
                 labelText: '密码',
                 border: const OutlineInputBorder(),
                 suffixIcon: IconButton(
-                  icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
+                  icon: Icon(
+                    _obscure ? Icons.visibility_off : Icons.visibility,
+                  ),
                   onPressed: () => setState(() => _obscure = !_obscure),
                 ),
               ),
@@ -159,8 +197,7 @@ class _ThirdPartyBindPageState extends State<ThirdPartyBindPage> {
                   helperText: '默认 https://acm.shanghaitech.edu.cn',
                   border: OutlineInputBorder(),
                 ),
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? '必填' : null,
+                validator: (v) => (v == null || v.trim().isEmpty) ? '必填' : null,
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -182,14 +219,28 @@ class _ThirdPartyBindPageState extends State<ThirdPartyBindPage> {
               ),
             ],
             const SizedBox(height: 8),
-            CheckboxListTile(
-              value: _autoRenew,
-              onChanged: (v) => _onAutoRenewChanged(v ?? false),
-              title: const Text('自动更新 Token'),
-              subtitle: const Text('过期前 48 小时内自动重登,免去手动重绑'),
-              controlAffinity: ListTileControlAffinity.leading,
-              contentPadding: EdgeInsets.zero,
-            ),
+            if (isIos())
+              MergeSemantics(
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('自动更新 Token'),
+                  subtitle: const Text('过期前 48 小时内自动重登,免去手动重绑'),
+                  trailing: IosGlassSwitch(
+                    value: _autoRenew,
+                    onChanged: (v) => _onAutoRenewChanged(v),
+                  ),
+                  onTap: () => _onAutoRenewChanged(!_autoRenew),
+                ),
+              )
+            else
+              CheckboxListTile(
+                value: _autoRenew,
+                onChanged: (v) => _onAutoRenewChanged(v ?? false),
+                title: const Text('自动更新 Token'),
+                subtitle: const Text('过期前 48 小时内自动重登,免去手动重绑'),
+                controlAffinity: ListTileControlAffinity.leading,
+                contentPadding: EdgeInsets.zero,
+              ),
             const SizedBox(height: 16),
             FilledButton(
               onPressed: _busy ? null : _submit,
@@ -206,6 +257,41 @@ class _ThirdPartyBindPageState extends State<ThirdPartyBindPage> {
               '凭据将通过 HTTPS 发送到 techpie 后端,后端代为登录上游平台并返回 token。'
               'token 与原始 payload 仅在本设备加密保存。',
               style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InlineBindFeedback extends StatelessWidget {
+  const _InlineBindFeedback({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.errorContainer.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.info_outline, size: 18, color: scheme.onErrorContainer),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                message,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: scheme.onErrorContainer,
+                ),
+              ),
             ),
           ],
         ),

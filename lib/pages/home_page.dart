@@ -10,7 +10,10 @@ import '../models/course_table.dart';
 import '../services/assignment_service.dart';
 import '../services/schedule_service.dart';
 import '../services/service_provider.dart';
+import '../widgets/adaptive_alert_dialog.dart';
+import '../widgets/adaptive_feedback.dart';
 import '../widgets/blurred_app_bar.dart';
+import '../utils/platform.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -525,9 +528,22 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   Future<void> _openAssignmentUrl(Assignment a) async {
     final url = a.url;
     if (url == null || url.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('该作业没有链接')));
+      if (isIos()) {
+        await showAdaptiveAlertDialog<void>(
+          context: context,
+          title: '无法打开作业',
+          message: '这个作业没有可打开的链接。',
+          actions: const [
+            AdaptiveAlertAction<void>(label: 'Done', isDefault: true),
+          ],
+        );
+      } else {
+        showAdaptiveFeedback(
+          context: context,
+          message: '该作业没有链接',
+          style: AdaptiveFeedbackStyle.info,
+        );
+      }
       return;
     }
     final uri = Uri.tryParse(url);

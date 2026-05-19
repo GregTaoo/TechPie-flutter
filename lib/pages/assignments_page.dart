@@ -6,7 +6,11 @@ import '../models/assignment.dart';
 import '../models/assignment_overrides.dart';
 import '../services/assignment_service.dart';
 import '../services/service_provider.dart';
+import '../utils/platform.dart';
+import '../widgets/adaptive_feedback.dart';
+import '../widgets/adaptive_alert_dialog.dart';
 import '../widgets/blurred_app_bar.dart';
+import '../widgets/ios_liquid/ios_glass_dropdown_menu.dart';
 import '../widgets/swipeable_card.dart';
 import 'hidden_assignments_page.dart';
 import 'third_party_accounts_page.dart';
@@ -110,33 +114,59 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
     return BlurredAppBar(
       title: const Text('Deadlines'),
       actions: [
-        PopupMenuButton<String>(
-          icon: const Icon(Icons.more_vert),
-          onSelected: (v) {
-            if (v == 'hidden') {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const HiddenAssignmentsPage(),
-                ),
-              );
-            }
-          },
-          itemBuilder: (_) => [
-            PopupMenuItem(
-              value: 'hidden',
-              child: Row(
-                children: [
-                  const Icon(Icons.visibility_off_outlined, size: 20),
-                  const SizedBox(width: 12),
-                  Text(
-                    '查看已忽略 (${service.overrides.hidden.length})',
+        if (isIos())
+          Padding(
+            padding: const EdgeInsetsDirectional.only(end: 8),
+            child: Center(
+              child: IosGlassDropdownMenu(
+                icon: Icons.more_vert,
+                sfSymbol: 'ellipsis',
+                tooltip: '更多操作',
+                items: [
+                  IosGlassDropdownMenuItem(
+                    value: 'hidden',
+                    label: '查看已忽略 (${service.overrides.hidden.length})',
                   ),
                 ],
+                onSelected: (v) {
+                  if (v == 'hidden') {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const HiddenAssignmentsPage(),
+                      ),
+                    );
+                  }
+                },
               ),
             ),
-          ],
-        ),
+          )
+        else
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            onSelected: (v) {
+              if (v == 'hidden') {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const HiddenAssignmentsPage(),
+                  ),
+                );
+              }
+            },
+            itemBuilder: (_) => [
+              PopupMenuItem(
+                value: 'hidden',
+                child: Row(
+                  children: [
+                    const Icon(Icons.visibility_off_outlined, size: 20),
+                    const SizedBox(width: 12),
+                    Text('查看已忽略 (${service.overrides.hidden.length})'),
+                  ],
+                ),
+              ),
+            ],
+          ),
       ],
     );
   }
@@ -157,9 +187,7 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
       title: Text('已选择 ${_selected.length} 个'),
       actions: [
         IconButton(
-          icon: Icon(
-            allSelected ? Icons.deselect : Icons.select_all,
-          ),
+          icon: Icon(allSelected ? Icons.deselect : Icons.select_all),
           tooltip: allSelected ? '全不选' : '全选',
           onPressed: () => _selectAll(visible),
         ),
@@ -279,16 +307,11 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
               onTap: () => setState(() => _pastCollapsed = !_pastCollapsed),
               borderRadius: BorderRadius.circular(8),
               child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 8,
-                  vertical: 8,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                 child: Row(
                   children: [
                     Icon(
-                      _pastCollapsed
-                          ? Icons.chevron_right
-                          : Icons.expand_more,
+                      _pastCollapsed ? Icons.chevron_right : Icons.expand_more,
                       size: 20,
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
@@ -373,10 +396,7 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
     );
 
     final inner = _selectionMode
-        ? Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: card,
-          )
+        ? Padding(padding: const EdgeInsets.only(bottom: 12), child: card)
         : SwipeableCard(
             startAction: SwipeAction(
               icon: completed
@@ -401,10 +421,7 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
     // entry animation from re-triggering. Each new key (unhide, undo,
     // first appearance) plays the enter animation; existing items just
     // rebuild in place.
-    return CardEnterAnimation(
-      key: ValueKey(key),
-      child: inner,
-    );
+    return CardEnterAnimation(key: ValueKey(key), child: inner);
   }
 
   void _onDismiss(
@@ -414,17 +431,14 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
     String key,
   ) {
     service.hide(a);
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.clearSnackBars();
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text('已忽略「${a.title}」'),
-        duration: const Duration(seconds: 5),
-        action: SnackBarAction(
-          label: '撤销',
-          onPressed: () => service.unhide(key),
-        ),
-      ),
+
+    showAdaptiveFeedback(
+      context: context,
+      message: '已忽略「${a.title}」',
+      style: AdaptiveFeedbackStyle.info,
+      duration: const Duration(seconds: 4),
+      actionLabel: '撤销',
+      onAction: () => service.unhide(key),
     );
   }
 
@@ -434,29 +448,69 @@ class _AssignmentsPageState extends State<AssignmentsPage> {
     Assignment a,
     String key,
   ) async {
+    final usesIosContextualFeedback = isIos();
     if (_selectionMode) {
       _toggleSelection(key);
       return;
     }
     final url = a.url;
     if (url == null || url.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('该作业没有链接')),
-      );
+      if (usesIosContextualFeedback) {
+        await showAdaptiveAlertDialog<void>(
+          context: context,
+          title: '无法打开作业',
+          message: '这个作业没有可打开的链接。',
+          actions: const [
+            AdaptiveAlertAction<void>(label: 'Done', isDefault: true),
+          ],
+        );
+      } else {
+        showAdaptiveFeedback(
+          context: context,
+          message: '该作业没有链接',
+          style: AdaptiveFeedbackStyle.info,
+        );
+      }
       return;
     }
     final uri = Uri.tryParse(url);
     if (uri == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('链接无法解析')),
-      );
+      if (usesIosContextualFeedback) {
+        await showAdaptiveAlertDialog<void>(
+          context: context,
+          title: '无法打开作业',
+          message: '链接格式无效。',
+          actions: const [
+            AdaptiveAlertAction<void>(label: 'Done', isDefault: true),
+          ],
+        );
+      } else {
+        showAdaptiveFeedback(
+          context: context,
+          message: '链接无法解析',
+          style: AdaptiveFeedbackStyle.error,
+        );
+      }
       return;
     }
     final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!ok && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('无法打开链接')),
-      );
+      if (usesIosContextualFeedback) {
+        await showAdaptiveAlertDialog<void>(
+          context: context,
+          title: '无法打开作业',
+          message: '目前无法打开这个链接。',
+          actions: const [
+            AdaptiveAlertAction<void>(label: 'Done', isDefault: true),
+          ],
+        );
+      } else {
+        showAdaptiveFeedback(
+          context: context,
+          message: '无法打开链接',
+          style: AdaptiveFeedbackStyle.error,
+        );
+      }
     }
   }
 }

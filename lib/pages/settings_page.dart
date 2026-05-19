@@ -1,9 +1,11 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:techpie/services/auth_service.dart';
 
 import '../services/service_provider.dart';
 import '../services/theme_service.dart';
+import '../utils/platform.dart';
+import '../widgets/adaptive_alert_dialog.dart';
 import '../widgets/blurred_app_bar.dart';
 import '../widgets/desktop_popup.dart';
 import '../widgets/ios_liquid/ios_glass_select.dart';
@@ -47,8 +49,6 @@ class _SettingsPageState extends State<SettingsPage> {
     final storage = sp.storageService;
     final themeService = sp.themeService;
     final tpAuth = sp.thirdPartyAuthService;
-    final usesIosLiquidGlass =
-        !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
     final topInset = kToolbarHeight + MediaQuery.viewPaddingOf(context).top;
 
     return Scaffold(
@@ -97,7 +97,7 @@ class _SettingsPageState extends State<SettingsPage> {
               ListTile(
                 leading: const Icon(Icons.logout),
                 title: const Text('Logout'),
-                onTap: () => auth.logout(),
+                onTap: () => _confirmLogout(auth),
               ),
             ] else
               ListTile(
@@ -113,7 +113,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
             // Appearance section
             _sectionHeader(theme, 'Appearance'),
-            if (usesIosLiquidGlass)
+            if (isIos())
               ListTile(
                 leading: Icon(themeService.mode.icon),
                 title: const Text('Theme'),
@@ -144,7 +144,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   onTap: () => _showThemePicker(tileContext, themeService),
                 ),
               ),
-            if (usesIosLiquidGlass)
+            if (isIos())
               ListTile(
                 leading: Icon(themeService.colorScheme.icon),
                 title: const Text('Color'),
@@ -203,7 +203,7 @@ class _SettingsPageState extends State<SettingsPage> {
             // Developer section
             _sectionHeader(theme, 'Developer'),
             _AdaptiveSwitchTile(
-              usesIosLiquidGlass: usesIosLiquidGlass,
+              usesIosLiquidGlass: isIos(),
               secondary: const Icon(Icons.bug_report_outlined),
               title: 'Debug mode',
               subtitle: 'Log all API requests',
@@ -214,7 +214,7 @@ class _SettingsPageState extends State<SettingsPage> {
               },
             ),
             _AdaptiveSwitchTile(
-              usesIosLiquidGlass: usesIosLiquidGlass,
+              usesIosLiquidGlass: isIos(),
               secondary: const Icon(Icons.dns_outlined),
               title: 'Use localhost',
               subtitle: 'Connect to local development server',
@@ -238,6 +238,26 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
       ),
     );
+  }
+
+  Future<void> _confirmLogout(AuthService auth) async {
+    final ok = await showAdaptiveAlertDialog<bool>(
+      context: context,
+      title: '退出登录',
+      message: '将清除当前设备上的登录状态和相关缓存数据。',
+      actions: const [
+        AdaptiveAlertAction<bool>(label: '取消', value: false),
+        AdaptiveAlertAction<bool>(
+          label: '退出登录',
+          value: true,
+          isDestructive: true,
+        ),
+      ],
+    );
+
+    if (ok == true) {
+      auth.logout();
+    }
   }
 
   void _showThemePicker(BuildContext context, ThemeService themeService) {

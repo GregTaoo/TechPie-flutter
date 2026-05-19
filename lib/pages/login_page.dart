@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../services/service_provider.dart';
+import '../utils/platform.dart';
+import '../widgets/adaptive_feedback.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -21,6 +23,8 @@ class _LoginPageState extends State<LoginPage> {
   bool _obscurePassword = true;
   int _cooldown = 0;
   Timer? _cooldownTimer;
+  String? _smsInlineMessage;
+  String? _egateInlineMessage;
 
   Future<void> _sendSms() async {
     final phone = _phoneController.text.trim();
@@ -29,17 +33,28 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => _sendingSms = true);
     try {
       await ServiceProvider.of(context).authService.sendSmsCode(phone);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('验证码已发送')),
+      if (mounted && !isIos()) {
+        showAdaptiveFeedback(
+          context: context,
+          message: '验证码已发送',
+          style: AdaptiveFeedbackStyle.success,
         );
+      }
+      if (mounted) {
+        setState(() => _smsInlineMessage = null);
       }
       _startCooldown();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('发送失败: $e')),
-        );
+        if (isIos()) {
+          setState(() => _smsInlineMessage = '发送失败：$e');
+        } else {
+          showAdaptiveFeedback(
+            context: context,
+            message: '发送失败: $e',
+            style: AdaptiveFeedbackStyle.error,
+          );
+        }
       }
     } finally {
       if (mounted) setState(() => _sendingSms = false);
@@ -69,14 +84,21 @@ class _LoginPageState extends State<LoginPage> {
     try {
       await ServiceProvider.of(context).authService.smsLogin(phone, code);
       if (mounted) {
+        setState(() => _smsInlineMessage = null);
         ServiceProvider.of(context).scheduleService.fetchAll();
         Navigator.pop(context);
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('登录失败: $e')),
-        );
+        if (isIos()) {
+          setState(() => _smsInlineMessage = '登录失败：$e');
+        } else {
+          showAdaptiveFeedback(
+            context: context,
+            message: '登录失败: $e',
+            style: AdaptiveFeedbackStyle.error,
+          );
+        }
       }
     }
   }
@@ -87,16 +109,25 @@ class _LoginPageState extends State<LoginPage> {
     if (username.isEmpty || password.isEmpty) return;
 
     try {
-      await ServiceProvider.of(context).authService.egateLogin(username, password);
+      await ServiceProvider.of(
+        context,
+      ).authService.egateLogin(username, password);
       if (mounted) {
+        setState(() => _egateInlineMessage = null);
         ServiceProvider.of(context).scheduleService.fetchAll();
         Navigator.pop(context);
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('登录失败: $e')),
-        );
+        if (isIos()) {
+          setState(() => _egateInlineMessage = '登录失败：$e');
+        } else {
+          showAdaptiveFeedback(
+            context: context,
+            message: '登录失败: $e',
+            style: AdaptiveFeedbackStyle.error,
+          );
+        }
       }
     }
   }
@@ -198,6 +229,7 @@ class _LoginPageState extends State<LoginPage> {
                               codeController: _codeController,
                               cooldown: _cooldown,
                               sendingSms: _sendingSms,
+                              inlineMessage: _smsInlineMessage,
                               onSendSms: _sendSms,
                               onLogin: _smsLogin,
                             ),
@@ -205,6 +237,7 @@ class _LoginPageState extends State<LoginPage> {
                               usernameController: _usernameController,
                               passwordController: _passwordController,
                               obscurePassword: _obscurePassword,
+                              inlineMessage: _egateInlineMessage,
                               onToggleObscure: () {
                                 setState(() {
                                   _obscurePassword = !_obscurePassword;
@@ -232,6 +265,7 @@ class _SmsLoginForm extends StatelessWidget {
   final TextEditingController codeController;
   final int cooldown;
   final bool sendingSms;
+  final String? inlineMessage;
   final VoidCallback onSendSms;
   final VoidCallback onLogin;
 
@@ -240,6 +274,7 @@ class _SmsLoginForm extends StatelessWidget {
     required this.codeController,
     required this.cooldown,
     required this.sendingSms,
+    required this.inlineMessage,
     required this.onSendSms,
     required this.onLogin,
   });
@@ -273,30 +308,30 @@ class _SmsLoginForm extends StatelessWidget {
                     labelText: '验证码',
                     prefixIcon: Icon(Icons.pin_outlined),
                     filled: true,
-              border: UnderlineInputBorder(),
+                    border: UnderlineInputBorder(),
                   ),
                   keyboardType: TextInputType.number,
                 ),
               ),
               const SizedBox(width: 12),
               FilledButton.tonal(
-                onPressed:
-                    (cooldown > 0 || sendingSms) ? null : onSendSms,
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size(100, 56),
-                ),
+                onPressed: (cooldown > 0 || sendingSms) ? null : onSendSms,
+                style: FilledButton.styleFrom(minimumSize: const Size(100, 56)),
                 child: sendingSms
                     ? const SizedBox(
                         height: 20,
                         width: 20,
-                        child:
-                            CircularProgressIndicator(strokeWidth: 2),
+                        child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : Text(cooldown > 0 ? '${cooldown}s' : '发送验证码'),
               ),
             ],
           ),
           const SizedBox(height: 32),
+          if (inlineMessage != null) ...[
+            _InlineFormFeedback(message: inlineMessage!),
+            const SizedBox(height: 16),
+          ],
           FilledButton.icon(
             onPressed: auth.loading ? null : onLogin,
             icon: auth.loading
@@ -321,6 +356,7 @@ class _EgateLoginForm extends StatelessWidget {
   final TextEditingController usernameController;
   final TextEditingController passwordController;
   final bool obscurePassword;
+  final String? inlineMessage;
   final VoidCallback onToggleObscure;
   final VoidCallback onLogin;
 
@@ -328,6 +364,7 @@ class _EgateLoginForm extends StatelessWidget {
     required this.usernameController,
     required this.passwordController,
     required this.obscurePassword,
+    required this.inlineMessage,
     required this.onToggleObscure,
     required this.onLogin,
   });
@@ -370,6 +407,10 @@ class _EgateLoginForm extends StatelessWidget {
             obscureText: obscurePassword,
           ),
           const SizedBox(height: 32),
+          if (inlineMessage != null) ...[
+            _InlineFormFeedback(message: inlineMessage!),
+            const SizedBox(height: 16),
+          ],
           FilledButton.icon(
             onPressed: auth.loading ? null : onLogin,
             icon: auth.loading
@@ -385,6 +426,41 @@ class _EgateLoginForm extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _InlineFormFeedback extends StatelessWidget {
+  const _InlineFormFeedback({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.errorContainer.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.info_outline, size: 18, color: scheme.onErrorContainer),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                message,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: scheme.onErrorContainer,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
