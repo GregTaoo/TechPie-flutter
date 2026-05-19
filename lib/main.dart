@@ -183,11 +183,6 @@ class TechPieApp extends StatefulWidget {
 class _TechPieAppState extends State<TechPieApp> {
   @override
   Widget build(BuildContext context) {
-    if (!isAndroid()) {
-      widget.themeService.updateSystemSchemes(null, null);
-      return _buildApp();
-    }
-
     return DynamicColorBuilder(
       builder: (lightDynamic, darkDynamic) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
