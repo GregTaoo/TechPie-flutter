@@ -31,6 +31,8 @@ class _GenericWebViewPageState extends State<GenericWebViewPage> {
         url: uri,
         name: cookie.name,
         value: '${cookie.value ?? ''}',
+        path: '/',
+        isSecure: true,
       );
     }
 
