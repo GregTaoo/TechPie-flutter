@@ -324,6 +324,7 @@ class _SchedulePageState extends State<SchedulePage> {
           ? IosNativeNavigationBar(
               title: '第 $_currentWeek 周',
               subtitle: _semesterLabel.isEmpty ? null : _semesterLabel,
+              largeTitleMode: true,
               trailingItems: [
                 IosNativeNavigationBarItem(
                   id: 'settings',

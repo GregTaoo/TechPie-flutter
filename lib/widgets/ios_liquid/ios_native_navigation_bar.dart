@@ -100,7 +100,11 @@ class IosNativeNavigationBar extends StatefulWidget
   @override
   Size get preferredSize => Size.fromHeight(_barHeight);
 
-  double get _barHeight => subtitle == null || subtitle!.isEmpty ? 44.0 : 56.0;
+  double get _barHeight {
+    final hasSubtitle = subtitle != null && subtitle!.isNotEmpty;
+    if (largeTitleMode) return hasSubtitle ? 112.0 : 96.0;
+    return hasSubtitle ? 56.0 : 44.0;
+  }
 
   @override
   State<IosNativeNavigationBar> createState() => _IosNativeNavigationBarState();
