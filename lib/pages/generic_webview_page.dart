@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
-import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_win_floating/webview_win_floating.dart';
 
 class GenericWebViewPage extends StatefulWidget {
   const GenericWebViewPage({
@@ -11,51 +14,53 @@ class GenericWebViewPage extends StatefulWidget {
 
   final String title;
   final String url;
-  final List<Cookie>? cookies;
+  final List<WebViewCookie>? cookies;
 
   @override
   State<GenericWebViewPage> createState() => _GenericWebViewPageState();
 }
 
 class _GenericWebViewPageState extends State<GenericWebViewPage> {
-  InAppWebViewController? controller;
+  late final WebViewController controller;
 
-  Future<void> _loadWithCookies() async {
-    final uri = WebUri(widget.url);
-    final cookieManager = CookieManager.instance();
+  @override
+  void initState() {
+    super.initState();
 
-    await cookieManager.deleteAllCookies();
-
-    for (final cookie in widget.cookies ?? const <Cookie>[]) {
-      await cookieManager.setCookie(
-        url: uri,
-        name: cookie.name,
-        value: '${cookie.value ?? ''}',
-        path: '/',
-        isSecure: true,
-      );
+    if (Platform.isWindows || Platform.isLinux) {
+      WindowsWebViewPlatform.registerWith();
     }
 
-    await controller?.loadUrl(urlRequest: URLRequest(url: uri));
+    controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onNavigationRequest: (request) {
+            return NavigationDecision.navigate;
+          },
+        ),
+      );
+
+    _loadWithCookies();
+  }
+
+  Future<void> _loadWithCookies() async {
+    final cookieManager = WebViewCookieManager();
+
+    await cookieManager.clearCookies();
+
+    for (final cookie in widget.cookies ?? const <WebViewCookie>[]) {
+      await cookieManager.setCookie(cookie);
+    }
+
+    await controller.loadRequest(Uri.parse(widget.url));
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(widget.title), centerTitle: true),
-      body: InAppWebView(
-        initialSettings: InAppWebViewSettings(
-          javaScriptEnabled: true,
-          useShouldOverrideUrlLoading: true,
-        ),
-        onWebViewCreated: (webViewController) {
-          controller = webViewController;
-          _loadWithCookies();
-        },
-        shouldOverrideUrlLoading: (controller, navigationAction) async {
-          return NavigationActionPolicy.ALLOW;
-        },
-      ),
+      body: WebViewWidget(controller: controller),
     );
   }
 }
