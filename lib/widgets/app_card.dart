@@ -25,9 +25,9 @@ class AppCard extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         const itemWidth = 72.0;
-        final rawPerRow = (constraints.maxWidth / itemWidth).floor();
+        final rawPerRow = ( ( constraints.maxWidth - 16 )/ itemWidth).floor();
         final effectivePerRow = rawPerRow < 1 ? 1 : rawPerRow;
-        final visibleFeatures = features.take(effectivePerRow * 2 - 1);
+        final visibleFeatures = features.take(effectivePerRow * columns - 1);
         return Material(
           color: Colors.transparent,
           child: Padding(
@@ -37,7 +37,7 @@ class AppCard extends StatelessWidget {
               children: [
                 for (final feature in [
                   ...visibleFeatures,
-                  if (features.length > effectivePerRow * 2 - 1) moreFeature
+                  if (features.length > effectivePerRow * columns - 1) moreFeature
                 ])
                   SizedBox(
                     width: itemWidth,

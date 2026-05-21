@@ -55,5 +55,5 @@ final moreFeature = Feature(
   description: '更多',
   mode: FeatureMode.native,
   nativeEntry: (context) {},
-  icon: Icon(Icons.more_vert),
+  icon: Icon(Icons.more_horiz),
 );
