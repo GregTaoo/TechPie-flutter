@@ -136,7 +136,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
             // Appearance section
             _sectionHeader(theme, 'Appearance'),
-            if (isIos())
+            if (useIosChrome)
               ListTile(
                 leading: Icon(themeService.mode.icon),
                 title: const Text('Theme'),
@@ -167,7 +167,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   onTap: () => _showThemePicker(tileContext, themeService),
                 ),
               ),
-            if (isIos())
+            if (useIosChrome)
               ListTile(
                 leading: Icon(themeService.colorScheme.icon),
                 title: const Text('Color'),
@@ -209,7 +209,10 @@ class _SettingsPageState extends State<SettingsPage> {
               leading: const Icon(Icons.notifications_outlined),
               title: const Text('Notifications'),
               subtitle: const Text('Manage notification preferences'),
-              onTap: () {},
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const DebugLogPage()),
+              ),
             ),
             ListTile(
               leading: const Icon(Icons.info_outline),
@@ -226,7 +229,7 @@ class _SettingsPageState extends State<SettingsPage> {
             // Developer section
             _sectionHeader(theme, 'Developer'),
             _AdaptiveSwitchTile(
-              usesIosLiquidGlass: isIos(),
+              usesIosLiquidGlass: useIosChrome,
               secondary: const Icon(Icons.bug_report_outlined),
               title: 'Debug mode',
               subtitle: 'Log all API requests',
@@ -237,7 +240,7 @@ class _SettingsPageState extends State<SettingsPage> {
               },
             ),
             _AdaptiveSwitchTile(
-              usesIosLiquidGlass: isIos(),
+              usesIosLiquidGlass: useIosChrome,
               secondary: const Icon(Icons.dns_outlined),
               title: 'Use localhost',
               subtitle: 'Connect to local development server',
