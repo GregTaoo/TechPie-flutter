@@ -80,6 +80,16 @@ class _AppShellState extends State<AppShell> {
     );
   }
 
+  Widget _buildDesktopContentNavigator(Widget pageView) {
+    return Navigator(
+      key: ValueKey('desktop-content-$_selectedIndex'),
+      onGenerateRoute: (settings) => MaterialPageRoute<void>(
+        settings: settings,
+        builder: (context) => pageView,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
@@ -92,7 +102,7 @@ class _AppShellState extends State<AppShell> {
         sidebarCollapsed: _sidebarCollapsed,
         onDestinationSelected: _onDestinationSelected,
         onToggleSidebarCollapsed: _onSidebarToggleCollapsed,
-        child: pageView,
+        child: _buildDesktopContentNavigator(pageView),
       );
     }
 
@@ -104,7 +114,7 @@ class _AppShellState extends State<AppShell> {
         showToggleButton: false,
         onDestinationSelected: _onDestinationSelected,
         onToggleSidebarCollapsed: () {},
-        child: pageView,
+        child: _buildDesktopContentNavigator(pageView),
       );
     }
 
