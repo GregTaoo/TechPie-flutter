@@ -13,7 +13,7 @@ class LoginPage extends StatefulWidget {
   State<LoginPage> createState() => _LoginPageState();
 }
 
-class _LoginPageState extends State<LoginPage> {
+class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
   final _phoneController = TextEditingController();
   final _codeController = TextEditingController();
   final _usernameController = TextEditingController();
@@ -23,8 +23,15 @@ class _LoginPageState extends State<LoginPage> {
   bool _obscurePassword = true;
   int _cooldown = 0;
   Timer? _cooldownTimer;
+  DateTime? _cooldownBackgroundedAt;
   String? _smsInlineMessage;
   String? _egateInlineMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
 
   Future<void> _sendSms() async {
     final phone = _phoneController.text.trim();
@@ -42,8 +49,8 @@ class _LoginPageState extends State<LoginPage> {
       }
       if (mounted) {
         setState(() => _smsInlineMessage = null);
+        _startCooldown();
       }
-      _startCooldown();
     } catch (e) {
       if (mounted) {
         if (isIos()) {
@@ -62,18 +69,86 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   void _startCooldown() {
+    _cooldownBackgroundedAt = null;
     setState(() => _cooldown = 60);
+    _startCooldownTimer();
+  }
+
+  void _startCooldownTimer() {
     _cooldownTimer?.cancel();
     _cooldownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) {
         timer.cancel();
         return;
       }
-      setState(() {
-        _cooldown--;
-        if (_cooldown <= 0) timer.cancel();
-      });
+      _tickCooldown();
     });
+  }
+
+  void _tickCooldown() {
+    if (_cooldown <= 1) {
+      _completeCooldown();
+      return;
+    }
+
+    setState(() => _cooldown--);
+  }
+
+  void _completeCooldown() {
+    _cooldownTimer?.cancel();
+    _cooldownBackgroundedAt = null;
+    if (mounted) {
+      setState(() => _cooldown = 0);
+    } else {
+      _cooldown = 0;
+    }
+  }
+
+  void _pauseCooldownForBackground() {
+    if (_cooldown <= 0 || _cooldownBackgroundedAt != null) return;
+    _cooldownBackgroundedAt = DateTime.now();
+    _cooldownTimer?.cancel();
+  }
+
+  void _resumeCooldownFromBackground() {
+    final backgroundedAt = _cooldownBackgroundedAt;
+    if (backgroundedAt == null || _cooldown <= 0) return;
+
+    _cooldownBackgroundedAt = null;
+    final elapsedSeconds = DateTime.now().difference(backgroundedAt).inSeconds;
+    if (elapsedSeconds <= 0) {
+      if (_cooldownTimer?.isActive != true) {
+        _startCooldownTimer();
+      }
+      return;
+    }
+
+    final remaining = _cooldown - elapsedSeconds;
+    if (remaining <= 0) {
+      _completeCooldown();
+      return;
+    }
+
+    setState(() => _cooldown = remaining);
+    if (_cooldownTimer?.isActive != true) {
+      _startCooldownTimer();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
+        _pauseCooldownForBackground();
+        break;
+      case AppLifecycleState.resumed:
+        _resumeCooldownFromBackground();
+        break;
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.detached:
+        break;
+    }
   }
 
   Future<void> _smsLogin() async {
@@ -134,6 +209,7 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _cooldownTimer?.cancel();
     _phoneController.dispose();
     _codeController.dispose();
@@ -455,8 +531,8 @@ class _InlineFormFeedback extends StatelessWidget {
               child: Text(
                 message,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: scheme.onErrorContainer,
-                ),
+                      color: scheme.onErrorContainer,
+                    ),
               ),
             ),
           ],
