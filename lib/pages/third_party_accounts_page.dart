@@ -142,7 +142,7 @@ class _ThirdPartyTile extends StatelessWidget {
       isThreeLine: subtitleParts.length > 1,
       trailing: isIos()
           ? IosGlassConfirmationButton(
-              label: usesIosLiquidGlass() ? 'Unbind' : null,
+              label: 'Unbind',
               confirmTitle: '解绑 ${platform.label}?',
               confirmLabel: '解绑',
               destructive: true,

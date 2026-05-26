@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../services/service_provider.dart';
 import '../utils/platform.dart';
@@ -31,6 +32,13 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+  }
+
+  Future<void> _dismissKeyboard() async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    if (isIos()) {
+      await SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+    }
   }
 
   Future<void> _sendSms() async {
@@ -156,11 +164,16 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
     final code = _codeController.text.trim();
     if (phone.isEmpty || code.isEmpty) return;
 
+    await _dismissKeyboard();
+    if (!mounted) return;
+
     try {
       await ServiceProvider.of(context).authService.smsLogin(phone, code);
       if (mounted) {
         setState(() => _smsInlineMessage = null);
         ServiceProvider.of(context).scheduleService.fetchAll();
+        await _dismissKeyboard();
+        if (!mounted) return;
         Navigator.pop(context);
       }
     } catch (e) {
@@ -183,6 +196,9 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
     final password = _passwordController.text.trim();
     if (username.isEmpty || password.isEmpty) return;
 
+    await _dismissKeyboard();
+    if (!mounted) return;
+
     try {
       await ServiceProvider.of(
         context,
@@ -190,6 +206,8 @@ class _LoginPageState extends State<LoginPage> with WidgetsBindingObserver {
       if (mounted) {
         setState(() => _egateInlineMessage = null);
         ServiceProvider.of(context).scheduleService.fetchAll();
+        await _dismissKeyboard();
+        if (!mounted) return;
         Navigator.pop(context);
       }
     } catch (e) {
