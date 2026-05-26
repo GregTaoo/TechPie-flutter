@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../models/course.dart';
 import '../models/course_table.dart';
+import '../services/ics/ics_export_service.dart';
+import '../services/ics/ics_file_saver.dart';
 import '../services/schedule_service.dart';
 import '../services/service_provider.dart';
+import '../widgets/adaptive_feedback.dart';
 import '../widgets/blurred_app_bar.dart';
 import '../widgets/course_detail_panel.dart';
 import '../widgets/desktop_popup.dart';
 import '../widgets/desktop_select_popover.dart';
+import '../widgets/ios_liquid/ios_glass_dropdown_menu.dart';
 import '../widgets/ios_liquid/ios_native_navigation_bar.dart';
 import '../utils/platform.dart';
 
@@ -19,11 +24,13 @@ class SchedulePage extends StatefulWidget {
 }
 
 class _SchedulePageState extends State<SchedulePage> {
+  final IcsExportService _icsExport = IcsExportService();
   late ScheduleService _schedule;
   List<Course> _courses = [];
   List<Period> _periods = defaultPeriods.toList();
   int _currentWeek = 1;
   bool _initialized = false;
+  bool _exportingCalendar = false;
 
   // Settings
   bool _showSaturday = true;
@@ -308,6 +315,97 @@ class _SchedulePageState extends State<SchedulePage> {
     return '';
   }
 
+  bool get _canExportCalendar =>
+      _schedule.courseTable != null && _schedule.termBegin != null;
+
+  String get _icsFileName {
+    final semesterId = _schedule.selectedSemesterId ?? 'schedule';
+    final safe = semesterId.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+    return 'course_table_$safe.ics';
+  }
+  Future<void> _saveCalendarFile() async {
+    await _runCalendarExport(
+      location: IcsSaveLocation.downloads,
+      openAfterSave: false,
+    );
+  }
+
+  Future<void> _exportCalendar() async {
+    await _runCalendarExport(
+      location: IcsSaveLocation.temporary,
+      openAfterSave: true,
+    );
+  }
+
+  Future<void> _runCalendarExport({
+    required IcsSaveLocation location,
+    required bool openAfterSave,
+  }) async {
+    final table = _schedule.courseTable;
+    final termBegin = _schedule.termBegin;
+    if (table == null || termBegin == null || _exportingCalendar) return;
+
+    setState(() {
+      _exportingCalendar = true;
+    });
+
+    try {
+      final saved = await _icsExport.saveCalendar(
+        table: table,
+        termBegin: termBegin,
+        fileName: _icsFileName,
+        location: location,
+        calendarName: _semesterLabel.isEmpty ? 'Course Table' : _semesterLabel,
+      );
+
+      if (openAfterSave && saved.launchUri != null) {
+        final launched = await launchUrl(
+          saved.launchUri!,
+          mode: LaunchMode.externalApplication,
+        );
+        if (!launched && mounted) {
+          showAdaptiveFeedback(
+            context: context,
+            message: saved.filePath != null
+                ? 'Exported to temp file: ${saved.filePath}'
+                : 'ICS file created. Open it manually.',
+            style: AdaptiveFeedbackStyle.info,
+          );
+          return;
+        }
+      }
+
+      if (!mounted) return;
+      final message = openAfterSave
+          ? (saved.filePath != null
+                ? 'Temp file created and opened: ${saved.filePath}'
+                : 'ICS file created and opened.')
+          : (saved.filePath != null
+                ? 'Saved to Downloads: ${saved.filePath}'
+                : 'Download started: $_icsFileName');
+      showAdaptiveFeedback(
+        context: context,
+        message: message,
+        style: AdaptiveFeedbackStyle.success,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      showAdaptiveFeedback(
+        context: context,
+        message: openAfterSave
+            ? 'Failed to export a temp ICS file and open it.'
+            : 'Failed to save the ICS file to Downloads.',
+        style: AdaptiveFeedbackStyle.error,
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _exportingCalendar = false;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -365,6 +463,16 @@ class _SchedulePageState extends State<SchedulePage> {
                       title: '显示非本周课程',
                       checked: _showGhostCourses,
                     ),
+                    IosNativeNavigationBarMenuItem(
+                      value: 'exportCalendar',
+                      title: 'Export calendar',
+                      sfSymbol: 'square.and.arrow.up',
+                    ),
+                    IosNativeNavigationBarMenuItem(
+                      value: 'saveCalendar',
+                      title: 'Save file',
+                      sfSymbol: 'arrow.down.circle',
+                    ),
                   ],
                 ),
               ],
@@ -393,6 +501,13 @@ class _SchedulePageState extends State<SchedulePage> {
                         trailingIcon: Icons.unfold_more,
                       ),
                     ),
+                  const SizedBox(width: 8),
+                  _ExportCalendarMenu(
+                    enabled: _canExportCalendar && !_exportingCalendar,
+                    busy: _exportingCalendar,
+                    onExport: _exportCalendar,
+                    onSave: _saveCalendarFile,
+                  ),
                   if (isDesktopLayout(context) && !isViewingCurrentWeek) ...[
                     const SizedBox(width: 12),
                     TextButton.icon(
@@ -621,6 +736,10 @@ class _SchedulePageState extends State<SchedulePage> {
           _showGhostCourses = !_showGhostCourses;
           _filterCoursesForWeek();
         });
+      case 'exportCalendar':
+        _exportCalendar();
+      case 'saveCalendar':
+        _saveCalendarFile();
     }
   }
 
@@ -799,6 +918,221 @@ class _DesktopWeekTitleMenu extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _ExportCalendarMenu extends StatefulWidget {
+  final bool enabled;
+  final bool busy;
+  final VoidCallback onExport;
+  final VoidCallback onSave;
+
+  const _ExportCalendarMenu({
+    required this.enabled,
+    required this.busy,
+    required this.onExport,
+    required this.onSave,
+  });
+
+  @override
+  State<_ExportCalendarMenu> createState() => _ExportCalendarMenuState();
+}
+
+class _ExportCalendarMenuState extends State<_ExportCalendarMenu> {
+  final GlobalKey _anchorKey = GlobalKey();
+
+  @override
+  Widget build(BuildContext context) {
+    if (isIos()) {
+      return IosGlassDropdownMenu(
+        icon: widget.busy ? Icons.hourglass_top : Icons.ios_share_rounded,
+        sfSymbol: widget.busy ? 'hourglass' : 'square.and.arrow.up',
+        tooltip: 'Export calendar',
+        width: 40,
+        height: 40,
+        items: const [
+          IosGlassDropdownMenuItem(
+            value: 'export',
+            label: 'Export calendar',
+          ),
+          IosGlassDropdownMenuItem(
+            value: 'save',
+            label: 'Save file',
+          ),
+        ],
+        onSelected: (value) {
+          if (value == 'export') {
+            widget.onExport();
+          } else if (value == 'save') {
+            widget.onSave();
+          }
+        },
+      );
+    }
+
+    final theme = Theme.of(context);
+    final icon = widget.busy ? Icons.hourglass_top : Icons.ios_share_rounded;
+
+    if (isDesktopLayout(context)) {
+      return SizedBox(
+        width: 40,
+        height: 40,
+        child: IconButton(
+          key: _anchorKey,
+          tooltip: 'Export calendar',
+          onPressed: widget.enabled ? _showDesktopMenu : null,
+          icon: Icon(icon, size: 20),
+        ),
+      );
+    }
+
+    return PopupMenuButton<String>(
+      enabled: widget.enabled,
+      tooltip: 'Export calendar',
+      icon: Icon(
+        icon,
+        size: 20,
+        color: widget.enabled
+            ? theme.colorScheme.onSurfaceVariant
+            : theme.colorScheme.onSurfaceVariant.withAlpha(120),
+      ),
+      onSelected: (value) {
+        if (value == 'export') {
+          widget.onExport();
+        } else if (value == 'save') {
+          widget.onSave();
+        }
+      },
+      itemBuilder: (context) => const [
+        PopupMenuItem<String>(
+          value: 'export',
+          child: Row(
+            children: [
+              Icon(Icons.event_available, size: 18),
+              SizedBox(width: 10),
+              Text('Export calendar'),
+            ],
+          ),
+        ),
+        PopupMenuItem<String>(
+          value: 'save',
+          child: Row(
+            children: [
+              Icon(Icons.download_rounded, size: 18),
+              SizedBox(width: 10),
+              Text('Save file'),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showDesktopMenu() {
+    final anchorContext = _anchorKey.currentContext;
+    if (anchorContext == null) return;
+
+    showDesktopPopover(
+      anchorContext: anchorContext,
+      width: 220,
+      placement: DesktopPopoverPlacement.belowEnd,
+      offset: const Offset(0, 8),
+      builder: (context, close) {
+        return DesktopPopoverSurface(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              DesktopMenuRow(
+                leading: const Icon(Icons.event_available, size: 20),
+                title: Text(
+                  'Export calendar',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                onTap: () {
+                  close();
+                  widget.onExport();
+                },
+              ),
+              DesktopMenuRow(
+                leading: const Icon(Icons.download_rounded, size: 20),
+                title: Text(
+                  'Save file',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                onTap: () {
+                  close();
+                  widget.onSave();
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _IosWeekTitleMenu extends StatelessWidget {
+  final int currentWeek;
+  final int actualCurrentWeek;
+  final String semesterLabel;
+  final ValueChanged<int> onWeekChanged;
+
+  const _IosWeekTitleMenu({
+    required this.currentWeek,
+    required this.actualCurrentWeek,
+    required this.semesterLabel,
+    required this.onWeekChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Expanded(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          IosGlassDropdownMenu(
+            key: ValueKey<int>(currentWeek),
+            icon: Icons.expand_more_rounded,
+            sfSymbol: 'none',
+            label: '第 $currentWeek 周',
+            width: 96,
+            height: 36,
+            items: [
+              for (int week = 1; week <= 25; week++)
+                IosGlassDropdownMenuItem(
+                  value: '$week',
+                  label: week == actualCurrentWeek
+                      ? '第 $week 周 · 本周'
+                      : '第 $week 周',
+                  checked: week == currentWeek,
+                ),
+            ],
+            onSelected: (value) {
+              final week = int.tryParse(value);
+              if (week != null) {
+                onWeekChanged(week);
+              }
+            },
+          ),
+          if (semesterLabel.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              semesterLabel,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

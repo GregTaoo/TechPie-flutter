@@ -43,6 +43,8 @@ dependencies:
       ref: br_v9.2.2_ohos
   shared_preferences: ^2.3.0
   package_info_plus: ^8.0.2
+  path_provider: ^2.1.5
+  web: ^1.1.1
   animations: ^2.0.11
   dynamic_color: '>=1.7.0 <1.8.0'
   intl: ^0.20.2
