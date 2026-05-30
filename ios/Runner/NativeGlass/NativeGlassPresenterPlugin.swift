@@ -150,8 +150,8 @@ final class NativeGlassPresenterPlugin: NSObject, FlutterPlugin {
     controller.modalPresentationStyle = .pageSheet
 
     if let sheet = controller.sheetPresentationController {
-      sheet.detents = [.medium(), .large()]
-      sheet.selectedDetentIdentifier = .medium
+      sheet.detents = [.large()]
+      sheet.selectedDetentIdentifier = .large
       sheet.prefersGrabberVisible = false
       sheet.prefersScrollingExpandsWhenScrolledToEdge = false
     }
