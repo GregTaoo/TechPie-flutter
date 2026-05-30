@@ -1,13 +1,23 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:open_filex/open_filex.dart';
 
 import '../models/course.dart';
 import '../models/course_table.dart';
+import '../services/calendar/calendar_importer.dart';
+import '../services/ics/ics_export_service.dart';
+import '../services/ics/ics_file_saver.dart';
 import '../services/schedule_service.dart';
 import '../services/service_provider.dart';
+import '../widgets/adaptive_feedback.dart';
 import '../widgets/blurred_app_bar.dart';
 import '../widgets/course_detail_panel.dart';
 import '../widgets/desktop_popup.dart';
 import '../widgets/desktop_select_popover.dart';
+import '../widgets/ios_liquid/ios_glass_dropdown_menu.dart';
 import '../widgets/ios_liquid/ios_native_navigation_bar.dart';
 import '../utils/platform.dart';
 
@@ -19,11 +29,14 @@ class SchedulePage extends StatefulWidget {
 }
 
 class _SchedulePageState extends State<SchedulePage> {
+  final IcsExportService _icsExport = IcsExportService();
+  final TextEditingController _calendarNameController = TextEditingController();
   late ScheduleService _schedule;
   List<Course> _courses = [];
   List<Period> _periods = defaultPeriods.toList();
   int _currentWeek = 1;
   bool _initialized = false;
+  bool _exportingCalendar = false;
 
   // Settings
   bool _showSaturday = true;
@@ -50,6 +63,7 @@ class _SchedulePageState extends State<SchedulePage> {
 
   @override
   void dispose() {
+    _calendarNameController.dispose();
     _weekPageController.dispose();
     _schedule.removeListener(_onScheduleChanged);
     super.dispose();
@@ -67,6 +81,13 @@ class _SchedulePageState extends State<SchedulePage> {
     final auth = ServiceProvider.of(context).authService;
     if (auth.isLoggedIn) {
       await _schedule.fetchAll();
+    }
+  }
+
+  Future<void> _dismissKeyboard() async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    if (isIos()) {
+      await SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
     }
   }
 
@@ -308,6 +329,207 @@ class _SchedulePageState extends State<SchedulePage> {
     return '';
   }
 
+  String get _icsFileName {
+    final semesterId = _schedule.selectedSemesterId ?? 'schedule';
+    final safe = semesterId.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+    return 'course_table_$safe.ics';
+  }
+
+  String get _defaultCalendarName =>
+      _semesterLabel.isEmpty ? '课程表' : _semesterLabel;
+
+  void _startExportCalendar() {
+    if (_exportingCalendar) return;
+    unawaited(_exportCalendar());
+  }
+
+  Future<SavedIcsFile> _saveCalendarFile(
+    IcsSaveLocation location, {
+    required String calendarName,
+  }) {
+    final table = _schedule.courseTable!;
+    final termBegin = _schedule.termBegin!;
+    return _icsExport.saveCalendar(
+      table: table,
+      termBegin: termBegin,
+      fileName: _icsFileName,
+      location: location,
+      calendarName: calendarName,
+    );
+  }
+
+  Future<void> _exportCalendar() async {
+    final table = _schedule.courseTable;
+    final termBegin = _schedule.termBegin;
+    if (table == null || termBegin == null || _exportingCalendar) return;
+
+    final calendarName = (isIos() || isAndroid())
+        ? await _promptCalendarName(initialValue: _defaultCalendarName)
+        : _defaultCalendarName;
+    if (calendarName == null || calendarName.trim().isEmpty) return;
+
+    setState(() {
+      _exportingCalendar = true;
+    });
+    await WidgetsBinding.instance.endOfFrame;
+
+    try {
+      if (isIos() || isAndroid()) {
+        try {
+          final events = await _icsExport.buildCalendarEventPayloads(
+            table: table,
+            termBegin: termBegin,
+          );
+          final imported = await CalendarImporter.importCalendarEvents(
+            events,
+            calendarName: calendarName,
+          );
+          if (!mounted) return;
+          showAdaptiveFeedback(
+            context: context,
+            message:
+                imported > 0 ? '已导入 $imported 个日程到“$calendarName”' : '没有可导入的日程',
+            style: imported > 0
+                ? AdaptiveFeedbackStyle.success
+                : AdaptiveFeedbackStyle.info,
+          );
+          return;
+        } catch (_) {
+          final fallbackFile = await _saveCalendarFile(
+            IcsSaveLocation.downloads,
+            calendarName: calendarName,
+          );
+          if (!mounted) return;
+          showAdaptiveFeedback(
+            context: context,
+            message: fallbackFile.filePath != null
+                ? '导入失败，已导出到下载目录: ${fallbackFile.filePath}'
+                : '导入失败，ICS 文件已创建。',
+            style: AdaptiveFeedbackStyle.info,
+          );
+          return;
+        }
+      }
+
+      final saved = await _saveCalendarFile(
+        IcsSaveLocation.temporary,
+        calendarName: calendarName,
+      );
+
+      bool launched = false;
+      if (saved.filePath != null) {
+        try {
+          final result = await OpenFilex.open(
+            saved.filePath!,
+            type: 'text/calendar',
+          );
+          launched = result.type == ResultType.done;
+        } catch (e) {
+          launched = false;
+        }
+      }
+
+      if (!launched && saved.launchUri != null) {
+        try {
+          launched = await launchUrl(
+            saved.launchUri!,
+            mode: LaunchMode.externalApplication,
+          );
+        } catch (e) {
+          launched = false;
+        }
+      }
+
+      if (!launched && mounted) {
+        SavedIcsFile fallbackFile = saved;
+        try {
+          fallbackFile = await _saveCalendarFile(
+            IcsSaveLocation.downloads,
+            calendarName: calendarName,
+          );
+        } catch (_) {
+          fallbackFile = saved;
+        }
+        if (!mounted) return;
+
+        showAdaptiveFeedback(
+          context: context,
+          message: fallbackFile.filePath != null
+              ? '已导出到下载目录: ${fallbackFile.filePath}'
+              : 'ICS 文件已创建。',
+          style: AdaptiveFeedbackStyle.info,
+        );
+        return;
+      }
+
+      if (!mounted) return;
+      showAdaptiveFeedback(
+        context: context,
+        message: '课表导出操作成功',
+        style: AdaptiveFeedbackStyle.success,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      showAdaptiveFeedback(
+        context: context,
+        message: '导出课表失败',
+        style: AdaptiveFeedbackStyle.error,
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _exportingCalendar = false;
+        });
+      }
+    }
+  }
+
+  Future<String?> _promptCalendarName({required String initialValue}) async {
+    _calendarNameController
+      ..text = initialValue
+      ..selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: initialValue.length,
+      );
+
+    return showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        Future<void> closeDialog([String? value]) async {
+          await _dismissKeyboard();
+          if (!dialogContext.mounted) return;
+          Navigator.of(dialogContext).pop(value);
+        }
+
+        return AlertDialog(
+          title: const Text('请输入日历名称'),
+          content: TextField(
+            controller: _calendarNameController,
+            autofocus: true,
+            decoration: const InputDecoration(
+              labelText: '日历名',
+              hintText: '例如：2025-2026 春季学期',
+            ),
+            textInputAction: TextInputAction.done,
+            onSubmitted: (value) {
+              closeDialog(value.trim());
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => closeDialog(),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => closeDialog(_calendarNameController.text.trim()),
+              child: const Text('导入'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -365,6 +587,20 @@ class _SchedulePageState extends State<SchedulePage> {
                       title: '显示非本周课程',
                       checked: _showGhostCourses,
                     ),
+                    IosNativeNavigationBarMenuItem(
+                      value: '__export_section__',
+                      title: '',
+                      displayInline: true,
+                      children: [
+                        IosNativeNavigationBarMenuItem(
+                          value: 'exportCalendar',
+                          title: _exportingCalendar ? '正在导出…' : '导出课表',
+                          sfSymbol: _exportingCalendar
+                              ? 'arrow.triangle.2.circlepath'
+                              : 'square.and.arrow.up',
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ],
@@ -414,6 +650,17 @@ class _SchedulePageState extends State<SchedulePage> {
                   icon: const Icon(Icons.chevron_right),
                   tooltip: 'Next week',
                   onPressed: _nextWeek,
+                ),
+                IconButton(
+                  tooltip: _exportingCalendar ? '正在导出课表' : '导出课表',
+                  onPressed: _exportingCalendar ? null : _startExportCalendar,
+                  icon: _exportingCalendar
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.ios_share_rounded),
                 ),
                 if (isDesktopLayout(context))
                   IconButton(
@@ -621,6 +868,8 @@ class _SchedulePageState extends State<SchedulePage> {
           _showGhostCourses = !_showGhostCourses;
           _filterCoursesForWeek();
         });
+      case 'exportCalendar':
+        _startExportCalendar();
     }
   }
 
@@ -688,6 +937,23 @@ class _SchedulePageState extends State<SchedulePage> {
                     ),
                     title: Text('显示非本周课程', style: theme.textTheme.bodyMedium),
                     onTap: () => toggle('ghost'),
+                  ),
+                  const Divider(height: 1),
+                  DesktopMenuRow(
+                    leading: _exportingCalendar
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.ios_share_rounded, size: 20),
+                    title: Text('导出课表', style: theme.textTheme.bodyMedium),
+                    onTap: _exportingCalendar
+                        ? null
+                        : () {
+                            close();
+                            _startExportCalendar();
+                          },
                   ),
                 ],
               );
@@ -799,6 +1065,69 @@ class _DesktopWeekTitleMenu extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _IosWeekTitleMenu extends StatelessWidget {
+  final int currentWeek;
+  final int actualCurrentWeek;
+  final String semesterLabel;
+  final ValueChanged<int> onWeekChanged;
+
+  const _IosWeekTitleMenu({
+    required this.currentWeek,
+    required this.actualCurrentWeek,
+    required this.semesterLabel,
+    required this.onWeekChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Expanded(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          IosGlassDropdownMenu(
+            key: ValueKey<int>(currentWeek),
+            icon: Icons.expand_more_rounded,
+            sfSymbol: 'none',
+            label: '第 $currentWeek 周',
+            width: 96,
+            height: 36,
+            items: [
+              for (int week = 1; week <= 25; week++)
+                IosGlassDropdownMenuItem(
+                  value: '$week',
+                  label: week == actualCurrentWeek
+                      ? '第 $week 周 · 本周'
+                      : '第 $week 周',
+                  checked: week == currentWeek,
+                ),
+            ],
+            onSelected: (value) {
+              final week = int.tryParse(value);
+              if (week != null) {
+                onWeekChanged(week);
+              }
+            },
+          ),
+          if (semesterLabel.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              semesterLabel,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

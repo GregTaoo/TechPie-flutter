@@ -52,6 +52,7 @@ class IosNativeNavigationBarMenuItem {
     this.sfSymbol,
     this.checked = false,
     this.destructive = false,
+    this.displayInline = false,
     this.children = const [],
   });
 
@@ -60,6 +61,7 @@ class IosNativeNavigationBarMenuItem {
   final String? sfSymbol;
   final bool checked;
   final bool destructive;
+  final bool displayInline;
   final List<IosNativeNavigationBarMenuItem> children;
 
   Map<String, Object?> toMap() {
@@ -69,6 +71,7 @@ class IosNativeNavigationBarMenuItem {
       'sfSymbol': sfSymbol,
       'checked': checked,
       'destructive': destructive,
+      'displayInline': displayInline,
       'children': children.map((item) => item.toMap()).toList(),
     };
   }

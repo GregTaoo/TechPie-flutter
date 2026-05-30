@@ -282,6 +282,7 @@ final class NativeNavigationBarPlatformView: NSObject, FlutterPlatformView {
       return UIMenu(
         title: menuItem.title,
         image: symbolImage(named: menuItem.sfSymbol),
+        options: menuItem.displayInline ? [.displayInline] : [],
         children: menuItem.children.map { makeMenuElement($0, itemID: itemID) }
       )
     }
@@ -374,6 +375,7 @@ private struct NativeNavigationBarMenuItem {
   let sfSymbol: String?
   let checked: Bool
   let destructive: Bool
+  let displayInline: Bool
   let children: [NativeNavigationBarMenuItem]
 
   init(_ params: [String: Any]) {
@@ -382,6 +384,7 @@ private struct NativeNavigationBarMenuItem {
     sfSymbol = params["sfSymbol"] as? String
     checked = params["checked"] as? Bool ?? false
     destructive = params["destructive"] as? Bool ?? false
+    displayInline = params["displayInline"] as? Bool ?? false
     children = (params["children"] as? [[String: Any]] ?? [])
       .map(NativeNavigationBarMenuItem.init)
   }

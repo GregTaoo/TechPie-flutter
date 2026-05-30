@@ -18,6 +18,7 @@
 		5A0010102F1A000100000001 /* NativeGlassSwitch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A00100F2F1A000100000001 /* NativeGlassSwitch.swift */; };
 		5A0010122F1A000100000001 /* NativeGlassConfirmationButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0010112F1A000100000001 /* NativeGlassConfirmationButton.swift */; };
 		5A0010142F1A000100000001 /* NativeGlassPresenterPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0010132F1A000100000001 /* NativeGlassPresenterPlugin.swift */; };
+		5A0010152F1A000100000001 /* IcsFilePresenterPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0010162F1A000100000001 /* IcsFilePresenterPlugin.swift */; };
 		5A0010182F1A000100000001 /* NativeNavigationBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0010172F1A000100000001 /* NativeNavigationBar.swift */; };
 		6BFBE954DB868241E9E9810B /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 052EF181B45C1F8AB028A91F /* Pods_Runner.framework */; };
 		74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74858FAE1ED2DC5600515810 /* AppDelegate.swift */; };
@@ -25,6 +26,7 @@
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
 		AE9BB45FC9E1D531003A2DF5 /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 95DFA3F27C43BF6B489182B8 /* Pods_RunnerTests.framework */; };
+		78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */ = {isa = PBXBuildFile; productRef = 78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -66,6 +68,7 @@
 		5A00100F2F1A000100000001 /* NativeGlassSwitch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeGlassSwitch.swift; sourceTree = "<group>"; };
 		5A0010112F1A000100000001 /* NativeGlassConfirmationButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeGlassConfirmationButton.swift; sourceTree = "<group>"; };
 		5A0010132F1A000100000001 /* NativeGlassPresenterPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeGlassPresenterPlugin.swift; sourceTree = "<group>"; };
+		5A0010162F1A000100000001 /* IcsFilePresenterPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IcsFilePresenterPlugin.swift; sourceTree = "<group>"; };
 		5A0010172F1A000100000001 /* NativeNavigationBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeNavigationBar.swift; sourceTree = "<group>"; };
 		6B0AD00AB3D979A68E9ABE84 /* Pods-RunnerTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release.xcconfig"; sourceTree = "<group>"; };
 		74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Runner-Bridging-Header.h"; sourceTree = "<group>"; };
@@ -83,6 +86,7 @@
 		C6ECDBC06E9BDB1CBA58B7DB /* Pods-Runner.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.release.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"; sourceTree = "<group>"; };
 		C7BBB453CDB9F73A63A4A327 /* Pods-Runner.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.debug.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"; sourceTree = "<group>"; };
 		D3EC6B66BB17FD8FCFF14373 /* Pods-RunnerTests.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.profile.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.profile.xcconfig"; sourceTree = "<group>"; };
+		78E0A7A72DC9AD7400C4905E /* FlutterGeneratedPluginSwiftPackage */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = FlutterGeneratedPluginSwiftPackage; path = Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -98,6 +102,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */,
 				6BFBE954DB868241E9E9810B /* Pods_Runner.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -146,6 +151,7 @@
 				5A00100F2F1A000100000001 /* NativeGlassSwitch.swift */,
 				5A0010112F1A000100000001 /* NativeGlassConfirmationButton.swift */,
 				5A0010132F1A000100000001 /* NativeGlassPresenterPlugin.swift */,
+				5A0010162F1A000100000001 /* IcsFilePresenterPlugin.swift */,
 				5A0010172F1A000100000001 /* NativeNavigationBar.swift */,
 			);
 			path = NativeGlass;
@@ -154,6 +160,7 @@
 		9740EEB11CF90186004384FC /* Flutter */ = {
 			isa = PBXGroup;
 			children = (
+				78E0A7A72DC9AD7400C4905E /* FlutterGeneratedPluginSwiftPackage */,
 				3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */,
 				9740EEB21CF90195004384FC /* Debug.xcconfig */,
 				7AFA3C8E1D35360C0083082E /* Release.xcconfig */,
@@ -222,6 +229,9 @@
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
 		97C146ED1CF9000F007C117D /* Runner */ = {
+			packageProductDependencies = (
+				78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */,
+			);
 			isa = PBXNativeTarget;
 			buildConfigurationList = 97C147051CF9000F007C117D /* Build configuration list for PBXNativeTarget "Runner" */;
 			buildPhases = (
@@ -247,6 +257,9 @@
 
 /* Begin PBXProject section */
 		97C146E61CF9000F007C117D /* Project object */ = {
+			packageReferences = (
+				781AD8BC2B33823900A9FFBB /* XCLocalSwiftPackageReference "Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage" */,
+			);
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
@@ -413,6 +426,7 @@
 			files = (
 				5A0010102F1A000100000001 /* NativeGlassSwitch.swift in Sources */,
 				5A0010142F1A000100000001 /* NativeGlassPresenterPlugin.swift in Sources */,
+				5A0010152F1A000100000001 /* IcsFilePresenterPlugin.swift in Sources */,
 				5A00100E2F1A000100000001 /* NativeGlassSelect.swift in Sources */,
 				5A00100C2F1A000100000001 /* NativeGlassDropdownMenu.swift in Sources */,
 				5A0010122F1A000100000001 /* NativeGlassConfirmationButton.swift in Sources */,
@@ -772,6 +786,18 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+/* Begin XCLocalSwiftPackageReference section */
+		781AD8BC2B33823900A9FFBB /* XCLocalSwiftPackageReference "Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Flutter/ephemeral/Packages/FlutterGeneratedPluginSwiftPackage;
+		};
+/* End XCLocalSwiftPackageReference section */
+/* Begin XCSwiftPackageProductDependency section */
+		78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = FlutterGeneratedPluginSwiftPackage;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 97C146E61CF9000F007C117D /* Project object */;
 }

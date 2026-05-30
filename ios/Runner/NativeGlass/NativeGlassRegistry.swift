@@ -49,5 +49,6 @@ enum NativeGlassRegistry {
     )
 
     NativeGlassPresenterPlugin.register(with: registrar)
+    IcsFilePresenterPlugin.register(with: registrar)
   }
 }
