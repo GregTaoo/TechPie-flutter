@@ -9,6 +9,8 @@ import '../widgets/adaptive_alert_dialog.dart';
 import '../widgets/adaptive_feedback.dart';
 import '../widgets/blurred_app_bar.dart';
 import '../widgets/ios_liquid/ios_glass_switch.dart';
+import '../widgets/ios_liquid/ios_native_navigation_bar.dart';
+import '../widgets/ios_liquid/ios_native_text_field.dart';
 
 class ThirdPartyBindPage extends StatefulWidget {
   final ThirdPartyPlatform platform;
@@ -86,7 +88,7 @@ class _ThirdPartyBindPageState extends State<ThirdPartyBindPage> {
   }
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!_validateForSubmit()) return;
     await _dismissKeyboard();
     if (!mounted) return;
     setState(() => _busy = true);
@@ -151,8 +153,35 @@ class _ThirdPartyBindPageState extends State<ThirdPartyBindPage> {
     }
   }
 
+  bool _validateForSubmit() {
+    if (!isIos()) {
+      return _formKey.currentState?.validate() ?? true;
+    }
+
+    String? message;
+    if (_accountCtrl.text.trim().isEmpty) {
+      message = '请填写${_isGradescope ? '邮箱' : '用户名'}';
+    } else if (_passwordCtrl.text.isEmpty) {
+      message = '请填写密码';
+    } else if (_isHydro && _hydroOriginCtrl.text.trim().isEmpty) {
+      message = '请填写 Hydro 站点 origin';
+    } else if (_isHydro) {
+      final domains = _hydroDomainsCtrl.text
+          .split(RegExp(r'[\s,]+'))
+          .where((value) => value.trim().isNotEmpty);
+      if (domains.isEmpty) message = '至少填写一个课程 domain';
+    }
+
+    setState(() => _inlineError = message);
+    return message == null;
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (isIos()) {
+      return _buildIosBindPage(context);
+    }
+
     final useLegacyIosChrome = usesLegacyIosChrome();
     final topInset = useLegacyIosChrome
         ? 16.0
@@ -208,10 +237,10 @@ class _ThirdPartyBindPageState extends State<ThirdPartyBindPage> {
               const SizedBox(height: 12),
               TextFormField(
                 controller: _hydroOriginCtrl,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Hydro 站点 origin',
                   helperText: '默认 https://acm.shanghaitech.edu.cn',
-                  border: OutlineInputBorder(),
+                  border: const OutlineInputBorder(),
                 ),
                 validator: (v) => (v == null || v.trim().isEmpty) ? '必填' : null,
               ),
@@ -220,10 +249,10 @@ class _ThirdPartyBindPageState extends State<ThirdPartyBindPage> {
                 controller: _hydroDomainsCtrl,
                 minLines: 2,
                 maxLines: 6,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: '课程 domain (每行一个,或用逗号分隔)',
                   helperText: '例: SI100B_2025_Autumn',
-                  border: OutlineInputBorder(),
+                  border: const OutlineInputBorder(),
                   alignLabelWithHint: true,
                 ),
                 validator: (v) {
@@ -273,6 +302,119 @@ class _ThirdPartyBindPageState extends State<ThirdPartyBindPage> {
               '凭据将通过 HTTPS 发送到 techpie 后端,后端代为登录上游平台并返回 token。'
               'token 与原始 payload 仅在本设备加密保存。',
               style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildIosBindPage(BuildContext context) {
+    final theme = Theme.of(context);
+    final secondaryLabel = theme.colorScheme.onSurfaceVariant;
+
+    return Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor,
+      appBar: IosNativeNavigationBar(
+        title: 'Bind ${widget.platform.label}',
+        leadingItems: [
+          if (Navigator.canPop(context))
+            const IosNativeNavigationBarItem(
+              id: 'back',
+              title: '返回',
+              sfSymbol: 'chevron.left',
+              accessibilityLabel: '返回',
+            ),
+        ],
+        onItemPressed: (id) {
+          if (id == 'back') {
+            Navigator.maybePop(context);
+          }
+        },
+      ),
+      body: SafeArea(
+        top: false,
+        child: ListView(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+          children: [
+            if (_inlineError != null) ...[
+              _InlineBindFeedback(message: _inlineError!),
+              const SizedBox(height: 16),
+            ],
+            IosNativeTextField(
+              label: _isGradescope ? '邮箱' : '用户名',
+              placeholder: _isGradescope ? '请输入邮箱' : '请输入用户名',
+              controller: _accountCtrl,
+              keyboardType: _isGradescope
+                  ? TextInputType.emailAddress
+                  : TextInputType.text,
+              textInputAction: TextInputAction.next,
+            ),
+            const SizedBox(height: 10),
+            IosNativeTextField(
+              label: '密码',
+              placeholder: '请输入密码',
+              controller: _passwordCtrl,
+              obscureText: _obscure,
+              textInputAction:
+                  _isHydro ? TextInputAction.next : TextInputAction.done,
+              onSubmitted: (_) {
+                if (!_isHydro) _submit();
+              },
+            ),
+            if (_isHydro) ...[
+              const SizedBox(height: 10),
+              IosNativeTextField(
+                label: 'Origin',
+                placeholder: 'https://acm.shanghaitech.edu.cn',
+                controller: _hydroOriginCtrl,
+                keyboardType: TextInputType.url,
+                textInputAction: TextInputAction.next,
+              ),
+              const SizedBox(height: 10),
+              IosNativeTextField(
+                label: 'Domain',
+                placeholder: 'SI100B_2025_Autumn',
+                controller: _hydroDomainsCtrl,
+                minLines: 2,
+                maxLines: 6,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => _submit(),
+              ),
+            ],
+            const SizedBox(height: 16),
+            MergeSemantics(
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('自动更新 Token'),
+                subtitle: Text(
+                  '过期前 48 小时内自动重登,免去手动重绑',
+                  style: TextStyle(color: secondaryLabel),
+                ),
+                trailing: IosGlassSwitch(
+                  value: _autoRenew,
+                  onChanged: (value) => _onAutoRenewChanged(value),
+                ),
+                onTap: () => _onAutoRenewChanged(!_autoRenew),
+              ),
+            ),
+            const SizedBox(height: 18),
+            FilledButton(
+              onPressed: _busy ? null : _submit,
+              child: _busy
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('绑定'),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              '凭据将通过 HTTPS 发送到 techpie 后端,后端代为登录上游平台并返回 token。'
+              'token 与原始 payload 仅在本设备加密保存。',
+              style: theme.textTheme.bodySmall?.copyWith(color: secondaryLabel),
             ),
           ],
         ),
