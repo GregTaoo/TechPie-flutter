@@ -17,7 +17,6 @@ import '../widgets/blurred_app_bar.dart';
 import '../widgets/course_detail_panel.dart';
 import '../widgets/desktop_popup.dart';
 import '../widgets/desktop_select_popover.dart';
-import '../widgets/ios_liquid/ios_glass_dropdown_menu.dart';
 import '../widgets/ios_liquid/ios_native_navigation_bar.dart';
 import '../utils/platform.dart';
 
@@ -554,12 +553,6 @@ class _SchedulePageState extends State<SchedulePage> {
                   accessibilityLabel: '视图设置',
                   menuItems: [
                     IosNativeNavigationBarMenuItem(
-                      value: 'currentWeek',
-                      title: '回到本周',
-                      sfSymbol: 'calendar.badge.clock',
-                      checked: isViewingCurrentWeek,
-                    ),
-                    IosNativeNavigationBarMenuItem(
                       value: 'semester',
                       title: '切换学期',
                       children: [
@@ -603,7 +596,19 @@ class _SchedulePageState extends State<SchedulePage> {
                     ),
                   ],
                 ),
+                IosNativeNavigationBarItem(
+                  id: 'currentWeek',
+                  sfSymbol: 'calendar.badge.clock',
+                  hidden: isViewingCurrentWeek,
+                  accessibilityLabel: '回到本周',
+                  placementGroup: 'week-actions',
+                ),
               ],
+              onItemPressed: (id) {
+                if (id == 'currentWeek') {
+                  _goToCurrentWeek();
+                }
+              },
               onMenuSelected: (_, value) => _onMenuSelected(value),
             )
           : BlurredAppBar(
@@ -1065,69 +1070,6 @@ class _DesktopWeekTitleMenu extends StatelessWidget {
           ),
         );
       },
-    );
-  }
-}
-
-class _IosWeekTitleMenu extends StatelessWidget {
-  final int currentWeek;
-  final int actualCurrentWeek;
-  final String semesterLabel;
-  final ValueChanged<int> onWeekChanged;
-
-  const _IosWeekTitleMenu({
-    required this.currentWeek,
-    required this.actualCurrentWeek,
-    required this.semesterLabel,
-    required this.onWeekChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Expanded(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          IosGlassDropdownMenu(
-            key: ValueKey<int>(currentWeek),
-            icon: Icons.expand_more_rounded,
-            sfSymbol: 'none',
-            label: '第 $currentWeek 周',
-            width: 96,
-            height: 36,
-            items: [
-              for (int week = 1; week <= 25; week++)
-                IosGlassDropdownMenuItem(
-                  value: '$week',
-                  label: week == actualCurrentWeek
-                      ? '第 $week 周 · 本周'
-                      : '第 $week 周',
-                  checked: week == currentWeek,
-                ),
-            ],
-            onSelected: (value) {
-              final week = int.tryParse(value);
-              if (week != null) {
-                onWeekChanged(week);
-              }
-            },
-          ),
-          if (semesterLabel.isNotEmpty) ...[
-            const SizedBox(height: 2),
-            Text(
-              semesterLabel,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ],
-      ),
     );
   }
 }

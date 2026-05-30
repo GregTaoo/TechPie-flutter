@@ -31,6 +31,12 @@ class _OaGymPageState extends State<OaGymPage>
     super.dispose();
   }
 
+  Future<void> _handleLogin() async {
+    await presentLoginPage(context);
+    if (!mounted) return;
+    setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = ServiceProvider.of(context).authService;
@@ -62,76 +68,80 @@ class _OaGymPageState extends State<OaGymPage>
               },
             )
           : const BlurredAppBar(title: Text('场馆预约')),
-      body: auth.isLoggedIn
-          ? Column(
-              children: [
-                SizedBox(height: topInset),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                  child: Card.outlined(
-                    clipBehavior: Clip.antiAlias,
-                    child: TabBar(
-                      controller: _tabController,
-                      tabs: const [
-                        Tab(text: '预约', icon: Icon(Icons.event_available)),
-                        Tab(text: '查询', icon: Icon(Icons.search)),
-                        Tab(text: '个人', icon: Icon(Icons.person_outline)),
-                      ],
-                    ),
-                  ),
-                ),
-                Expanded(
-                  child: TabBarView(
-                    controller: _tabController,
-                    children: const [
-                      _BookingTab(),
-                      _SearchTab(),
-                      _ProfileTab(),
-                    ],
-                  ),
-                ),
-              ],
-            )
-          : ListView(
-              padding: EdgeInsets.fromLTRB(16, topInset + 16, 16, 120),
-              children: [
-                Card.filled(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Icon(
-                          Icons.login_rounded,
-                          size: 40,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          '需要先登录 TechPie',
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          '场馆预约会复用你的主账号 CASTGC 登录态，不需要单独保存 OA 密码。',
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                        const SizedBox(height: 16),
-                        FilledButton.icon(
-                          onPressed: () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => const LoginPage(),
+      body: ListenableBuilder(
+        listenable: auth,
+        builder: (context, _) {
+          return auth.isLoggedIn
+              ? Column(
+                  children: [
+                    SizedBox(height: topInset),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                      child: Card.outlined(
+                        clipBehavior: Clip.antiAlias,
+                        child: TabBar(
+                          controller: _tabController,
+                          tabs: const [
+                            Tab(
+                              text: '预约',
+                              icon: Icon(Icons.event_available),
                             ),
-                          ),
-                          icon: const Icon(Icons.login),
-                          label: const Text('去登录'),
+                            Tab(text: '查询', icon: Icon(Icons.search)),
+                            Tab(text: '个人', icon: Icon(Icons.person_outline)),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
-                  ),
-                ),
-              ],
-            ),
+                    Expanded(
+                      child: TabBarView(
+                        controller: _tabController,
+                        children: const [
+                          _BookingTab(),
+                          _SearchTab(),
+                          _ProfileTab(),
+                        ],
+                      ),
+                    ),
+                  ],
+                )
+              : ListView(
+                  padding: EdgeInsets.fromLTRB(16, topInset + 16, 16, 120),
+                  children: [
+                    Card.filled(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              Icons.login_rounded,
+                              size: 40,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              '需要先登录 TechPie',
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              '场馆预约会复用你的主账号 CASTGC 登录态，不需要单独保存 OA 密码。',
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
+                            const SizedBox(height: 16),
+                            FilledButton.icon(
+                              onPressed: _handleLogin,
+                              icon: const Icon(Icons.login),
+                              label: const Text('去登录'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+        },
+      ),
     );
   }
 }

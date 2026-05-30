@@ -6,6 +6,7 @@ import '../services/service_provider.dart';
 import '../widgets/adaptive_alert_dialog.dart';
 import '../widgets/blurred_app_bar.dart';
 import '../widgets/ios_liquid/ios_glass_confirmation_button.dart';
+import '../widgets/ios_liquid/ios_native_navigation_bar.dart';
 import 'login_page.dart';
 import 'third_party_bind_page.dart';
 import '../utils/platform.dart';
@@ -19,14 +20,33 @@ class ThirdPartyAccountsPage extends StatelessWidget {
     final tpAuth = sp.thirdPartyAuthService;
     final auth = sp.authService;
     final theme = Theme.of(context);
+    final useIosChrome = isIos();
     final useLegacyIosChrome = usesLegacyIosChrome();
-    final topInset = useLegacyIosChrome
+    final topInset = useIosChrome || useLegacyIosChrome
         ? 0.0
         : adaptiveTopBarHeight() + MediaQuery.viewPaddingOf(context).top;
 
     return Scaffold(
-      extendBodyBehindAppBar: !useLegacyIosChrome,
-      appBar: const BlurredAppBar(title: Text('Linked Accounts')),
+      extendBodyBehindAppBar: !useIosChrome && !useLegacyIosChrome,
+      appBar: useIosChrome
+          ? IosNativeNavigationBar(
+              title: 'Linked Accounts',
+              leadingItems: [
+                if (Navigator.canPop(context))
+                  const IosNativeNavigationBarItem(
+                    id: 'back',
+                    title: '返回',
+                    sfSymbol: 'chevron.left',
+                    accessibilityLabel: '返回',
+                  ),
+              ],
+              onItemPressed: (id) {
+                if (id == 'back') {
+                  Navigator.maybePop(context);
+                }
+              },
+            )
+          : const BlurredAppBar(title: Text('Linked Accounts')),
       body: ListenableBuilder(
         listenable: Listenable.merge([tpAuth, auth]),
         builder: (context, _) {
@@ -83,12 +103,7 @@ class _BlackboardTile extends StatelessWidget {
       trailing: loggedIn
           ? Icon(Icons.check_circle, color: theme.colorScheme.primary, size: 20)
           : const Icon(Icons.chevron_right),
-      onTap: loggedIn
-          ? null
-          : () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const LoginPage()),
-              ),
+      onTap: loggedIn ? null : () => presentLoginPage(context),
     );
   }
 }
