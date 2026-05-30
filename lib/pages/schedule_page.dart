@@ -7,9 +7,9 @@ import 'package:open_filex/open_filex.dart';
 
 import '../models/course.dart';
 import '../models/course_table.dart';
+import '../services/calendar/calendar_importer.dart';
 import '../services/ics/ics_export_service.dart';
 import '../services/ics/ics_file_saver.dart';
-import '../services/ios/ios_file_presenter.dart';
 import '../services/schedule_service.dart';
 import '../services/service_provider.dart';
 import '../widgets/adaptive_feedback.dart';
@@ -363,7 +363,7 @@ class _SchedulePageState extends State<SchedulePage> {
     final termBegin = _schedule.termBegin;
     if (table == null || termBegin == null || _exportingCalendar) return;
 
-    final calendarName = isIos()
+    final calendarName = (isIos() || isAndroid())
         ? await _promptCalendarName(initialValue: _defaultCalendarName)
         : _defaultCalendarName;
     if (calendarName == null || calendarName.trim().isEmpty) return;
@@ -374,13 +374,13 @@ class _SchedulePageState extends State<SchedulePage> {
     await WidgetsBinding.instance.endOfFrame;
 
     try {
-      if (isIos()) {
+      if (isIos() || isAndroid()) {
         try {
           final events = await _icsExport.buildCalendarEventPayloads(
             table: table,
             termBegin: termBegin,
           );
-          final imported = await IosFilePresenter.importCalendarEvents(
+          final imported = await CalendarImporter.importCalendarEvents(
             events,
             calendarName: calendarName,
           );

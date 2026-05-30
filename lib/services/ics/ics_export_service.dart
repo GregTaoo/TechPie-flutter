@@ -304,6 +304,8 @@ List<Map<String, Object?>> _buildCalendarEventPayloadsInBackground(
         'structuredLocationTitle': event.location,
         'structuredLocationAddress':
             '${structuredLocation.title} ${IcsExportService._structuredLocationAddress}',
+        'structuredLocationLatitude': structuredLocation.latitude,
+        'structuredLocationLongitude': structuredLocation.longitude,
       });
     }
     return payload;
