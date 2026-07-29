@@ -47,6 +47,11 @@ dependencies:
   http: ^1.4.0
   intl: ^0.20.2
   mobile_scanner: ^6.0.11
+  image_picker:
+    git:
+      url: https://gitee.com/openharmony-sig/flutter_packages.git
+      path: packages/image_picker/image_picker
+      ref: br_image_picker-v1.1.2_ohos
   open_filex: ^4.5.0
   package_info_plus: ^8.0.2
   path_provider: ^2.1.5
@@ -79,6 +84,11 @@ dependency_overrides:
     git:
       url: https://gitee.com/openharmony-sig/flutter_packages.git
       path: packages/url_launcher/url_launcher_ohos
+  image_picker_ohos:
+    git:
+      url: https://gitee.com/openharmony-sig/flutter_packages.git
+      path: packages/image_picker/image_picker_ohos
+      ref: br_image_picker-v1.1.2_ohos
   webview_flutter_platform_interface:
     path: ../br_webview_flutter_ohos/webview_flutter_platform_interface
   # flutter_secure_storage:

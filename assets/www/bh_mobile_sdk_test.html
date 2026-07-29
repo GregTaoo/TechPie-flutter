@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BH_MOBILE_SDK Test</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 20px auto; padding: 0 16px; }
+    button { margin: 4px 4px 4px 0; padding: 8px 12px; }
+    .status { padding: 10px; background: #f3f4f6; border-radius: 6px; }
+    .ok { color: #137333; }
+    .bad { color: #b3261e; }
+    pre { min-height: 180px; padding: 12px; overflow: auto; background: #111827; color: #e5e7eb; border-radius: 6px; white-space: pre-wrap; word-break: break-word; }
+  </style>
+</head>
+<body>
+  <h2>BH_MOBILE_SDK 测试</h2>
+  <div id="status" class="status">正在检查 SDK...</div>
+
+  <h3>原生能力</h3>
+  <button onclick="takeCamera()">拍照</button>
+  <button onclick="takePhoto()">从相册选择</button>
+  <button onclick="previewImages()">预览测试图片</button>
+  <button onclick="openWebView()">打开 WebView</button>
+  <button onclick="toggleNavBar()">隐藏原生导航栏</button>
+  <button onclick="closeWebView()">关闭当前 WebView</button>
+
+  <h3>生命周期</h3>
+  <button onclick="registerResume()">注册 webviewOnResume</button>
+  <button onclick="clearLog()">清空日志</button>
+
+  <h3>日志</h3>
+  <pre id="log"></pre>
+
+  <script>
+    (function () {
+      var sdk = window.BH_MOBILE_SDK;
+      var status = document.getElementById('status');
+
+      if (sdk && sdk.systemAbility) {
+        status.className = 'status ok';
+        status.textContent = 'BH_MOBILE_SDK 已注入，systemAbility 可用';
+      } else {
+        status.className = 'status bad';
+        status.textContent = 'BH_MOBILE_SDK 未注入。请在原生宿主 WebView 中打开此页面';
+      }
+
+      log('页面加载完成');
+      log('ENV: ' + (sdk && sdk.ENV ? sdk.ENV : 'unknown'));
+      log('SDK: ' + (sdk ? 'available' : 'missing'));
+    })();
+
+    function getSdk() {
+      var sdk = window.BH_MOBILE_SDK;
+      if (!sdk) {
+        log('错误: window.BH_MOBILE_SDK 不存在');
+        return null;
+      }
+      return sdk;
+    }
+
+    function log(message, value) {
+      var output = document.getElementById('log');
+      var line = new Date().toLocaleTimeString() + '  ' + message;
+      if (typeof value !== 'undefined') {
+        try {
+          line += '\n' + JSON.stringify(value, null, 2);
+        } catch (error) {
+          line += '\n' + String(value);
+        }
+      }
+      output.textContent += line + '\n\n';
+      output.scrollTop = output.scrollHeight;
+    }
+
+    function takeCamera() {
+      var sdk = getSdk();
+      if (!sdk || !sdk.systemAbility || typeof sdk.systemAbility.takeCamera !== 'function') {
+        log('takeCamera 不可用');
+        return;
+      }
+      log('调用 BH_MOBILE_SDK.systemAbility.takeCamera()');
+      try {
+        sdk.systemAbility.takeCamera(function (result) {
+          log('takeCamera 回调', result);
+        });
+      } catch (error) {
+        log('takeCamera 抛出异常', String(error));
+      }
+    }
+
+    function takePhoto() {
+      var sdk = getSdk();
+      if (!sdk || !sdk.systemAbility || typeof sdk.systemAbility.takePhoto !== 'function') {
+        log('takePhoto 不可用');
+        return;
+      }
+      log('调用 BH_MOBILE_SDK.systemAbility.takePhoto(callback, 3)');
+      try {
+        sdk.systemAbility.takePhoto(function (result) {
+          log('takePhoto 回调', result);
+          uploadImages(result);
+        }, 3);
+      } catch (error) {
+        log('takePhoto 抛出异常', String(error));
+      }
+    }
+
+    function uploadImages(result) {
+      var sdk = getSdk();
+      var uploader = sdk && sdk.wisedu && sdk.wisedu.uploadToEMAP;
+      if (!uploader) {
+        log('未自动上传: BH_MOBILE_SDK.wisedu.uploadToEMAP 不可用');
+        return;
+      }
+
+      var files = Array.isArray(result) ? result : [result];
+      var urls = files.filter(function (file) {
+        return file && (typeof file === 'string' || file.url);
+      }).map(function (file) {
+        return typeof file === 'string' ? file : file.url;
+      });
+
+      if (!urls.length) {
+        log('未自动上传: 回调中没有图片 URL');
+        return;
+      }
+
+      log('自动上传图片', urls);
+      Promise.resolve(uploader.call(sdk.wisedu, location.origin, urls, {}))
+        .then(function (response) {
+          log('uploadToEMAP 成功', response);
+        })
+        .catch(function (error) {
+          log('uploadToEMAP 失败', error);
+        });
+    }
+
+    function previewImages() {
+      var sdk = getSdk();
+      if (!sdk || !sdk.UI || typeof sdk.UI.preViewImages !== 'function') {
+        log('UI.preViewImages 不可用');
+        return;
+      }
+      var images = [{
+        url: 'https://dummyimage.com/600x400/1976d2/ffffff.png&text=BH+SDK',
+        desc: 'BH_MOBILE_SDK 测试图片'
+      }];
+      log('调用 UI.preViewImages()', images);
+      try {
+        sdk.UI.preViewImages(images, 0);
+      } catch (error) {
+        log('preViewImages 抛出异常', String(error));
+      }
+    }
+
+    function openWebView() {
+      var sdk = getSdk();
+      if (!sdk || !sdk.UI || typeof sdk.UI.openWebView !== 'function') {
+        log('UI.openWebView 不可用');
+        return;
+      }
+      log('调用 UI.openWebView()');
+      try {
+        sdk.UI.openWebView('https://example.com');
+      } catch (error) {
+        log('openWebView 抛出异常', String(error));
+      }
+    }
+
+    function toggleNavBar() {
+      var sdk = getSdk();
+      if (!sdk || !sdk.UI) {
+        log('UI 不可用');
+        return;
+      }
+      var method = sdk.UI.toggleNavBar || sdk.UI.setNavHeader;
+      if (typeof method !== 'function') {
+        log('toggleNavBar/setNavHeader 均不可用');
+        return;
+      }
+      log('调用导航栏隐藏 API');
+      try {
+        method.call(sdk.UI, false);
+      } catch (error) {
+        log('导航栏 API 抛出异常', String(error));
+      }
+    }
+
+    function closeWebView() {
+      var sdk = getSdk();
+      if (!sdk || !sdk.UI || typeof sdk.UI.closeWebView !== 'function') {
+        log('UI.closeWebView 不可用');
+        return;
+      }
+      log('调用 UI.closeWebView()');
+      try {
+        sdk.UI.closeWebView();
+      } catch (error) {
+        log('closeWebView 抛出异常', String(error));
+      }
+    }
+
+    function registerResume() {
+      var sdk = getSdk();
+      if (!sdk || !sdk.UI || typeof sdk.UI.webviewOnResume !== 'function') {
+        log('UI.webviewOnResume 不可用');
+        return;
+      }
+      try {
+        sdk.UI.webviewOnResume(function () {
+          log('webviewOnResume 回调触发');
+        });
+        log('webviewOnResume 注册成功');
+      } catch (error) {
+        log('webviewOnResume 抛出异常', String(error));
+      }
+    }
+
+    function clearLog() {
+      document.getElementById('log').textContent = '';
+    }
+  </script>
+</body>
+</html>

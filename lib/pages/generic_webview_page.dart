@@ -6,6 +6,7 @@ import 'package:desktop_webview_window/desktop_webview_window.dart'
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart'
     show
+        JavaScriptMessage,
         WebViewController,
         WebViewUserScript,
         JavaScriptMode,
@@ -70,7 +71,12 @@ class _GenericWebViewPageState extends State<GenericWebViewPage> {
         ),
       );
       webview.addOnWebMessageReceivedCallback((message) {
-        debugPrint('TechPieBridge desktop message: $message');
+        unawaited(
+          handleBhMobileSdkMessage(
+            message,
+            (script) => webview.evaluateJavaScript(script),
+          ),
+        );
       });
       webview.addScriptToExecuteOnDocumentCreated(techPieDocumentStartScript);
       for (final script in widget.initialUserScripts) {
@@ -106,8 +112,14 @@ class _GenericWebViewPageState extends State<GenericWebViewPage> {
 
     await _controller.addJavaScriptChannel(
       'TechPieBridge',
-
-      onMessageReceived: (_) {},
+      onMessageReceived: (JavaScriptMessage message) {
+        unawaited(
+          handleBhMobileSdkMessage(
+            message.message,
+            (script) => _controller.runJavaScript(script),
+          ),
+        );
+      },
     );
 
     await _controller.addUserScripts(<WebViewUserScript>[

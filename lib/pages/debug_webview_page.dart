@@ -42,6 +42,12 @@ class _DebugWebViewPageState extends State<DebugWebViewPage> {
       ),
     );
     webview.addOnWebMessageReceivedCallback((message) {
+      unawaited(
+        handleBhMobileSdkMessage(
+          message,
+          (script) => webview.evaluateJavaScript(script),
+        ),
+      );
       if (mounted) setState(() => _bridgeMessage = message);
     });
     webview.addScriptToExecuteOnDocumentCreated(techPieDocumentStartScript);
@@ -59,7 +65,13 @@ class _DebugWebViewPageState extends State<DebugWebViewPage> {
     await _controller.addJavaScriptChannel(
       'TechPieBridge',
       onMessageReceived: (JavaScriptMessage message) {
-        setState(() => _bridgeMessage = message.message);
+        unawaited(
+          handleBhMobileSdkMessage(
+            message.message,
+            (script) => _controller.runJavaScript(script),
+          ),
+        );
+        if (mounted) setState(() => _bridgeMessage = message.message);
       },
     );
     await _controller.addUserScripts(const <WebViewUserScript>[
