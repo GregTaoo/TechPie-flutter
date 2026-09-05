@@ -51,7 +51,8 @@ final class AuthController extends AsyncNotifier<AuthSnapshot> {
   Future<AuthSnapshot> build() async {
     final runtime = ref.watch(appRuntimeProvider);
     final auth = runtime.auth;
-    final initial = await auth.restoreLocal();
+    final initial =
+        await auth.restoreLocal().timeout(const Duration(seconds: 10));
     final subscription = auth.changes.listen((snapshot) {
       if (snapshot.state == AuthState.signingIn) return;
       final previous = state.valueOrNull;

@@ -1,13 +1,8 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:techpie/widgets/adaptive_button.dart';
 
 import '../../app/app_providers.dart';
-import '../../domain/models/auth_models.dart';
-import '../app/routes.dart';
 import '../icons/platform_icons.dart';
 import '../localization/geekpay_localizations.dart';
 import '../theme/colors.dart';
@@ -16,40 +11,15 @@ import '../widgets/gp_state.dart';
 
 /// Account prerequisite shown when TechPie has no campus-card OpenID.
 /// OpenID entry lives in TechPie's Account settings rather than in this flow.
-final class LoginScreen extends ConsumerStatefulWidget {
+final class LoginScreen extends ConsumerWidget {
   const LoginScreen({super.key});
 
   @override
-  ConsumerState<LoginScreen> createState() => _LoginScreenState();
-}
-
-class _LoginScreenState extends ConsumerState<LoginScreen> {
-  bool _routing = false;
-
-  Future<void> _routeAfterAuthentication() async {
-    if (_routing) return;
-    _routing = true;
-    try {
-      final card = await ref.read(cardControllerProvider.future);
-      if (!mounted) return;
-      context.go(card == null ? GpRoutes.bindCard : GpRoutes.pay);
-    } catch (_) {
-      _routing = false;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final auth = ref.watch(authControllerProvider);
     final hostExit = ref.watch(geekPayHostExitProvider);
     final openAccount = ref.watch(campusCardAccountProvider);
     final l10n = context.l10n;
-
-    ref.listen(authControllerProvider, (previous, next) {
-      if (next.valueOrNull?.state == AuthState.authenticated) {
-        unawaited(_routeAfterAuthentication());
-      }
-    });
 
     return Scaffold(
       body: AppleWalletPage(

@@ -18,41 +18,41 @@ import 'package:techpie/features/campus_card/presentation/screens/security_hub_s
 import 'package:techpie/features/campus_card/presentation/screens/security_limit_screen.dart';
 import 'package:techpie/features/campus_card/presentation/screens/security_password_screen.dart';
 import 'package:techpie/features/campus_card/presentation/screens/settings_screen.dart';
-import 'package:techpie/features/campus_card/presentation/screens/splash_screen.dart';
 
 final gpRouterProvider = Provider<GoRouter>((ref) {
+  final entryLocation =
+      ref.watch(campusCardEntryProvider) == CampusCardEntry.cardManagement
+          ? '/card/manage'
+          : GpRoutes.pay;
   final refresh = _AuthRouterRefresh(
     ref.watch(appRuntimeProvider).auth.changes,
   );
   ref.onDispose(refresh.dispose);
   final router = GoRouter(
-    initialLocation: GpRoutes.splash,
+    initialLocation: entryLocation,
     debugLogDiagnostics: false,
     refreshListenable: refresh,
     redirect: (context, state) {
       final location = state.uri.path;
-      if (location == GpRoutes.splash || location == '/') return null;
-
-      // Gate every environment by the restored session. Card state is only
-      // consulted after authentication, and specifically by splash/login
-      // navigation — never here, so unauthenticated card reads are impossible.
+      // Restore only the local session before mounting account-owned pages.
+      // Network verification continues in AuthController behind the target page.
       final auth = ref.read(authControllerProvider);
-      if (auth.hasError) {
-        return location == GpRoutes.login ? null : GpRoutes.login;
+      String? destination(AuthSnapshot? snapshot) {
+        if (snapshot?.state != AuthState.authenticated) {
+          return location == GpRoutes.login ? null : GpRoutes.login;
+        }
+        return location == GpRoutes.login ? entryLocation : null;
       }
-      final snapshot = auth.valueOrNull;
-      if (auth.isLoading || snapshot == null) return GpRoutes.splash;
-      final signedIn = snapshot.state == AuthState.authenticated;
-      if (!signedIn) {
-        return location == GpRoutes.login ? null : GpRoutes.login;
+
+      if (auth.isLoading) {
+        return ref.read(authControllerProvider.future).then<String?>(
+              destination,
+              onError: (Object _, StackTrace __) => destination(null),
+            );
       }
-      return location == GpRoutes.login ? GpRoutes.splash : null;
+      return destination(auth.valueOrNull);
     },
     routes: [
-      GoRoute(
-        path: GpRoutes.splash,
-        builder: (context, state) => const SplashScreen(),
-      ),
       GoRoute(
         path: GpRoutes.login,
         pageBuilder: (context, state) =>

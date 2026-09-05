@@ -42,13 +42,6 @@ final class _ComposedIcon extends GpIconGeometry {
 }
 
 abstract final class GpIcons {
-  static const wallet = _Path([
-    [Offset(4, 6), Offset(4, 18), Offset(20, 18), Offset(20, 6), Offset(4, 6)],
-    [Offset(4, 6), Offset(16, 6)],
-    [Offset(16, 6), Offset(16, 11), Offset(20, 11)],
-    [Offset(15, 12), Offset(15, 15), Offset(20, 15)],
-  ]);
-
   static const bill = _Path([
     [Offset(6, 4), Offset(6, 20)],
     [Offset(6, 4), Offset(18, 4)],

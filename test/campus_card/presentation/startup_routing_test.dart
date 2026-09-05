@@ -25,7 +25,8 @@ import 'package:techpie/features/campus_card/presentation/theme/tokens.dart';
 import 'package:techpie/features/campus_card/presentation/widgets/apple_wallet_components.dart';
 
 void main() {
-  testWidgets('payment page paints before the card network request completes', (
+  testWidgets('local session opens the target without a splash or network gate',
+      (
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({
@@ -34,7 +35,8 @@ void main() {
     });
     final base = await buildDemoRuntime();
     addTearDown(base.dispose);
-    final auth = _RestoredAuthPort();
+    final pendingSession = Completer<AuthSnapshot>();
+    final auth = _RestoredAuthPort(localRestore: pendingSession.future);
     addTearDown(auth.dispose);
     final pendingCard = Completer<CampusCard?>();
     final runtime = AppRuntime(
@@ -60,6 +62,12 @@ void main() {
         child: const CampusCardFeature(),
       ),
     );
+    await tester.pump(const Duration(milliseconds: 30));
+    expect(find.byKey(const Key('payment-code-page')), findsNothing);
+    expect(find.text('eCard'), findsNothing);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+
+    pendingSession.complete(_RestoredAuthPort._snapshot);
     for (var i = 0; i < 12; i++) {
       await tester.pump(const Duration(milliseconds: 30));
     }
@@ -534,6 +542,9 @@ final class _RefreshHoldingPaymentCodeRepository
 }
 
 final class _RestoredAuthPort implements AuthPort {
+  _RestoredAuthPort({this.localRestore});
+
+  final Future<AuthSnapshot>? localRestore;
   final StreamController<AuthSnapshot> _changes =
       StreamController<AuthSnapshot>.broadcast(sync: true);
 
@@ -550,7 +561,8 @@ final class _RestoredAuthPort implements AuthPort {
   Stream<AuthSnapshot> get changes => _changes.stream;
 
   @override
-  Future<AuthSnapshot> restoreLocal() async => _snapshot;
+  Future<AuthSnapshot> restoreLocal() =>
+      localRestore ?? Future.value(_snapshot);
 
   @override
   Future<AuthSnapshot> restore() async => _snapshot;
