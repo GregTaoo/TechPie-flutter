@@ -1,8 +1,7 @@
-import 'dart:ui' show SemanticsAction, SemanticsActionEvent;
-
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:techpie/features/campus_card/data/mock/in_memory_ports.dart';
 import 'package:techpie/features/campus_card/domain/models/bill_models.dart';
@@ -99,15 +98,36 @@ void main() {
     expect((iconCenter.dy - textCenter.dy).abs(), lessThan(0.1));
   });
 
-  testWidgets('puts a non-breaking gap between mask dots and digits', (
+  testWidgets('keeps four mask dots at natural width, separate from the digits',
+      (
     tester,
   ) async {
-    await tester.pumpWidget(
-      const MaterialApp(home: MaskedCardNumberText(maskedNumber: '2025233184')),
-    );
+    for (final fontSize in [9.0, 14.0]) {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MaskedCardNumberText(
+            maskedNumber: '2025233184',
+            style: TextStyle(fontSize: fontSize),
+          ),
+        ),
+      );
 
-    final richText = tester.widget<RichText>(find.byType(RichText));
-    expect(richText.text.toPlainText(), '••••\u00A03184');
+      final richText = tester.widget<RichText>(find.byType(RichText));
+      expect(richText.text.toPlainText(), '••••\u00A03184');
+      final paragraph =
+          tester.renderObject<RenderParagraph>(find.byType(RichText));
+      final dots = paragraph
+          .getBoxesForSelection(
+            const TextSelection(baseOffset: 0, extentOffset: 4),
+          )
+          .single;
+      final natural = TextPainter(
+        text: TextSpan(text: '••••', style: richText.text.style),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      expect(dots.right - dots.left, greaterThanOrEqualTo(natural.width - 0.1));
+      natural.dispose();
+    }
   });
 
   test('uses only the Chinese cardholder name in the Chinese layout', () {

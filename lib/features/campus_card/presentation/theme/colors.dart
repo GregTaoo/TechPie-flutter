@@ -59,15 +59,32 @@ final class GpColors extends ThemeExtension<GpColors> {
   factory GpColors.fromTheme(ThemeData theme) {
     final scheme = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
+    // Android dynamic schemes may omit Material 3 container tones, causing
+    // every surface role to fall back to the page background.
+    final androidSurfaces = theme.platform == TargetPlatform.android
+        ? ColorScheme.fromSeed(
+            seedColor: scheme.primary,
+            brightness: theme.brightness,
+          )
+        : null;
     return GpColors(
       brightness: theme.brightness,
       bg: theme.scaffoldBackgroundColor,
-      surface: scheme.surfaceContainerLow,
-      surfaceRaised: scheme.surfaceContainer,
+      surface: androidSurfaces == null
+          ? scheme.surfaceContainerLow
+          : isDark
+              ? androidSurfaces.surfaceContainerHigh
+              : androidSurfaces.surfaceContainer,
+      surfaceRaised: androidSurfaces == null
+          ? scheme.surfaceContainer
+          : isDark
+              ? androidSurfaces.surfaceContainerHighest
+              : androidSurfaces.surfaceContainerHigh,
       textPrimary: scheme.onSurface,
       textSecondary: scheme.onSurfaceVariant,
       textDisabled: scheme.onSurfaceVariant.withValues(alpha: 0.55),
-      surfaceDisabled: scheme.surfaceContainerHighest,
+      surfaceDisabled: androidSurfaces?.surfaceContainerHighest ??
+          scheme.surfaceContainerHighest,
       action: scheme.primary,
       actionAlt: scheme.primaryContainer,
       onAction: scheme.onPrimary,

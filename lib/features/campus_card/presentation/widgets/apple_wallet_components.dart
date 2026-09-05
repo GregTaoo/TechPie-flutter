@@ -95,15 +95,9 @@ final class MaskedCardNumberText extends StatelessWidget {
   Widget build(BuildContext context) {
     final tail = cardTail(maskedNumber);
     final baseStyle = style ?? DefaultTextStyle.of(context).style;
-    return Text.rich(
-      TextSpan(
-        style: baseStyle,
-        children: [
-          TextSpan(text: '••••', style: baseStyle.copyWith(letterSpacing: -3)),
-          TextSpan(text: '\u00A0', style: baseStyle.copyWith(letterSpacing: 0)),
-          TextSpan(text: tail, style: baseStyle.copyWith(letterSpacing: 0)),
-        ],
-      ),
+    return Text(
+      '••••\u00A0$tail',
+      style: baseStyle.copyWith(letterSpacing: 0),
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
       textAlign: textAlign,
