@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:techpie/main.dart';
 import 'package:techpie/services/assignment_service.dart';
 import 'package:techpie/services/auth_service.dart';
+import 'package:techpie/services/campus_card_service.dart';
 import 'package:techpie/services/debug_logger.dart';
 import 'package:techpie/services/http_client.dart';
 import 'package:techpie/services/oa_gym_service.dart';
@@ -96,6 +97,7 @@ void main() {
         oaGymService: oaGym,
         uniAuthService: uniAuth,
         syncService: sync,
+        campusCardService: CampusCardService(),
       ),
     );
 
@@ -137,12 +139,15 @@ void main() {
         oaGymService: oaGym,
         uniAuthService: uniAuth,
         syncService: sync,
+        campusCardService: CampusCardService(),
       ),
     );
 
     expect(find.byType(TgBottomNavBar), findsOneWidget);
     // Starts on Home
     expect(find.text('Welcome to TechPie'), findsOneWidget);
+    expect(find.text('校园卡'), findsOneWidget);
+    expect(find.text('消费码'), findsNothing);
 
     // Tap Schedule
     await tester.tap(find.text('Schedule').first);
@@ -161,6 +166,7 @@ void main() {
     await tester.tap(find.text('Settings').first);
     await tester.pumpAndSettle();
     expect(find.text('Appearance'), findsOneWidget);
+    expect(find.text('OPENID'), findsOneWidget);
   });
 }
 

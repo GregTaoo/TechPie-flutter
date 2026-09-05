@@ -1,0 +1,418 @@
+import 'dart:async';
+
+import 'package:fake_async/fake_async.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:techpie/features/campus_card/application/payment_code_controller.dart';
+import 'package:techpie/features/campus_card/core/errors/app_failure.dart';
+import 'package:techpie/features/campus_card/data/mock/in_memory_ports.dart';
+import 'package:techpie/features/campus_card/domain/models/payment_models.dart';
+import 'package:techpie/features/campus_card/domain/money_fen.dart';
+import 'package:techpie/features/campus_card/domain/ports/payment_ports.dart';
+import 'package:techpie/features/campus_card/domain/ports/platform_ports.dart';
+
+void main() {
+  test('shows success for three seconds and then obtains a new code', () {
+    fakeAsync((async) {
+      final repository = _PaymentRepository();
+      final controller = PaymentCodeController(repository: repository);
+      unawaited(controller.start());
+      async.flushMicrotasks();
+
+      expect(repository.generateCalls, 1);
+      expect(controller.state.phase, PaymentCodePhase.displaying);
+
+      async.elapse(const Duration(seconds: 3));
+      async.flushMicrotasks();
+      expect(repository.pollCalls, 1);
+
+      repository.nextPoll = PaymentCompleted(
+        TransactionResult(
+          amount: const MoneyFen(1200),
+          confirmedLocallyAt: DateTime.utc(2026, 8, 31),
+        ),
+      );
+      async.elapse(const Duration(seconds: 3));
+      async.flushMicrotasks();
+
+      expect(controller.state.phase, PaymentCodePhase.succeeded);
+      expect(controller.state.result!.amount, const MoneyFen(1200));
+      async.elapse(const Duration(milliseconds: 2999));
+      async.flushMicrotasks();
+      expect(repository.generateCalls, 1);
+      expect(controller.state.phase, PaymentCodePhase.succeeded);
+
+      async.elapse(const Duration(milliseconds: 1));
+      async.flushMicrotasks();
+      expect(repository.generateCalls, 2);
+      expect(controller.state.phase, PaymentCodePhase.displaying);
+      unawaited(controller.dispose());
+      async.flushMicrotasks();
+    });
+  });
+
+  test('manual refresh dismisses success and cancels its delayed refresh', () {
+    fakeAsync((async) {
+      final repository = _PaymentRepository(
+        nextPoll: PaymentCompleted(
+          TransactionResult(
+            amount: const MoneyFen(100),
+            confirmedLocallyAt: DateTime.utc(2026, 9, 2),
+          ),
+        ),
+      );
+      final controller = PaymentCodeController(
+        repository: repository,
+        refreshInterval: const Duration(minutes: 1),
+        pollInterval: const Duration(seconds: 1),
+      );
+      unawaited(controller.start());
+      async.flushMicrotasks();
+      async.elapse(const Duration(seconds: 1));
+      async.flushMicrotasks();
+      expect(controller.state.phase, PaymentCodePhase.succeeded);
+
+      unawaited(controller.start());
+      async.flushMicrotasks();
+      expect(repository.generateCalls, 2);
+      expect(controller.state.phase, PaymentCodePhase.displaying);
+
+      async.elapse(const Duration(seconds: 3));
+      async.flushMicrotasks();
+      expect(repository.generateCalls, 2);
+      controller.stop();
+      unawaited(controller.dispose());
+      async.flushMicrotasks();
+    });
+  });
+
+  test('the periodic refresh timer cannot interrupt success early', () {
+    fakeAsync((async) {
+      final repository = _PaymentRepository(
+        nextPoll: PaymentCompleted(
+          TransactionResult(
+            amount: const MoneyFen(100),
+            confirmedLocallyAt: DateTime.utc(2026, 9, 2),
+          ),
+        ),
+      );
+      final controller = PaymentCodeController(
+        repository: repository,
+        refreshInterval: const Duration(seconds: 2),
+        pollInterval: const Duration(seconds: 1),
+      );
+      unawaited(controller.start());
+      async.flushMicrotasks();
+      async.elapse(const Duration(seconds: 1));
+      async.flushMicrotasks();
+      expect(controller.state.phase, PaymentCodePhase.succeeded);
+
+      async.elapse(const Duration(seconds: 1));
+      async.flushMicrotasks();
+      expect(controller.state.phase, PaymentCodePhase.succeeded);
+      expect(repository.generateCalls, 1);
+      controller.stop();
+      unawaited(controller.dispose());
+      async.flushMicrotasks();
+    });
+  });
+
+  test('ignores a late result for a code replaced at the refresh boundary', () {
+    fakeAsync((async) {
+      final late = Completer<PaymentCodePollResult>();
+      final repository = _PaymentRepository(pollFuture: late.future);
+      final controller = PaymentCodeController(repository: repository);
+      unawaited(controller.start());
+      async.flushMicrotasks();
+
+      async.elapse(const Duration(seconds: 3));
+      async.flushMicrotasks();
+      expect(repository.pollCalls, 1);
+
+      async.elapse(const Duration(seconds: 27));
+      async.flushMicrotasks();
+      expect(repository.generateCalls, 2);
+      expect(controller.state.generation, 2);
+
+      late.complete(
+        PaymentCompleted(
+          TransactionResult(
+            amount: const MoneyFen(9999),
+            confirmedLocallyAt: DateTime.utc(2026, 8, 31),
+          ),
+        ),
+      );
+      async.flushMicrotasks();
+
+      expect(controller.state.generation, 2);
+      expect(controller.state.phase, PaymentCodePhase.displaying);
+      expect(controller.state.result, isNull);
+      controller.stop();
+      unawaited(controller.dispose());
+      async.flushMicrotasks();
+    });
+  });
+
+  test('restart during an older refresh always starts the current epoch', () {
+    fakeAsync((async) {
+      final repository = _RestartDuringRefreshRepository();
+      final controller = PaymentCodeController(repository: repository);
+
+      unawaited(controller.start());
+      async.flushMicrotasks();
+      expect(repository.generateCalls, 1);
+      expect(controller.state.phase, PaymentCodePhase.initializing);
+
+      unawaited(controller.start());
+      async.flushMicrotasks();
+      expect(repository.generateCalls, 2);
+      expect(controller.state.phase, PaymentCodePhase.displaying);
+      expect(controller.state.frame!.payCode, 'current-code');
+
+      repository.first.complete(_frame('stale-code'));
+      async.flushMicrotasks();
+      expect(controller.state.frame!.payCode, 'current-code');
+      expect(controller.state.generation, 1);
+      controller.stop();
+      unawaited(controller.dispose());
+      async.flushMicrotasks();
+    });
+  });
+
+  test(
+    'exposes activation state and restarts only after explicit activation',
+    () {
+      fakeAsync((async) {
+        final repository = _PaymentRepository(activationRequired: true);
+        final controller = PaymentCodeController(repository: repository);
+        unawaited(controller.start());
+        async.flushMicrotasks();
+
+        expect(controller.state.phase, PaymentCodePhase.activationRequired);
+        expect(repository.activateCalls, 0);
+
+        unawaited(controller.activateAndRestart());
+        async.flushMicrotasks();
+        expect(repository.activateCalls, 1);
+        expect(controller.state.phase, PaymentCodePhase.displaying);
+        controller.stop();
+        unawaited(controller.dispose());
+        async.flushMicrotasks();
+      });
+    },
+  );
+
+  test('restores brightness and stops work when the experience leaves', () {
+    fakeAsync((async) {
+      final brightness = InMemoryBrightnessPort(initial: 0.42);
+      final repository = _PaymentRepository();
+      final payment = PaymentCodeController(repository: repository);
+      final experience = PaymentCodeExperienceController(
+        payment: payment,
+        brightness: brightness,
+      );
+      unawaited(experience.enter());
+      async.flushMicrotasks();
+      expect(brightness.value, 1);
+
+      unawaited(experience.leave());
+      async.flushMicrotasks();
+      expect(brightness.value, 0.42);
+      expect(experience.state.phase, PaymentCodePhase.stopped);
+      unawaited(experience.dispose());
+      async.flushMicrotasks();
+    });
+  });
+
+  test('starts payment networking even when brightness access hangs', () {
+    fakeAsync((async) {
+      final repository = _PaymentRepository();
+      final experience = PaymentCodeExperienceController(
+        payment: PaymentCodeController(repository: repository),
+        brightness: _HangingBrightnessPort(),
+      );
+
+      unawaited(experience.enter());
+      async.flushMicrotasks();
+
+      expect(repository.generateCalls, 1);
+      expect(experience.state.phase, PaymentCodePhase.displaying);
+      unawaited(experience.dispose());
+      async.elapse(const Duration(seconds: 2));
+      async.flushMicrotasks();
+    });
+  });
+
+  test('classifies connection failure separately from API content failure', () {
+    fakeAsync((async) {
+      final disconnected = PaymentCodeController(
+        repository: _PaymentRepository(
+          generationFailure: const AppFailure(FailureKind.network, 'offline'),
+        ),
+      );
+      unawaited(disconnected.start());
+      async.flushMicrotasks();
+      expect(
+        disconnected.state.connectionState,
+        PaymentConnectionState.disconnected,
+      );
+
+      final apiError = PaymentCodeController(
+        repository: _PaymentRepository(
+          generationFailure: const AppFailure(
+            FailureKind.protocol,
+            'bad payload',
+          ),
+        ),
+      );
+      unawaited(apiError.start());
+      async.flushMicrotasks();
+      expect(apiError.state.connectionState, PaymentConnectionState.apiError);
+    });
+  });
+
+  test('debug completion uses the normal success state', () {
+    fakeAsync((async) {
+      final controller = PaymentCodeController(
+        repository: _PaymentRepository(),
+      );
+
+      controller.debugComplete();
+
+      expect(controller.state.phase, PaymentCodePhase.succeeded);
+      expect(controller.state.result!.amount, const MoneyFen(1280));
+      expect(controller.state.result!.merchantName, '交易成功');
+      controller.stop();
+      unawaited(controller.dispose());
+      async.flushMicrotasks();
+    });
+  });
+
+  test('connectivity loss stops polling and requests offline fallback', () {
+    fakeAsync((async) {
+      final repository = _PaymentRepository();
+      final controller = PaymentCodeController(repository: repository);
+      unawaited(controller.start());
+      async.flushMicrotasks();
+
+      controller.markDisconnected();
+      async.elapse(const Duration(seconds: 6));
+      async.flushMicrotasks();
+
+      expect(controller.state.phase, PaymentCodePhase.switchingOffline);
+      expect(
+        controller.state.connectionState,
+        PaymentConnectionState.disconnected,
+      );
+      expect(repository.pollCalls, 0);
+    });
+  });
+
+  test('refreshes the online code as soon as polling reports expiry', () {
+    fakeAsync((async) {
+      final repository = _PaymentRepository(
+        nextPoll: const PaymentCodeExpired(),
+      );
+      final controller = PaymentCodeController(repository: repository);
+
+      unawaited(controller.start());
+      async.flushMicrotasks();
+      async.elapse(const Duration(seconds: 3));
+      async.flushMicrotasks();
+
+      expect(repository.generateCalls, 2);
+      expect(controller.state.phase, PaymentCodePhase.displaying);
+      expect(controller.state.generation, 2);
+    });
+  });
+}
+
+final class _PaymentRepository implements PaymentCodeRepository {
+  _PaymentRepository({
+    this.activationRequired = false,
+    this.pollFuture,
+    this.generationFailure,
+    PaymentCodePollResult? nextPoll,
+  }) : nextPoll = nextPoll ?? const PaymentPending();
+
+  bool activationRequired;
+  final Future<PaymentCodePollResult>? pollFuture;
+  final AppFailure? generationFailure;
+  PaymentCodePollResult nextPoll;
+  int generateCalls = 0;
+  int pollCalls = 0;
+  int activateCalls = 0;
+
+  @override
+  Future<void> activateOnlineCode() async {
+    activateCalls += 1;
+    activationRequired = false;
+  }
+
+  @override
+  Future<PaymentCodeFrame> generateOnlineCode() async {
+    if (generationFailure case final failure?) throw failure;
+    if (activationRequired) {
+      throw const AppFailure(
+        FailureKind.unavailable,
+        'not activated',
+        code: 'PAYMENT_CODE_NOT_ACTIVATED',
+      );
+    }
+    generateCalls += 1;
+    return PaymentCodeFrame(
+      payCode: 'pay-$generateCalls',
+      rawQrCode: 'qr-$generateCalls',
+      qrPayload: 'qr-$generateCalls',
+      offlineAllowed: true,
+      generatedAt: DateTime.utc(2026, 8, 31),
+    );
+  }
+
+  @override
+  Future<PaymentCodePollResult> pollTransaction(String payCode) {
+    pollCalls += 1;
+    return pollFuture ?? Future.value(nextPoll);
+  }
+}
+
+final class _HangingBrightnessPort implements BrightnessPort {
+  final Completer<double> _current = Completer<double>();
+  final Completer<void> _set = Completer<void>();
+  final Completer<void> _restore = Completer<void>();
+
+  @override
+  Future<double> current() => _current.future;
+
+  @override
+  Future<void> set(double value) => _set.future;
+
+  @override
+  Future<void> restore() => _restore.future;
+}
+
+final class _RestartDuringRefreshRepository implements PaymentCodeRepository {
+  final Completer<PaymentCodeFrame> first = Completer<PaymentCodeFrame>();
+  int generateCalls = 0;
+
+  @override
+  Future<void> activateOnlineCode() async {}
+
+  @override
+  Future<PaymentCodeFrame> generateOnlineCode() async {
+    generateCalls++;
+    if (generateCalls == 1) return first.future;
+    return _frame('current-code');
+  }
+
+  @override
+  Future<PaymentCodePollResult> pollTransaction(String payCode) async =>
+      const PaymentPending();
+}
+
+PaymentCodeFrame _frame(String value) => PaymentCodeFrame(
+      payCode: value,
+      rawQrCode: value,
+      qrPayload: value,
+      offlineAllowed: true,
+      generatedAt: DateTime.utc(2026, 8, 31),
+    );

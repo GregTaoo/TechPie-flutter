@@ -15,6 +15,7 @@ import '../models/course_table.dart';
 import '../models/oa_gym.dart';
 import '../models/third_party_account.dart';
 import '../models/user_session.dart';
+import '../utils/secure_storage.dart';
 
 class StorageService {
   static const _sessionKey = 'user_session';
@@ -33,10 +34,7 @@ class StorageService {
   final FlutterSecureStorage _secure;
   final SharedPreferences _prefs;
 
-  StorageService(this._prefs)
-      : _secure = const FlutterSecureStorage(
-          aOptions: AndroidOptions(encryptedSharedPreferences: true),
-        );
+  StorageService(this._prefs) : _secure = appSecureStorage;
 
   // Secure session storage
   Future<void> saveSession(UserSession session) async {

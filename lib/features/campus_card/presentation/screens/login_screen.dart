@@ -1,0 +1,133 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:techpie/widgets/adaptive_button.dart';
+
+import '../../app/app_providers.dart';
+import '../../domain/models/auth_models.dart';
+import '../app/routes.dart';
+import '../icons/platform_icons.dart';
+import '../localization/geekpay_localizations.dart';
+import '../theme/colors.dart';
+import '../widgets/apple_wallet_components.dart';
+import '../widgets/gp_state.dart';
+
+/// Account prerequisite shown when TechPie has no campus-card OpenID.
+/// OpenID entry lives in TechPie's Account settings rather than in this flow.
+final class LoginScreen extends ConsumerStatefulWidget {
+  const LoginScreen({super.key});
+
+  @override
+  ConsumerState<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends ConsumerState<LoginScreen> {
+  bool _routing = false;
+
+  Future<void> _routeAfterAuthentication() async {
+    if (_routing) return;
+    _routing = true;
+    try {
+      final card = await ref.read(cardControllerProvider.future);
+      if (!mounted) return;
+      context.go(card == null ? GpRoutes.bindCard : GpRoutes.pay);
+    } catch (_) {
+      _routing = false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final auth = ref.watch(authControllerProvider);
+    final hostExit = ref.watch(geekPayHostExitProvider);
+    final openAccount = ref.watch(campusCardAccountProvider);
+    final l10n = context.l10n;
+
+    ref.listen(authControllerProvider, (previous, next) {
+      if (next.valueOrNull?.state == AuthState.authenticated) {
+        unawaited(_routeAfterAuthentication());
+      }
+    });
+
+    return Scaffold(
+      body: AppleWalletPage(
+        child: ApplePinnedHeaderLayout(
+          leading: hostExit == null
+              ? null
+              : CampusCardHeaderAction(
+                  id: 'back',
+                  sfSymbol: 'chevron.left',
+                  icon: GpPlatformIcons.back(context),
+                  label: l10n.t('back'),
+                  onPressed: hostExit,
+                ),
+          title: l10n.t('campusCardShort'),
+          child: ListView(
+            physics: const BouncingScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(
+              24,
+              ApplePinnedHeaderLayout.contentTop + 36,
+              24,
+              36,
+            ),
+            children: [
+              Center(
+                child: Container(
+                  width: 88,
+                  height: 88,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primaryContainer,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    GpPlatformIcons.verifiedUser(context),
+                    size: 46,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 28),
+              Text(
+                l10n.t('accountSetupTitle'),
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                l10n.t('accountSetupBody'),
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: context.gpColors.textSecondary,
+                      height: 1.45,
+                    ),
+              ),
+              if (auth case AsyncError(:final error)) ...[
+                const SizedBox(height: 16),
+                Text(
+                  GpStateView.safeUiError(error),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: context.gpColors.danger),
+                ),
+              ],
+              const SizedBox(height: 28),
+              AdaptiveButton(
+                onPressed: auth.isLoading ? null : openAccount,
+                icon: Icons.manage_accounts_outlined,
+                sfSymbol: 'person.crop.circle.badge.plus',
+                label: l10n.t('openAccountSettings'),
+                role: AdaptiveButtonRole.prominent,
+                loading: auth.isLoading,
+                width: double.infinity,
+                accessibilityLabel: l10n.t('openAccountSettings'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
