@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -526,31 +527,41 @@ final class _AndroidDateRangePickerShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final actionColor = context.gpColors.action;
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        child,
-        Positioned(
-          left: 24,
-          right: 24,
-          bottom: MediaQuery.paddingOf(context).bottom + 18,
-          child: Material(
-            color: Colors.transparent,
-            child: OutlinedButton(
-              key: const Key('android-date-range-clear'),
-              onPressed: onClear,
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size.fromHeight(48),
-                foregroundColor: actionColor,
-                backgroundColor: actionColor.withValues(alpha: 0.08),
-                side: BorderSide(color: actionColor.withValues(alpha: 0.28)),
-                shape: const StadiumBorder(),
+    final theme = Theme.of(context);
+    return Theme(
+      data: theme.copyWith(
+        appBarTheme: theme.appBarTheme.copyWith(
+          systemOverlayStyle: theme.brightness == Brightness.dark
+              ? SystemUiOverlayStyle.light
+              : SystemUiOverlayStyle.dark,
+        ),
+      ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          child,
+          Positioned(
+            left: 24,
+            right: 24,
+            bottom: MediaQuery.paddingOf(context).bottom + 18,
+            child: Material(
+              color: Colors.transparent,
+              child: OutlinedButton(
+                key: const Key('android-date-range-clear'),
+                onPressed: onClear,
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(48),
+                  foregroundColor: actionColor,
+                  backgroundColor: actionColor.withValues(alpha: 0.08),
+                  side: BorderSide(color: actionColor.withValues(alpha: 0.28)),
+                  shape: const StadiumBorder(),
+                ),
+                child: Text(context.l10n.t('noDateRange')),
               ),
-              child: Text(context.l10n.t('noDateRange')),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

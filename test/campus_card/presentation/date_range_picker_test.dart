@@ -45,6 +45,13 @@ void main() {
         find.byType(DateRangePickerDialog),
       );
       expect(Theme.of(pickerContext).colorScheme.primary, hostPrimary);
+      expect(
+        Theme.of(pickerContext)
+            .appBarTheme
+            .systemOverlayStyle
+            ?.statusBarIconBrightness,
+        Brightness.dark,
+      );
       expect(find.byKey(const Key('android-date-range-clear')), findsOneWidget);
       expect(find.text('不指定日期'), findsNWidgets(2));
 

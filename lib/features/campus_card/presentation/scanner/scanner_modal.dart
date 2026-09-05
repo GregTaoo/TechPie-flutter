@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/app_providers.dart';
@@ -235,7 +236,7 @@ class _ScannerModalState extends ConsumerState<ScannerModal> {
     Widget popupTransition(Widget child, Animation<double> animation) =>
         gpScannerPopupTransition(animation, child, reduceMotion: reduceMotion);
 
-    return Scaffold(
+    final scanner = Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
         children: [
@@ -437,6 +438,10 @@ class _ScannerModalState extends ConsumerState<ScannerModal> {
           ),
         ],
       ),
+    );
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light,
+      child: scanner,
     );
   }
 }

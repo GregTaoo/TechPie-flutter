@@ -30,7 +30,7 @@ final class CampusCardFeature extends ConsumerWidget {
         statusBarColor: Colors.transparent,
         statusBarIconBrightness: dark ? Brightness.light : Brightness.dark,
         statusBarBrightness: dark ? Brightness.dark : Brightness.light,
-        systemNavigationBarColor: Colors.transparent,
+        systemNavigationBarColor: hostTheme.scaffoldBackgroundColor,
         systemNavigationBarIconBrightness:
             dark ? Brightness.light : Brightness.dark,
         systemNavigationBarContrastEnforced: false,

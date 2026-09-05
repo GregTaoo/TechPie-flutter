@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -98,6 +99,14 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(scanner.running, isTrue);
+    final overlay = tester.widget<AnnotatedRegion<SystemUiOverlayStyle>>(
+      find.descendant(
+        of: find.byType(ScannerModal),
+        matching: find.byType(AnnotatedRegion<SystemUiOverlayStyle>),
+      ),
+    );
+    expect(overlay.value.systemNavigationBarColor, Colors.black);
+    expect(overlay.value.statusBarIconBrightness, Brightness.light);
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
