@@ -246,7 +246,10 @@ final class ApplePinnedHeaderLayout extends StatelessWidget {
             left: 0,
             right: 0,
             child: isIos()
-                ? _buildIosHeader(resolvedTitle)
+                ? ColoredBox(
+                    color: context.gpColors.bg,
+                    child: _buildIosHeader(resolvedTitle),
+                  )
                 : BlurredAppBar(
                     automaticallyImplyLeading: false,
                     leading: leading == null ? null : _materialButton(leading!),
