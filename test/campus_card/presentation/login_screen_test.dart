@@ -35,7 +35,7 @@ void main() {
       brightness: ports.brightness,
       connectivity: ports.connectivity,
       lifecycle: ports.lifecycle,
-      haptics: ports.haptics,
+      feedback: ports.feedback,
       scanner: ports.scanner,
       disposeRuntime: ports.dispose,
     );

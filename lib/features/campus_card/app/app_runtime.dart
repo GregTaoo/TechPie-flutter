@@ -23,7 +23,7 @@ final class AppRuntime {
     required this.brightness,
     required this.connectivity,
     required this.lifecycle,
-    required this.haptics,
+    required this.feedback,
     this.scanner,
     this.disposeRuntime,
   });
@@ -40,7 +40,7 @@ final class AppRuntime {
   final BrightnessPort brightness;
   final ConnectivityPort connectivity;
   final AppLifecyclePort lifecycle;
-  final HapticsPort haptics;
+  final FeedbackPort feedback;
   final ScannerPort? scanner;
   final Future<void> Function()? disposeRuntime;
 

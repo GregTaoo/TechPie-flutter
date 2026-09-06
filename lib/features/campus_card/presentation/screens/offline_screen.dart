@@ -145,8 +145,8 @@ final class _AuthorizationBody extends ConsumerWidget {
                       _runAction(context, ref, () async {
                         await ref
                             .read(appRuntimeProvider)
-                            .haptics
-                            .play(HapticEvent.selection);
+                            .feedback
+                            .play(FeedbackEvent.selection);
                         await ref
                             .read(offlineAuthorizationProvider(cardId).notifier)
                             .renew();
@@ -214,7 +214,7 @@ final class _AuthorizationBody extends ConsumerWidget {
     try {
       await action();
     } catch (error) {
-      await ref.read(appRuntimeProvider).haptics.play(HapticEvent.error);
+      await ref.read(appRuntimeProvider).feedback.play(FeedbackEvent.error);
       if (!context.mounted) return;
       await showAdaptiveDialog<void>(
         context: context,

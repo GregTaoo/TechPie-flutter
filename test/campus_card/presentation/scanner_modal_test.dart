@@ -208,7 +208,7 @@ Future<(AppRuntime, AppRuntime)> _scannerRuntime(
     brightness: base.brightness,
     connectivity: base.connectivity,
     lifecycle: base.lifecycle,
-    haptics: base.haptics,
+    feedback: base.feedback,
     scanner: scanner,
   );
   return (base, runtime);

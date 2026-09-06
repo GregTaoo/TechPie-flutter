@@ -59,11 +59,11 @@ void main() {
   testWidgets('key press changes immediately and emits selection feedback', (
     tester,
   ) async {
-    final haptics = InMemoryHapticsPort();
+    final feedback = InMemoryFeedbackPort();
     await tester.pumpWidget(
       _host(
         SixDigitPasswordPanel(
-          haptics: haptics,
+          feedback: feedback,
           onSubmit: (_) {},
           onCancel: () {},
         ),
@@ -78,7 +78,7 @@ void main() {
     await tester.pump();
 
     expect(tester.widget<ColoredBox>(surface).color, isNot(normalColor));
-    expect(haptics.events, [HapticEvent.selection]);
+    expect(feedback.events, [FeedbackEvent.selection]);
 
     await gesture.up();
     await tester.pump();

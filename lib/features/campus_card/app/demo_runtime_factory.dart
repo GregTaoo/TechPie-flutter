@@ -20,7 +20,7 @@ Future<AppRuntime> buildDemoRuntime() async {
   final connectivity = InMemoryConnectivityPort();
   final brightness = InMemoryBrightnessPort();
   final lifecycle = InMemoryLifecyclePort();
-  final haptics = InMemoryHapticsPort();
+  final feedback = InMemoryFeedbackPort();
   final scanner = InMemoryScannerPort();
   Future<void> purge() => offlineCredentials.removeAll();
   final auth = DemoAuthPort(cleanup: purge);
@@ -46,7 +46,7 @@ Future<AppRuntime> buildDemoRuntime() async {
     brightness: brightness,
     connectivity: connectivity,
     lifecycle: lifecycle,
-    haptics: haptics,
+    feedback: feedback,
     scanner: scanner,
     disposeRuntime: scanner.stop,
   );

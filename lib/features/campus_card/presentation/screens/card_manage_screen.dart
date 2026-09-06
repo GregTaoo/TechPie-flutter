@@ -80,7 +80,7 @@ class _CardManageScreenState extends ConsumerState<CardManageScreen> {
   }
 
   Future<void> _setSegment(int value) async {
-    await ref.read(appRuntimeProvider).haptics.play(HapticEvent.selection);
+    await ref.read(appRuntimeProvider).feedback.play(FeedbackEvent.selection);
     setState(() => _segment = value);
   }
 
@@ -94,7 +94,7 @@ class _CardManageScreenState extends ConsumerState<CardManageScreen> {
     if (defaultTargetPlatform == TargetPlatform.iOS) {
       final selection = await _showCupertinoRangePicker();
       if (selection == null) return;
-      await ref.read(appRuntimeProvider).haptics.play(HapticEvent.selection);
+      await ref.read(appRuntimeProvider).feedback.play(FeedbackEvent.selection);
       setState(() => _range = selection.clear ? null : selection.range);
       return;
     }
@@ -116,7 +116,7 @@ class _CardManageScreenState extends ConsumerState<CardManageScreen> {
       ),
     );
     if (selected == null) return;
-    await ref.read(appRuntimeProvider).haptics.play(HapticEvent.selection);
+    await ref.read(appRuntimeProvider).feedback.play(FeedbackEvent.selection);
     setState(() {
       _range = selected.start == _clearDateRangeSentinel.start &&
               selected.end == _clearDateRangeSentinel.end

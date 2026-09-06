@@ -31,7 +31,7 @@ void main() {
       brightness: base.brightness,
       connectivity: base.connectivity,
       lifecycle: base.lifecycle,
-      haptics: base.haptics,
+      feedback: base.feedback,
     );
     final container = ProviderContainer(
       overrides: [

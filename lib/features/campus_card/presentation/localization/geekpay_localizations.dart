@@ -87,6 +87,14 @@ final class GeekPayLocalizations {
 
   static const Map<String, Map<String, String>> _copy = {
     'zh': {
+      'feedbackPaymentSuccess': '支付成功',
+      'feedbackNetworkDisconnected': '确认断网',
+      'feedbackInteraction': '其他操作',
+      'vibration': '震动',
+      'sound': '音效',
+      'mediaVolumeHint': '音效使用媒体音量，震动和音效可分别关闭。',
+      'disconnectFeedbackHint': '仅在确认由联网切换为断网时提醒；进入页面和手动开启离线码不会触发。',
+      'interactionFeedbackHint': '按钮、扫码识别等操作的震动反馈。',
       'widgetTitle': '消费码',
       'widgetSubtitle': '支付一触即达',
       'addPayWidget': '添加消费码小组件',
@@ -293,6 +301,17 @@ final class GeekPayLocalizations {
       'clientOnlyRemoveNotice': '此操作只删除本机离线授权，不会在服务端吊销。',
     },
     'en': {
+      'feedbackPaymentSuccess': 'Payment Success',
+      'feedbackNetworkDisconnected': 'Connection Lost',
+      'feedbackInteraction': 'Other Interactions',
+      'vibration': 'Vibration',
+      'sound': 'Sound',
+      'mediaVolumeHint':
+          'Sound uses media volume. Sound and vibration can be disabled separately.',
+      'disconnectFeedbackHint':
+          'Alerts only after a confirmed loss of connection. Opening this page or manually enabling an offline code stays silent.',
+      'interactionFeedbackHint':
+          'Vibration for buttons, scan detection and other interactions.',
       'widgetTitle': 'Pay Code',
       'widgetSubtitle': 'Pay in a tap',
       'addPayWidget': 'Add Pay Code Widget',
@@ -522,6 +541,15 @@ final class GeekPayLocalizations {
           'This removes the offline authorization from this device only. It does not revoke it on the server.',
     },
     'ja': {
+      'feedbackPaymentSuccess': '支払い成功',
+      'feedbackNetworkDisconnected': '接続の切断',
+      'feedbackInteraction': 'その他の操作',
+      'vibration': '振動',
+      'sound': '効果音',
+      'mediaVolumeHint': '効果音はメディア音量を使用します。振動と効果音は個別に設定できます。',
+      'disconnectFeedbackHint':
+          '接続から切断への変化を確認した場合のみ通知します。画面を開いた時や手動のオフライン切替では鳴りません。',
+      'interactionFeedbackHint': 'ボタンやコード認識などの操作時の振動です。',
       'widgetTitle': '支払いコード',
       'widgetSubtitle': 'タップで支払い',
       'addPayWidget': '支払いウィジェットを追加',

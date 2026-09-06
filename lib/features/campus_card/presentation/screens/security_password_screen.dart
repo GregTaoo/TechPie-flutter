@@ -45,7 +45,7 @@ class _SecurityPasswordScreenState
     ].every((controller) => RegExp(r'^\d{6}$').hasMatch(controller.text));
     if (!valid || _next.text != _confirm.text) {
       await _showMessage(context.l10n.t('enterPassword'));
-      await ref.read(appRuntimeProvider).haptics.play(HapticEvent.error);
+      await ref.read(appRuntimeProvider).feedback.play(FeedbackEvent.error);
       return;
     }
     setState(() => _loading = true);
@@ -55,7 +55,7 @@ class _SecurityPasswordScreenState
             oldPassword: _old.text,
             newPassword: _next.text,
           );
-      await ref.read(appRuntimeProvider).haptics.play(HapticEvent.success);
+      await ref.read(appRuntimeProvider).feedback.play(FeedbackEvent.success);
       if (!mounted) return;
       await _showMessage(context.l10n.t('passwordChanged'));
       if (mounted) context.pop();

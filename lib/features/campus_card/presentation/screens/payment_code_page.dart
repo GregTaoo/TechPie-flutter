@@ -9,6 +9,7 @@ import 'package:go_router/go_router.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../app/app_providers.dart';
+import '../../application/confirmed_disconnect_feedback.dart';
 import '../../core/config/debug_mode_controller.dart';
 import '../../core/config/debug_mode_features.dart';
 import '../../core/config/offline_authorization_banner_controller.dart';
@@ -48,10 +49,18 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
   StreamSubscription<bool>? _connectivitySubscription;
   Timer? _onlineRetryTimer;
   bool _scannerOpen = false;
+  late final ConfirmedDisconnectFeedback _disconnectFeedback;
 
   @override
   void initState() {
     super.initState();
+    final runtime = ref.read(appRuntimeProvider);
+    _disconnectFeedback = ConfirmedDisconnectFeedback(
+      connectivity: runtime.connectivity,
+      lifecycle: runtime.lifecycle,
+      feedback: runtime.feedback,
+    );
+    unawaited(_disconnectFeedback.start());
     _connectivitySubscription = ref
         .read(appRuntimeProvider)
         .connectivity
@@ -66,6 +75,7 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
 
   @override
   void dispose() {
+    unawaited(_disconnectFeedback.dispose());
     _onlineRetryTimer?.cancel();
     unawaited(_connectivitySubscription?.cancel());
     super.dispose();
@@ -97,12 +107,12 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
   }
 
   Future<void> _refreshOnline() async {
-    await ref.read(appRuntimeProvider).haptics.play(HapticEvent.selection);
+    await ref.read(appRuntimeProvider).feedback.play(FeedbackEvent.selection);
     await ref.read(paymentCodeControllerProvider.notifier).restart();
   }
 
   Future<void> _setOfflineMode(CampusCard card, bool enabled) async {
-    await ref.read(appRuntimeProvider).haptics.play(HapticEvent.selection);
+    await ref.read(appRuntimeProvider).feedback.play(FeedbackEvent.selection);
     ref.read(manualOfflineModeProvider.notifier).setEnabled(enabled);
     if (!enabled) {
       setState(() {
@@ -164,7 +174,7 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
       if (authorizationRequired) {
         ref.invalidate(offlineAuthorizationProvider(card.id));
       } else {
-        await ref.read(appRuntimeProvider).haptics.play(HapticEvent.error);
+        await ref.read(appRuntimeProvider).feedback.play(FeedbackEvent.error);
       }
     } finally {
       if (mounted) setState(() => _offlineBusy = false);
@@ -1110,7 +1120,7 @@ final class _PaymentSuccess extends ConsumerWidget {
             AnimatedSuccessCheck(
               size: 88,
               reduceMotion: reduceMotion,
-              haptics: ref.read(appRuntimeProvider).haptics,
+              feedback: ref.read(appRuntimeProvider).feedback,
             ),
             const SizedBox(height: 16),
             Text(

@@ -23,6 +23,14 @@ final class GpPlatformIcon {
 /// platforms use Material Icons. App-owned painted geometry and branded image
 /// assets remain identical on every platform.
 abstract final class GpPlatformIcons {
+  static const vibration = GpPlatformIcon(
+    apple: CupertinoIcons.device_phone_portrait,
+    android: Icons.vibration_rounded,
+  );
+  static const sound = GpPlatformIcon(
+    apple: CupertinoIcons.speaker_2,
+    android: Icons.volume_up_rounded,
+  );
   static const homeWidget = GpPlatformIcon(
     apple: CupertinoIcons.square_grid_2x2,
     android: Icons.widgets_outlined,

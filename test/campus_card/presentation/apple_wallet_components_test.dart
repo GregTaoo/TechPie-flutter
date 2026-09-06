@@ -238,14 +238,14 @@ void main() {
   testWidgets('Android runs the complete success animation and haptic event', (
     tester,
   ) async {
-    final haptics = InMemoryHapticsPort();
+    final feedback = InMemoryFeedbackPort();
     await tester.pumpWidget(
       MaterialApp(
         theme: ThemeData(platform: TargetPlatform.android),
         home: Scaffold(
           body: AnimatedSuccessCheck(
             key: const Key('android-success-animation'),
-            haptics: haptics,
+            feedback: feedback,
           ),
         ),
       ),
@@ -270,7 +270,7 @@ void main() {
 
     expect(middleScale, isNot(closeTo(initialScale, 0.001)));
     expect(completedScale, closeTo(1, 0.001));
-    expect(haptics.events, [HapticEvent.success]);
+    expect(feedback.events, [FeedbackEvent.paymentSuccess]);
   });
 
   testWidgets('pinned page header does not move with its scrollable content', (

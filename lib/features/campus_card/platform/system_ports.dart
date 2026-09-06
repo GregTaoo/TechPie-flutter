@@ -6,48 +6,78 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart' as flutter;
 import 'package:screen_brightness/screen_brightness.dart';
 
+import '../data/storage/feedback_preferences.dart';
+import '../domain/models/feedback_models.dart';
 import '../domain/ports/platform_ports.dart';
 
-final class SystemHapticsPort implements HapticsPort {
-  static const _nativeHaptics = MethodChannel('club.geekpie.pay/haptics');
+final class SystemFeedbackPort implements FeedbackPort {
+  SystemFeedbackPort({FeedbackPreferences? preferences, MethodChannel? channel})
+      : _preferences = preferences ?? FeedbackPreferences(),
+        _channel = channel ?? const MethodChannel('techpie/feedback');
+
+  final FeedbackPreferences _preferences;
+  final MethodChannel _channel;
 
   @override
-  Future<void> play(HapticEvent event) async {
-    switch (event) {
-      case HapticEvent.selection:
-        await HapticFeedback.selectionClick();
+  Future<FeedbackOptions> settingsFor(FeedbackScenario scenario) =>
+      _preferences.read(scenario);
+
+  @override
+  Future<void> setEnabled(
+    FeedbackScenario scenario,
+    FeedbackChannel channel,
+    bool enabled,
+  ) =>
+      _preferences.setEnabled(scenario, channel, enabled);
+
+  @override
+  Future<void> play(FeedbackEvent event) async {
+    final options = await _preferences.read(event.scenario);
+    if (!options.vibration && !options.sound) return;
+    if (event.scenario != FeedbackScenario.interaction &&
+        (defaultTargetPlatform == TargetPlatform.iOS ||
+            defaultTargetPlatform == TargetPlatform.android)) {
+      try {
+        await _channel.invokeMethod<void>('play', {
+          'event': event.name,
+          'sound': options.sound,
+          'vibration': options.vibration,
+        });
         return;
-      case HapticEvent.lightImpact:
-        await HapticFeedback.lightImpact();
-        return;
-      case HapticEvent.mediumImpact:
-        await HapticFeedback.mediumImpact();
-        return;
-      case HapticEvent.warning:
-        await HapticFeedback.mediumImpact();
-        await Future<void>.delayed(const Duration(milliseconds: 90));
-        await HapticFeedback.mediumImpact();
-        return;
-      case HapticEvent.success:
-        if (defaultTargetPlatform == TargetPlatform.iOS) {
-          try {
-            await _nativeHaptics.invokeMethod<void>('paymentSuccess');
-            return;
-          } on MissingPluginException {
-            // Fall through for tests and older installations.
-          } on PlatformException {
-            // The Flutter fallback still provides a complete success pattern.
-          }
-        }
-        await HapticFeedback.heavyImpact();
-        await Future<void>.delayed(const Duration(milliseconds: 85));
-        await HapticFeedback.mediumImpact();
-        return;
-      case HapticEvent.error:
-        await HapticFeedback.heavyImpact();
-        await Future<void>.delayed(const Duration(milliseconds: 70));
-        await HapticFeedback.heavyImpact();
-        return;
+      } on MissingPluginException {
+        // Unsupported hosts retain the existing system vibration fallback.
+      } on PlatformException {
+        // A feedback failure must never turn a confirmed payment into an error.
+      }
+    }
+    if (!options.vibration) return;
+    try {
+      switch (event) {
+        case FeedbackEvent.selection:
+          await HapticFeedback.selectionClick();
+        case FeedbackEvent.lightImpact:
+          await HapticFeedback.lightImpact();
+        case FeedbackEvent.mediumImpact:
+          await HapticFeedback.mediumImpact();
+        case FeedbackEvent.warning:
+        case FeedbackEvent.networkDisconnected:
+          await HapticFeedback.mediumImpact();
+          await Future<void>.delayed(const Duration(milliseconds: 90));
+          await HapticFeedback.mediumImpact();
+        case FeedbackEvent.success:
+        case FeedbackEvent.paymentSuccess:
+          await HapticFeedback.heavyImpact();
+          await Future<void>.delayed(const Duration(milliseconds: 85));
+          await HapticFeedback.mediumImpact();
+        case FeedbackEvent.error:
+          await HapticFeedback.heavyImpact();
+          await Future<void>.delayed(const Duration(milliseconds: 70));
+          await HapticFeedback.heavyImpact();
+      }
+    } on MissingPluginException {
+      // Optional system feedback is unavailable on this host.
+    } on PlatformException {
+      // Keep UI actions successful even if the device feedback service fails.
     }
   }
 }

@@ -13,12 +13,12 @@ final class ScanFailureContent extends StatefulWidget {
     super.key,
     required this.message,
     required this.onRescan,
-    this.haptics,
+    this.feedback,
   });
 
   final String message;
   final VoidCallback onRescan;
-  final HapticsPort? haptics;
+  final FeedbackPort? feedback;
 
   @override
   State<ScanFailureContent> createState() => _ScanFailureContentState();
@@ -29,7 +29,7 @@ class _ScanFailureContentState extends State<ScanFailureContent> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(widget.haptics?.play(HapticEvent.error));
+      unawaited(widget.feedback?.play(FeedbackEvent.error));
     });
   }
 
@@ -78,12 +78,12 @@ final class ScanResultContent extends StatelessWidget {
     super.key,
     required this.success,
     required this.onDone,
-    this.haptics,
+    this.feedback,
   });
 
   final ScanSucceeded success;
   final VoidCallback onDone;
-  final HapticsPort? haptics;
+  final FeedbackPort? feedback;
 
   @override
   Widget build(BuildContext context) {
@@ -100,7 +100,7 @@ final class ScanResultContent extends StatelessWidget {
         AnimatedSuccessCheck(
           size: 112,
           reduceMotion: MediaQuery.disableAnimationsOf(context),
-          haptics: haptics,
+          feedback: feedback,
         ),
         const SizedBox(height: 22),
         Text(

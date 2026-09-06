@@ -832,13 +832,13 @@ final class AnimatedSuccessCheck extends StatefulWidget {
     this.size = 104,
     this.color,
     this.reduceMotion = false,
-    this.haptics,
+    this.feedback,
   });
 
   final double size;
   final Color? color;
   final bool reduceMotion;
-  final HapticsPort? haptics;
+  final FeedbackPort? feedback;
 
   @override
   State<AnimatedSuccessCheck> createState() => _AnimatedSuccessCheckState();
@@ -874,7 +874,9 @@ class _AnimatedSuccessCheckState extends State<AnimatedSuccessCheck>
     ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
     _controller.forward();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(widget.haptics?.play(HapticEvent.success));
+      if (mounted) {
+        unawaited(widget.feedback?.play(FeedbackEvent.paymentSuccess));
+      }
     });
   }
 

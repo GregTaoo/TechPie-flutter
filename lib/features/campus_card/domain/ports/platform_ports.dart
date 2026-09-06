@@ -1,3 +1,5 @@
+import '../models/feedback_models.dart';
+
 enum AppLifecycleState { resumed, inactive, paused, detached }
 
 abstract interface class ScannerPort {
@@ -31,15 +33,30 @@ abstract interface class HomeWidgetPort {
   Future<bool> requestPin();
 }
 
-enum HapticEvent {
+enum FeedbackEvent {
   selection,
   lightImpact,
   mediumImpact,
   success,
   warning,
   error,
+  paymentSuccess,
+  networkDisconnected;
+
+  FeedbackScenario get scenario => switch (this) {
+        FeedbackEvent.paymentSuccess => FeedbackScenario.paymentSuccess,
+        FeedbackEvent.networkDisconnected =>
+          FeedbackScenario.networkDisconnected,
+        _ => FeedbackScenario.interaction,
+      };
 }
 
-abstract interface class HapticsPort {
-  Future<void> play(HapticEvent event);
+abstract interface class FeedbackPort {
+  Future<void> play(FeedbackEvent event);
+  Future<FeedbackOptions> settingsFor(FeedbackScenario scenario);
+  Future<void> setEnabled(
+    FeedbackScenario scenario,
+    FeedbackChannel channel,
+    bool enabled,
+  );
 }

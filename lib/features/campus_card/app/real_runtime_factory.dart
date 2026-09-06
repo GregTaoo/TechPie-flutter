@@ -55,7 +55,7 @@ AppRuntime buildRealRuntime(
   final connectivity = SystemConnectivityPort();
   final brightness = SystemBrightnessPort();
   final lifecycle = FlutterAppLifecyclePort();
-  final haptics = SystemHapticsPort();
+  final feedback = SystemFeedbackPort();
   final scannerSupported = !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS);
@@ -110,7 +110,7 @@ AppRuntime buildRealRuntime(
     brightness: brightness,
     connectivity: connectivity,
     lifecycle: lifecycle,
-    haptics: haptics,
+    feedback: feedback,
     scanner: scanner,
     disposeRuntime: () async {
       await scanner?.dispose();

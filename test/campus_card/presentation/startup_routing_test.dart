@@ -11,6 +11,7 @@ import 'package:techpie/features/campus_card/app/app_runtime.dart';
 import 'package:techpie/features/campus_card/app/demo_runtime_factory.dart';
 import 'package:techpie/features/campus_card/core/config/app_environment.dart';
 import 'package:techpie/features/campus_card/core/errors/app_failure.dart';
+import 'package:techpie/features/campus_card/data/mock/in_memory_ports.dart';
 import 'package:techpie/features/campus_card/domain/models/auth_models.dart';
 import 'package:techpie/features/campus_card/domain/models/card_models.dart';
 import 'package:techpie/features/campus_card/domain/models/offline_models.dart';
@@ -19,6 +20,7 @@ import 'package:techpie/features/campus_card/domain/models/profile_models.dart';
 import 'package:techpie/features/campus_card/domain/ports/auth_port.dart';
 import 'package:techpie/features/campus_card/domain/ports/card_ports.dart';
 import 'package:techpie/features/campus_card/domain/ports/payment_ports.dart';
+import 'package:techpie/features/campus_card/domain/ports/platform_ports.dart';
 import 'package:techpie/features/campus_card/presentation/app/app.dart';
 import 'package:techpie/features/campus_card/presentation/scanner/scanner_modal.dart';
 import 'package:techpie/features/campus_card/presentation/theme/tokens.dart';
@@ -52,7 +54,7 @@ void main() {
       brightness: base.brightness,
       connectivity: base.connectivity,
       lifecycle: base.lifecycle,
-      haptics: base.haptics,
+      feedback: base.feedback,
       scanner: base.scanner,
     );
 
@@ -104,7 +106,7 @@ void main() {
       brightness: base.brightness,
       connectivity: base.connectivity,
       lifecycle: base.lifecycle,
-      haptics: base.haptics,
+      feedback: base.feedback,
       scanner: base.scanner,
     );
 
@@ -122,6 +124,18 @@ void main() {
     expect(find.text('离线付款码'), findsOneWidget);
     expect(find.byKey(const Key('payment-code-qr')), findsOneWidget);
     expect(find.text('--'), findsOneWidget);
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byKey(const Key('payment-code-page'))),
+    );
+    container.read(manualOfflineModeProvider.notifier).setEnabled(true);
+    await tester.pump(const Duration(seconds: 1));
+    expect(
+      (base.feedback as InMemoryFeedbackPort)
+          .events
+          .where((event) => event == FeedbackEvent.networkDisconnected),
+      isEmpty,
+    );
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
@@ -153,7 +167,7 @@ void main() {
       brightness: base.brightness,
       connectivity: base.connectivity,
       lifecycle: base.lifecycle,
-      haptics: base.haptics,
+      feedback: base.feedback,
       scanner: base.scanner,
     );
 
@@ -188,6 +202,7 @@ void main() {
     await tester.pump();
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
+
   });
 
   testWidgets(
@@ -213,7 +228,7 @@ void main() {
         brightness: ports.brightness,
         connectivity: ports.connectivity,
         lifecycle: ports.lifecycle,
-        haptics: ports.haptics,
+        feedback: ports.feedback,
         scanner: ports.scanner,
         disposeRuntime: ports.dispose,
       );
@@ -269,7 +284,7 @@ void main() {
         brightness: ports.brightness,
         connectivity: ports.connectivity,
         lifecycle: ports.lifecycle,
-        haptics: ports.haptics,
+        feedback: ports.feedback,
         scanner: ports.scanner,
         disposeRuntime: ports.dispose,
       );
@@ -379,7 +394,7 @@ void main() {
         brightness: ports.brightness,
         connectivity: ports.connectivity,
         lifecycle: ports.lifecycle,
-        haptics: ports.haptics,
+        feedback: ports.feedback,
         scanner: ports.scanner,
         disposeRuntime: ports.dispose,
       );

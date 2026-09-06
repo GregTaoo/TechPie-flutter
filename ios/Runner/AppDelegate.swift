@@ -6,6 +6,7 @@ import WidgetKit
 @objc class AppDelegate: FlutterAppDelegate {
   private var ecardDeepLinkChannel: FlutterMethodChannel?
   private var pendingEcardRoute: String?
+  private var ecardFeedback: EcardFeedback?
 
   override func application(
     _ application: UIApplication,
@@ -23,6 +24,7 @@ import WidgetKit
     }
 
     NativeGlassRegistry.registerAll(with: registrar)
+    ecardFeedback = EcardFeedback(registrar: registrar)
 
     let deepLinkChannel = FlutterMethodChannel(
       name: "techpie/ecard_deep_link",

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../../core/async_mutex.dart';
+import '../../domain/models/feedback_models.dart';
 import '../../domain/ports/credential_store.dart';
 import '../../domain/ports/platform_ports.dart';
 
@@ -145,9 +146,28 @@ final class InMemoryScannerPort implements ScannerPort {
   Future<void> stop() async => running = false;
 }
 
-final class InMemoryHapticsPort implements HapticsPort {
-  final List<HapticEvent> events = [];
+final class InMemoryFeedbackPort implements FeedbackPort {
+  final List<FeedbackEvent> events = [];
+  final _options = <FeedbackScenario, FeedbackOptions>{};
 
   @override
-  Future<void> play(HapticEvent event) async => events.add(event);
+  Future<FeedbackOptions> settingsFor(FeedbackScenario scenario) async =>
+      _options[scenario] ??
+      FeedbackOptions(sound: scenario != FeedbackScenario.interaction);
+
+  @override
+  Future<void> setEnabled(
+    FeedbackScenario scenario,
+    FeedbackChannel channel,
+    bool enabled,
+  ) async {
+    _options[scenario] =
+        (await settingsFor(scenario)).withEnabled(channel, enabled);
+  }
+
+  @override
+  Future<void> play(FeedbackEvent event) async {
+    final options = await settingsFor(event.scenario);
+    if (options.vibration || options.sound) events.add(event);
+  }
 }

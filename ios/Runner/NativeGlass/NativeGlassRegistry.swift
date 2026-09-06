@@ -19,26 +19,6 @@ enum NativeGlassRegistry {
       }
     }
 
-    let paymentSuccessImpact = UIImpactFeedbackGenerator(style: .heavy)
-    let paymentSuccessNotification = UINotificationFeedbackGenerator()
-    let paymentHapticsChannel = FlutterMethodChannel(
-      name: "club.geekpie.pay/haptics",
-      binaryMessenger: messenger
-    )
-    paymentHapticsChannel.setMethodCallHandler { call, result in
-      guard call.method == "paymentSuccess" else {
-        result(FlutterMethodNotImplemented)
-        return
-      }
-      paymentSuccessImpact.prepare()
-      paymentSuccessNotification.prepare()
-      paymentSuccessImpact.impactOccurred(intensity: 1.0)
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.085) {
-        paymentSuccessNotification.notificationOccurred(.success)
-      }
-      result(nil)
-    }
-
     registrar.register(
       NativeGlassTabBarFactory(messenger: messenger),
       withId: NativeGlassTabBarPlatformView.viewType

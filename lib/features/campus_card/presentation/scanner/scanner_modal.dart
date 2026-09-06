@@ -151,7 +151,7 @@ class _ScannerModalState extends ConsumerState<ScannerModal> {
     final next = !_torchOn;
     try {
       await scanner.setTorch(next);
-      await ref.read(appRuntimeProvider).haptics.play(HapticEvent.selection);
+      await ref.read(appRuntimeProvider).feedback.play(FeedbackEvent.selection);
       if (mounted) setState(() => _torchOn = next);
     } catch (_) {
       if (mounted) setState(() => _error = context.l10n.t('torch'));
@@ -174,7 +174,10 @@ class _ScannerModalState extends ConsumerState<ScannerModal> {
     _accepting = false;
     _lastCode = code;
     unawaited(() async {
-      await ref.read(appRuntimeProvider).haptics.play(HapticEvent.mediumImpact);
+      await ref
+          .read(appRuntimeProvider)
+          .feedback
+          .play(FeedbackEvent.mediumImpact);
       await _stopCamera();
       if (!mounted) return;
       if (ref.read(skipScanConfirmationProvider)) {
@@ -355,7 +358,7 @@ class _ScannerModalState extends ConsumerState<ScannerModal> {
                     child: ScanResultContent(
                       success: scan.success!,
                       onDone: _finish,
-                      haptics: runtime.haptics,
+                      feedback: runtime.feedback,
                     ),
                   ),
                 ScanFlowPhase.failed => _LightResultOverlay(
@@ -364,7 +367,7 @@ class _ScannerModalState extends ConsumerState<ScannerModal> {
                       message:
                           scan.message ?? context.l10n.t('paymentCodeFailed'),
                       onRescan: _rescan,
-                      haptics: runtime.haptics,
+                      feedback: runtime.feedback,
                     ),
                   ),
                 _ => const SizedBox.shrink(key: ValueKey('none')),
@@ -386,7 +389,7 @@ class _ScannerModalState extends ConsumerState<ScannerModal> {
                       ? _PayAuthorizationOverlay(
                           key: const ValueKey('scan-password-popup'),
                           card: card,
-                          haptics: runtime.haptics,
+                          feedback: runtime.feedback,
                           onSubmit: (password) => unawaited(
                             ref
                                 .read(scanPaymentControllerProvider.notifier)
@@ -730,13 +733,13 @@ final class _PayAuthorizationOverlay extends StatelessWidget {
   const _PayAuthorizationOverlay({
     super.key,
     required this.card,
-    required this.haptics,
+    required this.feedback,
     required this.onSubmit,
     required this.onCancel,
   });
 
   final CampusCard? card;
-  final HapticsPort haptics;
+  final FeedbackPort feedback;
   final ValueChanged<String> onSubmit;
   final VoidCallback onCancel;
 
@@ -791,7 +794,7 @@ final class _PayAuthorizationOverlay extends StatelessWidget {
                   const SizedBox(height: 8),
                 ],
                 SixDigitPasswordPanel(
-                  haptics: haptics,
+                  feedback: feedback,
                   onSubmit: onSubmit,
                   onCancel: onCancel,
                 ),

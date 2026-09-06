@@ -44,7 +44,7 @@ class _BindCardScreenState extends ConsumerState<BindCardScreen> {
         !RegExp(r'^\d{6}$').hasMatch(_password.text) ||
         !RegExp(r'^1[3-9]\d{9}$').hasMatch(_phone.text)) {
       setState(() => _error = context.l10n.t('fieldRequired'));
-      await ref.read(appRuntimeProvider).haptics.play(HapticEvent.error);
+      await ref.read(appRuntimeProvider).feedback.play(FeedbackEvent.error);
       return;
     }
     setState(() {
@@ -62,7 +62,7 @@ class _BindCardScreenState extends ConsumerState<BindCardScreen> {
             ),
           );
       _password.clear();
-      await ref.read(appRuntimeProvider).haptics.play(HapticEvent.success);
+      await ref.read(appRuntimeProvider).feedback.play(FeedbackEvent.success);
       if (mounted) context.go(GpRoutes.pay);
     } catch (error) {
       if (mounted) setState(() => _error = GpStateView.safeUiError(error));

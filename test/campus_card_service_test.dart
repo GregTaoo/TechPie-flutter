@@ -32,7 +32,7 @@ void main() {
       brightness: base.brightness,
       connectivity: base.connectivity,
       lifecycle: base.lifecycle,
-      haptics: base.haptics,
+      feedback: base.feedback,
       scanner: base.scanner,
       disposeRuntime: base.dispose,
     );

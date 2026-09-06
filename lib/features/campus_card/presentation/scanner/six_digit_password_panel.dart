@@ -12,12 +12,12 @@ final class SixDigitPasswordPanel extends StatefulWidget {
     super.key,
     required this.onSubmit,
     required this.onCancel,
-    this.haptics,
+    this.feedback,
   });
 
   final ValueChanged<String> onSubmit;
   final VoidCallback onCancel;
-  final HapticsPort? haptics;
+  final FeedbackPort? feedback;
 
   @override
   State<SixDigitPasswordPanel> createState() => _SixDigitPasswordPanelState();
@@ -99,7 +99,7 @@ class _SixDigitPasswordPanelState extends State<SixDigitPasswordPanel> {
                 for (final digit in row)
                   _PasswordKey(
                     label: digit,
-                    haptics: widget.haptics,
+                    feedback: widget.feedback,
                     onTap: () => _press(digit),
                   ),
               ],
@@ -109,12 +109,12 @@ class _SixDigitPasswordPanelState extends State<SixDigitPasswordPanel> {
               const SizedBox(),
               _PasswordKey(
                 label: '0',
-                haptics: widget.haptics,
+                feedback: widget.feedback,
                 onTap: () => _press('0'),
               ),
               _PasswordKey(
                 icon: GpPlatformIcons.backspace(context),
-                haptics: widget.haptics,
+                feedback: widget.feedback,
                 onTap: _delete,
               ),
             ],
@@ -151,13 +151,13 @@ final class _PasswordKey extends StatefulWidget {
     this.label,
     this.icon,
     required this.onTap,
-    this.haptics,
+    this.feedback,
   });
 
   final String? label;
   final IconData? icon;
   final VoidCallback onTap;
-  final HapticsPort? haptics;
+  final FeedbackPort? feedback;
 
   @override
   State<_PasswordKey> createState() => _PasswordKeyState();
@@ -170,7 +170,7 @@ final class _PasswordKeyState extends State<_PasswordKey> {
     if (_pressed == value) return;
     setState(() => _pressed = value);
     if (value) {
-      unawaited(widget.haptics?.play(HapticEvent.selection));
+      unawaited(widget.feedback?.play(FeedbackEvent.selection));
     }
   }
 
