@@ -87,6 +87,21 @@ final class GeekPayLocalizations {
 
   static const Map<String, Map<String, String>> _copy = {
     'zh': {
+      'widgetTitle': '消费码',
+      'widgetSubtitle': '支付一触即达',
+      'addPayWidget': '添加消费码小组件',
+      'addToHomeScreen': '添加到主屏幕',
+      'widgetGuideSummary': '将消费码放到主屏幕，轻触小组件即可打开。',
+      'widgetGuideSteps': '手动添加步骤',
+      'widgetConfirmAdd': '请在系统弹窗中确认添加。',
+      'widgetManualFallback': '当前桌面未接受添加请求，请按下方步骤手动添加。',
+      'widgetUnsupported': '此系统暂不支持主屏幕小组件。iPhone 需要 iOS 14 或更新版本。',
+      'widgetIosStep1': '回到主屏幕，长按空白处，轻点“编辑”或左上角的“+”。',
+      'widgetIosStep2': '选择“添加小组件”，搜索 TechPie，再选择“消费码”。',
+      'widgetIosStep3': '轻点“添加小组件”，放到合适的位置后点“完成”。',
+      'widgetAndroidStep1': '回到主屏幕，长按空白处，打开“小组件”。',
+      'widgetAndroidStep2': '找到 TechPie，长按“消费码”小组件并拖到主屏幕。',
+      'widgetAndroidStep3': '放到合适的位置；以后轻触小组件即可打开消费码。',
       'appName': 'GeekPay',
       'campusPay': '校园支付',
       'continue': '继续',
@@ -278,6 +293,30 @@ final class GeekPayLocalizations {
       'clientOnlyRemoveNotice': '此操作只删除本机离线授权，不会在服务端吊销。',
     },
     'en': {
+      'widgetTitle': 'Pay Code',
+      'widgetSubtitle': 'Pay in a tap',
+      'addPayWidget': 'Add Pay Code Widget',
+      'addToHomeScreen': 'Add to Home Screen',
+      'widgetGuideSummary':
+          'Keep your Pay Code on the Home Screen. Tap the widget to open it.',
+      'widgetGuideSteps': 'Add it manually',
+      'widgetConfirmAdd': 'Confirm Add in the system dialog.',
+      'widgetManualFallback':
+          'The launcher did not accept the request. Follow the steps below to add it manually.',
+      'widgetUnsupported':
+          'Home Screen widgets are unavailable on this system. iPhone requires iOS 14 or later.',
+      'widgetIosStep1':
+          'On the Home Screen, touch and hold an empty area, then tap Edit or the + button.',
+      'widgetIosStep2':
+          'Choose Add Widget, search for TechPie, then select Pay Code.',
+      'widgetIosStep3':
+          'Tap Add Widget, place it where you want, then tap Done.',
+      'widgetAndroidStep1':
+          'On the Home Screen, touch and hold an empty area, then open Widgets.',
+      'widgetAndroidStep2':
+          'Find TechPie. Touch and hold Pay Code, then drag it onto the Home Screen.',
+      'widgetAndroidStep3':
+          'Place the widget where you want. Tap it whenever you need your Pay Code.',
       'appName': 'GeekPay',
       'campusPay': 'Campus Pay',
       'continue': 'Continue',
@@ -483,6 +522,22 @@ final class GeekPayLocalizations {
           'This removes the offline authorization from this device only. It does not revoke it on the server.',
     },
     'ja': {
+      'widgetTitle': '支払いコード',
+      'widgetSubtitle': 'タップで支払い',
+      'addPayWidget': '支払いウィジェットを追加',
+      'addToHomeScreen': 'ホーム画面に追加',
+      'widgetGuideSummary': 'ホーム画面のウィジェットをタップして支払いコードを開けます。',
+      'widgetGuideSteps': '手動で追加する手順',
+      'widgetConfirmAdd': 'システムのダイアログで追加を確認してください。',
+      'widgetManualFallback': '追加リクエストが受け付けられませんでした。以下の手順で追加してください。',
+      'widgetUnsupported':
+          'このシステムではホーム画面ウィジェットを利用できません。iPhone は iOS 14 以降が必要です。',
+      'widgetIosStep1': 'ホーム画面の空白部分を長押しし、「編集」または「+」をタップします。',
+      'widgetIosStep2': '「ウィジェットを追加」で TechPie を検索し、支払いコードを選びます。',
+      'widgetIosStep3': '「ウィジェットを追加」をタップして配置し、「完了」をタップします。',
+      'widgetAndroidStep1': 'ホーム画面の空白部分を長押しし、ウィジェットを開きます。',
+      'widgetAndroidStep2': 'TechPie の支払いコードを長押ししてホーム画面へドラッグします。',
+      'widgetAndroidStep3': '好きな位置に置きます。ウィジェットをタップすると支払いコードが開きます。',
       'appName': 'GeekPay',
       'campusPay': 'キャンパス決済',
       'continue': '続ける',

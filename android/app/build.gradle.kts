@@ -5,10 +5,19 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val ecardWidgetResources = layout.buildDirectory.dir("generated/ecardWidgetResources")
+val prepareEcardWidgetResources by tasks.registering(Copy::class) {
+    from("../../assets/campus_card/images/widget-background.png") {
+        rename { "ecard_widget_background.png" }
+    }
+    into(ecardWidgetResources.map { it.dir("drawable-nodpi") })
+}
+
 android {
     namespace = "com.example.techpie"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = "28.2.13676358"
+    sourceSets.getByName("main").res.srcDir(ecardWidgetResources)
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -38,6 +47,8 @@ android {
         }
     }
 }
+
+tasks.named("preBuild") { dependsOn(prepareEcardWidgetResources) }
 
 flutter {
     source = "../.."

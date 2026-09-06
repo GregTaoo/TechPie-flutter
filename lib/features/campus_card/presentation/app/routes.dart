@@ -6,6 +6,7 @@ abstract final class GpRoutes {
   static const transactions = '/transactions';
   static const me = '/me';
   static const offline = '/offline';
+  static const widgetSetup = '/widget';
 
   static String transactionDetail(String id) => '$transactions/$id';
 }

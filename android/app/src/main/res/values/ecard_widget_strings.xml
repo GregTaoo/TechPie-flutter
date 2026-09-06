@@ -1,0 +1,5 @@
+<resources>
+    <string name="ecard_widget_title">Pay Code</string>
+    <string name="ecard_widget_subtitle">Pay in a tap</string>
+    <string name="ecard_widget_description">Open your campus Pay Code in TechPie</string>
+</resources>

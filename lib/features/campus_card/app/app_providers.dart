@@ -21,6 +21,7 @@ import '../domain/money_fen.dart';
 import '../domain/ports/auth_port.dart';
 import '../domain/ports/bill_ports.dart';
 import '../domain/ports/card_ports.dart';
+import '../domain/ports/platform_ports.dart';
 import 'app_runtime.dart';
 
 final appRuntimeProvider = Provider<AppRuntime>(
@@ -34,6 +35,8 @@ final geekPayHostExitProvider = Provider<VoidCallback?>((ref) => null);
 
 /// Opens TechPie's Account settings for the campus-card OpenID.
 final campusCardAccountProvider = Provider<VoidCallback?>((ref) => null);
+
+final homeWidgetPortProvider = Provider<HomeWidgetPort?>((ref) => null);
 
 enum CampusCardEntry { paymentCode, cardManagement }
 

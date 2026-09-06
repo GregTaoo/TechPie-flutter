@@ -421,6 +421,21 @@ final class _InformationTab extends ConsumerWidget {
             ),
           ],
         ),
+        if (Theme.of(context).platform == TargetPlatform.android ||
+            Theme.of(context).platform == TargetPlatform.iOS) ...[
+          const SizedBox(height: 18),
+          AppleSection(
+            footer: l10n.t('widgetGuideSummary'),
+            children: [
+              AppleListRow(
+                key: const Key('add-pay-widget'),
+                icon: GpPlatformIcons.homeWidget(context),
+                label: l10n.t('addPayWidget'),
+                onTap: () => unawaited(context.push(GpRoutes.widgetSetup)),
+              ),
+            ],
+          ),
+        ],
       ],
     );
   }

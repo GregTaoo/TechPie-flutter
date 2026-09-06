@@ -1,0 +1,5 @@
+<resources>
+    <string name="ecard_widget_title">支払いコード</string>
+    <string name="ecard_widget_subtitle">タップで支払い</string>
+    <string name="ecard_widget_description">TechPie の学内支払いコードを開く</string>
+</resources>

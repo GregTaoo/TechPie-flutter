@@ -24,6 +24,8 @@
 		78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */ = {isa = PBXBuildFile; productRef = 78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */; };
 		ECAD00000000000000000004 /* EcardPayWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECAD00000000000000000001 /* EcardPayWidget.swift */; };
 		ECAD00000000000000000005 /* EcardPayWidget.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = ECAD00000000000000000003 /* EcardPayWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		ECAD00000000000000000020 /* widget-background.png in Resources */ = {isa = PBXBuildFile; fileRef = ECAD00000000000000000021 /* widget-background.png */; };
+		ECAD00000000000000000026 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = ECAD00000000000000000022 /* Localizable.strings */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -100,6 +102,10 @@
 		ECAD00000000000000000001 /* EcardPayWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EcardPayWidget.swift; sourceTree = "<group>"; };
 		ECAD00000000000000000002 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		ECAD00000000000000000003 /* EcardPayWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = EcardPayWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		ECAD00000000000000000021 /* widget-background.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "widget-background.png"; path = "../assets/campus_card/images/widget-background.png"; sourceTree = SOURCE_ROOT; };
+		ECAD00000000000000000023 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
+		ECAD00000000000000000024 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
+		ECAD00000000000000000025 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/Localizable.strings; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -177,6 +183,8 @@
 			children = (
 				ECAD00000000000000000001 /* EcardPayWidget.swift */,
 				ECAD00000000000000000002 /* Info.plist */,
+				ECAD00000000000000000021 /* widget-background.png */,
+				ECAD00000000000000000022 /* Localizable.strings */,
 			);
 			path = EcardPayWidget;
 			sourceTree = "<group>";
@@ -367,6 +375,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				ECAD00000000000000000020 /* widget-background.png in Resources */,
+				ECAD00000000000000000026 /* Localizable.strings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -528,6 +538,16 @@
 				97C147001CF9000F007C117D /* Base */,
 			);
 			name = LaunchScreen.storyboard;
+			sourceTree = "<group>";
+		};
+		ECAD00000000000000000022 /* Localizable.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				ECAD00000000000000000023 /* en */,
+				ECAD00000000000000000024 /* zh-Hans */,
+				ECAD00000000000000000025 /* ja */,
+			);
+			name = Localizable.strings;
 			sourceTree = "<group>";
 		};
 /* End PBXVariantGroup section */
@@ -824,7 +844,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
 				INFOPLIST_FILE = EcardPayWidget/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -852,7 +872,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
 				INFOPLIST_FILE = EcardPayWidget/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -879,7 +899,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
 				INFOPLIST_FILE = EcardPayWidget/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

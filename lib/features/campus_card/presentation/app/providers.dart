@@ -18,6 +18,7 @@ import 'package:techpie/features/campus_card/presentation/screens/security_hub_s
 import 'package:techpie/features/campus_card/presentation/screens/security_limit_screen.dart';
 import 'package:techpie/features/campus_card/presentation/screens/security_password_screen.dart';
 import 'package:techpie/features/campus_card/presentation/screens/settings_screen.dart';
+import 'package:techpie/features/campus_card/presentation/screens/widget_setup_screen.dart';
 
 final gpRouterProvider = Provider<GoRouter>((ref) {
   final entryLocation =
@@ -53,6 +54,11 @@ final gpRouterProvider = Provider<GoRouter>((ref) {
       return destination(auth.valueOrNull);
     },
     routes: [
+      GoRoute(
+        path: GpRoutes.widgetSetup,
+        pageBuilder: (context, state) =>
+            gpPlatformPage(context, state, const WidgetSetupScreen()),
+      ),
       GoRoute(
         path: GpRoutes.login,
         pageBuilder: (context, state) =>

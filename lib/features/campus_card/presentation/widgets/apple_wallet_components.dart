@@ -15,6 +15,8 @@ import '../theme/colors.dart';
 import '../theme/tokens.dart';
 
 abstract final class GeekPayAssets {
+  static const widgetBackground =
+      'assets/campus_card/images/widget-background.png';
   static const cardFull = 'assets/campus_card/images/card-full.png';
   static const cardTop = 'assets/campus_card/images/card-top.png';
   static const cardBottom = 'assets/campus_card/images/card-bottom.png';

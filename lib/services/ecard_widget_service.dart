@@ -2,14 +2,17 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 
+import '../features/campus_card/domain/ports/platform_ports.dart';
+
 typedef OpenEcardPayHandler = Future<void> Function();
 
-/// Receives the iOS Home Screen eCard shortcut and opens the pay code route.
-final class EcardDeepLinkService {
-  EcardDeepLinkService({MethodChannel? channel})
+/// Hosts widget installation and routes cold or warm widget taps to payment.
+final class EcardWidgetService implements HomeWidgetPort {
+  EcardWidgetService({MethodChannel? channel})
       : _channel = channel ?? const MethodChannel('techpie/ecard_deep_link');
 
   final MethodChannel _channel;
+  final List<OpenEcardPayHandler> _paymentTargets = [];
   OpenEcardPayHandler? _handler;
   bool _initialized = false;
   bool _pending = false;
@@ -31,8 +34,34 @@ final class EcardDeepLinkService {
     _handler = null;
   }
 
+  void Function() registerPaymentTarget(OpenEcardPayHandler handler) {
+    _paymentTargets.add(handler);
+    return () => _paymentTargets.remove(handler);
+  }
+
+  @override
+  Future<HomeWidgetAvailability> availability() async {
+    try {
+      return switch (
+          await _channel.invokeMethod<String>('widgetAvailability')) {
+        'nativePin' => HomeWidgetAvailability.nativePin,
+        'unsupported' => HomeWidgetAvailability.unsupported,
+        _ => HomeWidgetAvailability.manual,
+      };
+    } on MissingPluginException {
+      return HomeWidgetAvailability.manual;
+    } on PlatformException {
+      return HomeWidgetAvailability.manual;
+    }
+  }
+
+  @override
+  Future<bool> requestPin() async =>
+      await _channel.invokeMethod<bool>('requestPinWidget') ?? false;
+
   Future<void> dispose() async {
     _handler = null;
+    _paymentTargets.clear();
     _channel.setMethodCallHandler(null);
   }
 
@@ -48,15 +77,18 @@ final class EcardDeepLinkService {
       final route = await _channel.invokeMethod<String>('consumePendingRoute');
       if (route == 'pay') await _dispatch();
     } on MissingPluginException {
-      // Non-iOS platforms do not install this channel.
+      // Unsupported hosts do not install this channel.
     } on PlatformException {
       // A native shortcut failure must never delay normal app startup.
     }
   }
 
   Future<void> _dispatch() async {
-    if (_dispatching) return;
-    final handler = _handler;
+    if (_dispatching) {
+      _pending = true;
+      return;
+    }
+    final handler = _paymentTargets.isEmpty ? _handler : _paymentTargets.last;
     if (handler == null) {
       _pending = true;
       return;
@@ -68,7 +100,7 @@ final class EcardDeepLinkService {
       try {
         await _channel.invokeMethod<void>('acknowledgePendingRoute');
       } on MissingPluginException {
-        // Tests and non-iOS hosts can dispatch without a native peer.
+        // Tests and unsupported hosts can dispatch without a native peer.
       } on PlatformException {
         // The route is already open. A failed acknowledgement is harmless.
       }

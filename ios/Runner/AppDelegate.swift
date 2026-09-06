@@ -1,5 +1,6 @@
 import Flutter
 import UIKit
+import WidgetKit
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
@@ -38,6 +39,15 @@ import UIKit
       case "acknowledgePendingRoute":
         self.pendingEcardRoute = nil
         result(nil)
+      case "widgetAvailability":
+        if #available(iOS 14.0, *) {
+          WidgetCenter.shared.reloadTimelines(ofKind: "EcardPayWidget")
+          result("manual")
+        } else {
+          result("unsupported")
+        }
+      case "requestPinWidget":
+        result(false)
       default:
         result(FlutterMethodNotImplemented)
       }

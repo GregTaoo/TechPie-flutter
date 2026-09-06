@@ -23,6 +23,14 @@ final class GpPlatformIcon {
 /// platforms use Material Icons. App-owned painted geometry and branded image
 /// assets remain identical on every platform.
 abstract final class GpPlatformIcons {
+  static const homeWidget = GpPlatformIcon(
+    apple: CupertinoIcons.square_grid_2x2,
+    android: Icons.widgets_outlined,
+  );
+  static const qrCode = GpPlatformIcon(
+    apple: CupertinoIcons.qrcode,
+    android: Icons.qr_code_2_rounded,
+  );
   static const back = GpPlatformIcon(
     apple: CupertinoIcons.chevron_back,
     android: Icons.arrow_back_rounded,

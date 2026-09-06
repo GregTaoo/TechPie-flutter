@@ -24,6 +24,13 @@ abstract interface class ConnectivityPort {
   Stream<bool> get changes;
 }
 
+enum HomeWidgetAvailability { nativePin, manual, unsupported }
+
+abstract interface class HomeWidgetPort {
+  Future<HomeWidgetAvailability> availability();
+  Future<bool> requestPin();
+}
+
 enum HapticEvent {
   selection,
   lightImpact,

@@ -12,8 +12,8 @@ import 'services/assignment_service.dart';
 import 'services/auth_service.dart';
 import 'services/campus_card_service.dart';
 import 'services/debug_logger.dart';
+import 'services/ecard_widget_service.dart';
 import 'services/http_client.dart';
-import 'services/ios/ecard_deep_link_service.dart';
 import 'services/oa_gym_service.dart';
 import 'services/schedule_service.dart';
 import 'services/service_provider.dart';
@@ -62,8 +62,8 @@ Future<void> _realMain(SharedPreferences prefs) async {
   final authService = AuthService(storageService, httpClient, uniAuthService);
   final themeService = ThemeService(storageService);
   final campusCardService = CampusCardService();
-  final ecardDeepLinkService = EcardDeepLinkService();
-  if (isIos()) ecardDeepLinkService.initialize();
+  final ecardWidgetService = EcardWidgetService();
+  if (isIos() || isAndroid()) ecardWidgetService.initialize();
   final thirdPartyAuthService = ThirdPartyAuthService(
     storageService,
     httpClient,
@@ -139,7 +139,7 @@ Future<void> _realMain(SharedPreferences prefs) async {
       uniAuthService: uniAuthService,
       syncService: syncService,
       campusCardService: campusCardService,
-      ecardDeepLinkService: ecardDeepLinkService,
+      ecardWidgetService: ecardWidgetService,
     ),
   );
 
@@ -248,7 +248,7 @@ class TechPieApp extends StatefulWidget {
   final UniAuthService uniAuthService;
   final SyncService syncService;
   final CampusCardService campusCardService;
-  final EcardDeepLinkService? ecardDeepLinkService;
+  final EcardWidgetService? ecardWidgetService;
 
   const TechPieApp({
     super.key,
@@ -263,7 +263,7 @@ class TechPieApp extends StatefulWidget {
     required this.uniAuthService,
     required this.syncService,
     required this.campusCardService,
-    this.ecardDeepLinkService,
+    this.ecardWidgetService,
   });
 
   @override
@@ -277,20 +277,20 @@ class _TechPieAppState extends State<TechPieApp> {
   @override
   void initState() {
     super.initState();
-    widget.ecardDeepLinkService?.setOpenPayHandler(_openEcardPayCode);
+    widget.ecardWidgetService?.setOpenPayHandler(_openEcardPayCode);
   }
 
   @override
   void didUpdateWidget(covariant TechPieApp oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.ecardDeepLinkService == widget.ecardDeepLinkService) return;
-    oldWidget.ecardDeepLinkService?.clearOpenPayHandler();
-    widget.ecardDeepLinkService?.setOpenPayHandler(_openEcardPayCode);
+    if (oldWidget.ecardWidgetService == widget.ecardWidgetService) return;
+    oldWidget.ecardWidgetService?.clearOpenPayHandler();
+    widget.ecardWidgetService?.setOpenPayHandler(_openEcardPayCode);
   }
 
   @override
   void dispose() {
-    widget.ecardDeepLinkService?.clearOpenPayHandler();
+    widget.ecardWidgetService?.clearOpenPayHandler();
     widget.campusCardService.dispose();
     super.dispose();
   }
@@ -303,15 +303,14 @@ class _TechPieAppState extends State<TechPieApp> {
     final navigator = _navigatorKey.currentState;
     if (navigator == null || !mounted) return;
     _ecardPayRouteOpen = true;
-    try {
-      await pushAdaptivePage<void>(
+    unawaited(
+      pushAdaptivePage<void>(
         navigator.context,
         settings: const RouteSettings(name: 'ecard-pay-code'),
         builder: (_) => const CampusCardPage(),
-      );
-    } finally {
-      _ecardPayRouteOpen = false;
-    }
+      ).whenComplete(() => _ecardPayRouteOpen = false),
+    );
+    await WidgetsBinding.instance.endOfFrame;
   }
 
   @override
@@ -341,6 +340,7 @@ class _TechPieAppState extends State<TechPieApp> {
         uniAuthService: widget.uniAuthService,
         syncService: widget.syncService,
         campusCardService: widget.campusCardService,
+        ecardWidgetService: widget.ecardWidgetService,
         child: MaterialApp(
           navigatorKey: _navigatorKey,
           scaffoldMessengerKey: rootMessengerKey,
