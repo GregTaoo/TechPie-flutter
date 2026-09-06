@@ -1,3 +1,4 @@
+import AppIntents
 import Flutter
 import UIKit
 import WidgetKit
@@ -56,6 +57,10 @@ import WidgetKit
     }
     ecardDeepLinkChannel = deepLinkChannel
 
+    if #available(iOS 16.0, *) {
+      EcardAppShortcuts.updateAppShortcutParameters()
+    }
+
     if let url = launchOptions?[.url] as? URL {
       _ = captureEcardPayURL(url, notifyFlutter: false)
     }
@@ -82,10 +87,14 @@ import WidgetKit
     else {
       return false
     }
+    openEcardPayCode(notifyFlutter: notifyFlutter)
+    return true
+  }
+
+  func openEcardPayCode(notifyFlutter: Bool = true) {
     pendingEcardRoute = "pay"
     if notifyFlutter {
       ecardDeepLinkChannel?.invokeMethod("openPayCode", arguments: nil)
     }
-    return true
   }
 }
