@@ -1,0 +1,286 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:techpie/features/campus_card/app/app_providers.dart';
+import 'package:techpie/features/campus_card/app/app_runtime.dart';
+import 'package:techpie/features/campus_card/app/demo_runtime_factory.dart';
+import 'package:techpie/features/campus_card/data/mock/in_memory_ports.dart';
+import 'package:techpie/features/campus_card/domain/models/auth_models.dart';
+import 'package:techpie/features/campus_card/domain/models/payment_models.dart';
+import 'package:techpie/features/campus_card/domain/ports/payment_ports.dart';
+import 'package:techpie/features/campus_card/domain/ports/platform_ports.dart'
+    as ports;
+import 'package:techpie/features/campus_card/presentation/app/app.dart';
+import 'package:techpie/features/campus_card/presentation/app/providers.dart';
+
+void main() {
+  testWidgets('a refreshed payload replaces the cached QR matrix',
+      (tester) async {
+    final rig = await _Rig.mount(tester);
+    final before = rig.qrPainter(tester);
+    await rig.container.read(paymentCodeControllerProvider.notifier).restart();
+    await tester.pumpAndSettle();
+    expect(identical(rig.qrPainter(tester), before), isFalse);
+    expect(rig.repository.generations, 2);
+    await rig.dispose(tester);
+  });
+
+  testWidgets('a non-opaque status sheet keeps the visible code active',
+      (tester) async {
+    final rig = await _Rig.mount(tester);
+    final context = tester.element(find.byKey(const Key('payment-code-page')));
+    unawaited(
+      showModalBottomSheet<void>(
+        context: context,
+        builder: (_) => const SizedBox(height: 160, child: Text('Code status')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final before = rig.repository.polls;
+    await tester.pump(const Duration(seconds: 3));
+    expect(rig.repository.polls, before + 1);
+    expect(rig.brightness.value, 1);
+    await rig.dispose(tester);
+  });
+
+  testWidgets(
+      'resource pausing does not swallow the control-center disconnect cue',
+      (tester) async {
+    final rig = await _Rig.mount(tester);
+    rig.lifecycle.setState(ports.AppLifecycleState.inactive);
+    (rig.base.connectivity as InMemoryConnectivityPort).setOnline(false);
+    await tester.pump(const Duration(seconds: 1));
+    final feedback = rig.base.feedback as InMemoryFeedbackPort;
+    expect(
+      feedback.events
+          .where((e) => e == ports.FeedbackEvent.networkDisconnected),
+      isEmpty,
+    );
+    rig.lifecycle.setState(ports.AppLifecycleState.resumed);
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expect(
+      feedback.events
+          .where((e) => e == ports.FeedbackEvent.networkDisconnected),
+      hasLength(1),
+    );
+    await rig.dispose(tester);
+  });
+
+  testWidgets('countdown ticks reuse the unchanged QR rendering',
+      (tester) async {
+    final rig = await _Rig.mount(tester);
+    final before = rig.qrPainter(tester);
+    await tester.pump(const Duration(seconds: 1));
+    expect(
+      identical(rig.qrPainter(tester), before),
+      isTrue,
+      reason: 'Changing a seconds label must not recalculate the QR matrix.',
+    );
+    await rig.dispose(tester);
+  });
+
+  testWidgets('a pending poll does not rebuild unchanged payment content',
+      (tester) async {
+    final rig = await _Rig.mount(tester);
+    final poll = Completer<PaymentCodePollResult>();
+    rig.repository.pendingPoll = poll.future;
+    await tester.pump(const Duration(seconds: 3));
+    final before = rig.qrPainter(tester);
+    final art = tester.widget(find.byKey(const Key('payment-card-top-art')));
+    poll.complete(const PaymentPending());
+    await tester.pump();
+    await tester.pump();
+    expect(identical(rig.qrPainter(tester), before), isTrue);
+    expect(
+      identical(
+        tester.widget(find.byKey(const Key('payment-card-top-art'))),
+        art,
+      ),
+      isTrue,
+    );
+    await rig.dispose(tester);
+  });
+
+  testWidgets('covered payment routes stop polling and restore brightness',
+      (tester) async {
+    final rig = await _Rig.mount(tester);
+    final router = rig.container.read(gpRouterProvider);
+    unawaited(router.push('/card/manage'));
+    await tester.pumpAndSettle();
+    final before = rig.repository.polls;
+    await tester.pump(const Duration(seconds: 6));
+    expect(
+      (polls: rig.repository.polls - before, brightness: rig.brightness.value),
+      (polls: 0, brightness: 0.5),
+    );
+    final generations = rig.repository.generations;
+    router.pop();
+    await tester.pumpAndSettle();
+    expect(rig.repository.generations, generations + 1);
+    expect(rig.brightness.value, 1);
+    await rig.dispose(tester);
+  });
+
+  testWidgets('a covered host route stays paused when the app resumes',
+      (tester) async {
+    final rig = await _Rig.mount(tester);
+    unawaited(
+      rig.navigator.currentState!.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('Host account settings')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final before = rig.repository.polls;
+    rig.lifecycle.setState(ports.AppLifecycleState.paused);
+    rig.lifecycle.setState(ports.AppLifecycleState.resumed);
+    await tester.pump(const Duration(seconds: 6));
+    expect(
+      (polls: rig.repository.polls - before, brightness: rig.brightness.value),
+      (polls: 0, brightness: 0.5),
+    );
+    rig.navigator.currentState!.pop();
+    await tester.pumpAndSettle();
+    expect(rig.brightness.value, 1);
+    await rig.dispose(tester);
+  });
+
+  testWidgets('backgrounding stops payment work and resumes with a fresh code',
+      (tester) async {
+    final rig = await _Rig.mount(tester);
+    final before = rig.repository.polls;
+    rig.lifecycle.setState(ports.AppLifecycleState.paused);
+    await tester.pump(const Duration(seconds: 6));
+    expect(
+      (polls: rig.repository.polls - before, brightness: rig.brightness.value),
+      (polls: 0, brightness: 0.5),
+    );
+    final generations = rig.repository.generations;
+    rig.lifecycle.setState(ports.AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(rig.repository.generations, generations + 1);
+    expect(rig.brightness.value, 1);
+    await rig.dispose(tester);
+  });
+}
+
+class _Rig {
+  _Rig(
+    this.container,
+    this.repository,
+    this.brightness,
+    this.lifecycle,
+    this.navigator,
+    this.base,
+  );
+  final ProviderContainer container;
+  final _Repository repository;
+  final InMemoryBrightnessPort brightness;
+  final InMemoryLifecyclePort lifecycle;
+  final GlobalKey<NavigatorState> navigator;
+  final AppRuntime base;
+  bool _disposed = false;
+
+  Future<void> dispose(WidgetTester tester) async {
+    if (_disposed) return;
+    _disposed = true;
+    await tester.pumpWidget(const SizedBox.shrink());
+    container.dispose();
+    await tester.pump();
+    await base.dispose();
+  }
+
+  static Future<_Rig> mount(WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues(
+      {'geekpay.onboarding_complete': true},
+    );
+    final base = await buildDemoRuntime();
+    await base.auth.signIn(const DemoAuthCredential());
+    final repository = _Repository();
+    final runtime = AppRuntime(
+      environment: base.environment,
+      capabilities: base.capabilities,
+      auth: base.auth,
+      cards: base.cards,
+      paymentCodes: repository,
+      scanPayments: base.scanPayments,
+      transactions: base.transactions,
+      securitySettings: base.securitySettings,
+      offlinePayments: base.offlinePayments,
+      brightness: base.brightness,
+      connectivity: base.connectivity,
+      lifecycle: base.lifecycle,
+      feedback: base.feedback,
+      scanner: base.scanner,
+    );
+    final container = ProviderContainer(
+      overrides: [appRuntimeProvider.overrideWithValue(runtime)],
+    );
+    final navigator = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          navigatorKey: navigator,
+          home: const CampusCardFeature(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('payment-code-qr')), findsOneWidget);
+    final rig = _Rig(
+      container,
+      repository,
+      base.brightness as InMemoryBrightnessPort,
+      base.lifecycle as InMemoryLifecyclePort,
+      navigator,
+      base,
+    );
+    addTearDown(() => rig.dispose(tester));
+    return rig;
+  }
+
+  QrPainter qrPainter(WidgetTester tester) => tester
+      .widget<CustomPaint>(
+        find.descendant(
+          of: find.byKey(const Key('payment-code-qr')),
+          matching: find.byWidgetPredicate(
+            (w) => w is CustomPaint && w.painter is QrPainter,
+          ),
+        ),
+      )
+      .painter! as QrPainter;
+}
+
+class _Repository implements PaymentCodeRepository {
+  int polls = 0;
+  int generations = 0;
+  Future<PaymentCodePollResult>? pendingPoll;
+  @override
+  Future<void> activateOnlineCode() async {}
+  @override
+  Future<PaymentCodeFrame> generateOnlineCode() async {
+    generations++;
+    return PaymentCodeFrame(
+      payCode: 'test-$generations',
+      rawQrCode: '5638-test',
+      qrPayload: String.fromCharCodes(
+        List.generate(160, (i) => (i * 31 + generations) % 256),
+      ),
+      offlineAllowed: true,
+      generatedAt: DateTime.now().toUtc(),
+    );
+  }
+
+  @override
+  Future<PaymentCodePollResult> pollTransaction(String payCode) async {
+    polls++;
+    return pendingPoll ?? const PaymentPending();
+  }
+}

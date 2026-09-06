@@ -25,7 +25,7 @@ Widget gpScannerEntranceTransition(
   Widget child, {
   required bool reduceMotion,
 }) {
-  final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
+  final curved = animation.drive(CurveTween(curve: Curves.easeOutCubic));
   if (reduceMotion) return FadeTransition(opacity: curved, child: child);
   return SlideTransition(
     position: Tween<Offset>(
@@ -41,7 +41,7 @@ Widget gpScannerPopupTransition(
   Widget child, {
   required bool reduceMotion,
 }) {
-  final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
+  final curved = animation.drive(CurveTween(curve: Curves.easeOutCubic));
   if (reduceMotion) return FadeTransition(opacity: curved, child: child);
   return FadeTransition(
     opacity: curved,
@@ -649,7 +649,10 @@ final class _ScannerMask extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return CustomPaint(painter: _ScannerMaskPainter());
+    return CustomPaint(
+      key: const Key('scanner-mask'),
+      painter: _ScannerMaskPainter(),
+    );
   }
 }
 
@@ -662,18 +665,14 @@ final class _ScannerMaskPainter extends CustomPainter {
       width: side,
       height: side,
     );
-    canvas.saveLayer(Offset.zero & size, Paint());
-    canvas.drawRect(
-      Offset.zero & size,
+    final mask = Path()
+      ..fillType = PathFillType.evenOdd
+      ..addRect(Offset.zero & size)
+      ..addRRect(RRect.fromRectAndRadius(rect, const Radius.circular(26)));
+    canvas.drawPath(
+      mask,
       Paint()..color = Colors.black.withValues(alpha: 0.48),
     );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(rect, const Radius.circular(26)),
-      Paint()
-        ..blendMode = BlendMode.clear
-        ..color = Colors.transparent,
-    );
-    canvas.restore();
 
     final corner = Paint()
       ..color = Colors.white

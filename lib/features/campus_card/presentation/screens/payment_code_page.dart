@@ -47,14 +47,24 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
   String? _offlineError;
   int? _offlineRemaining;
   StreamSubscription<bool>? _connectivitySubscription;
+  StreamSubscription<AppLifecycleState>? _lifecycleSubscription;
   Timer? _onlineRetryTimer;
   bool _scannerOpen = false;
+  bool _visible = false;
+  bool _foreground = false;
+  bool _active = false;
+  int _activityRevision = 0;
   late final ConfirmedDisconnectFeedback _disconnectFeedback;
 
   @override
   void initState() {
     super.initState();
     final runtime = ref.read(appRuntimeProvider);
+    _foreground = runtime.lifecycle.current == AppLifecycleState.resumed;
+    _lifecycleSubscription = runtime.lifecycle.changes.listen((state) {
+      _foreground = state == AppLifecycleState.resumed;
+      _updateActivity(defer: false);
+    });
     _disconnectFeedback = ConfirmedDisconnectFeedback(
       connectivity: runtime.connectivity,
       lifecycle: runtime.lifecycle,
@@ -66,23 +76,58 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
         .connectivity
         .changes
         .listen(_handleConnectivity);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && !ref.read(manualOfflineModeProvider)) {
-        unawaited(_paymentCodes.enter());
-      }
-    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Navigator's Overlay disables this mode below opaque routes, including
+    // routes in the host navigator. Non-opaque status sheets stay visible.
+    _visible = TickerMode.of(context);
+    _updateActivity(defer: true);
+  }
+
+  void _updateActivity({required bool defer}) {
+    if (!mounted) return;
+    final next = _visible && _foreground && !_scannerOpen;
+    if (next == _active) return;
+    if (defer) {
+      _active = next;
+    } else {
+      setState(() => _active = next);
+    }
+    if (!next) _onlineRetryTimer?.cancel();
+    final revision = ++_activityRevision;
+    if (defer) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(_applyActivity(revision));
+      });
+    } else {
+      // Backgrounding may stop frame delivery, so release resources now.
+      unawaited(_applyActivity(revision));
+    }
+  }
+
+  Future<void> _applyActivity(int revision) async {
+    if (!mounted || revision != _activityRevision) return;
+    if (_active && !ref.read(manualOfflineModeProvider)) {
+      await _paymentCodes.enter();
+    } else {
+      await _paymentCodes.leave();
+    }
   }
 
   @override
   void dispose() {
     unawaited(_disconnectFeedback.dispose());
+    unawaited(_lifecycleSubscription?.cancel());
     _onlineRetryTimer?.cancel();
     unawaited(_connectivitySubscription?.cancel());
     super.dispose();
   }
 
   void _handleConnectivity(bool online) {
-    if (!mounted) return;
+    if (!mounted || !_active) return;
     final card = ref.read(cardControllerProvider).valueOrNull;
     if (card == null) return;
     if (online) {
@@ -108,6 +153,7 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
 
   Future<void> _refreshOnline() async {
     await ref.read(appRuntimeProvider).feedback.play(FeedbackEvent.selection);
+    if (!mounted || !_active) return;
     await ref.read(paymentCodeControllerProvider.notifier).restart();
   }
 
@@ -119,14 +165,14 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
         _offline = false;
         _offlineError = null;
       });
-      await ref.read(paymentCodeControllerProvider.notifier).restart();
+      if (_active) await _paymentCodes.restart();
       return;
     }
     await _paymentCodes.leave();
     await _generateOffline(card, switching: true);
     if (_offlinePayload == null) {
       ref.read(manualOfflineModeProvider.notifier).setEnabled(false);
-      await _paymentCodes.restart();
+      if (_active) await _paymentCodes.restart();
     }
   }
 
@@ -190,7 +236,23 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
   Widget build(BuildContext context) {
     final cardAsync = ref.watch(cardControllerProvider);
     final card = cardAsync.valueOrNull;
-    final payment = ref.watch(paymentCodeControllerProvider);
+    // Starting/finishing a pending poll changes no visible content.
+    ref.watch(
+      paymentCodeControllerProvider.select(
+        (value) => (
+          value.phase == PaymentCodePhase.polling
+              ? PaymentCodePhase.displaying
+              : value.phase,
+          value.generation,
+          value.frame,
+          value.result,
+          value.message,
+          value.connectionState,
+          value.requestLatency,
+        ),
+      ),
+    );
+    final payment = ref.read(paymentCodeControllerProvider);
     final transactions = ref.watch(transactionFeedProvider(_allTransactions));
     final l10n = context.l10n;
     final hostExit = ref.watch(geekPayHostExitProvider);
@@ -236,12 +298,15 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
     final onlineFailed = payment.phase == PaymentCodePhase.switchingOffline ||
         (payment.phase == PaymentCodePhase.failed &&
             payment.connectionState != PaymentConnectionState.online);
-    if (card != null &&
+    if (_active &&
+        card != null &&
         (manualOffline || onlineFailed) &&
         !_offline &&
         !_offlineBusy) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) unawaited(_generateOffline(card, switching: true));
+        if (mounted && _active) {
+          unawaited(_generateOffline(card, switching: true));
+        }
       });
     }
 
@@ -249,11 +314,12 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
     final realTransactionCount = transactionPage?.items
         .where((record) => !record.id.startsWith('DEBUG-'))
         .length;
-    if (transactionPage != null &&
+    if (_active &&
+        transactionPage != null &&
         transactionPage.hasMore &&
         (realTransactionCount ?? 0) < 25) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
+        if (!mounted || !_active) return;
         unawaited(
           ref
               .read(transactionFeedProvider(_allTransactions).notifier)
@@ -262,7 +328,7 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
       });
     }
 
-    return Scaffold(
+    final page = Scaffold(
       key: const Key('payment-code-page'),
       body: _scannerOpen
           ? const ColoredBox(color: Colors.black)
@@ -322,6 +388,7 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
                               offlinePayload: _offlinePayload,
                               offlineRemaining: _offlineRemaining,
                               reduceMotion: reduceMotion,
+                              active: _active,
                               onShowStatus: () => unawaited(
                                 _showStatusSheet(
                                   card: card,
@@ -463,12 +530,13 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
               ),
             ),
     );
+    return TickerMode(enabled: _active, child: page);
   }
 
   Future<void> _openScanner() async {
-    await _paymentCodes.leave();
-    if (!mounted) return;
+    if (_scannerOpen) return;
     setState(() => _scannerOpen = true);
+    _updateActivity(defer: false);
     await WidgetsBinding.instance.endOfFrame;
     if (!mounted) return;
     try {
@@ -476,16 +544,16 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
     } finally {
       if (mounted) {
         setState(() => _scannerOpen = false);
-        await _paymentCodes.enter();
+        _updateActivity(defer: false);
       }
     }
   }
 
   void _scheduleOnlineRetry() {
-    if (ref.read(manualOfflineModeProvider)) return;
+    if (!_active || ref.read(manualOfflineModeProvider)) return;
     _onlineRetryTimer?.cancel();
     _onlineRetryTimer = Timer(const Duration(seconds: 15), () {
-      if (!mounted || ref.read(manualOfflineModeProvider)) return;
+      if (!mounted || !_active || ref.read(manualOfflineModeProvider)) return;
       unawaited(_paymentCodes.restart());
     });
   }
@@ -630,7 +698,7 @@ final class _OfflineAuthorizationBanner extends StatelessWidget {
   }
 }
 
-final class _ExpandedPaymentPass extends StatefulWidget {
+final class _ExpandedPaymentPass extends StatelessWidget {
   const _ExpandedPaymentPass({
     required this.card,
     required this.payment,
@@ -639,6 +707,7 @@ final class _ExpandedPaymentPass extends StatefulWidget {
     required this.offlinePayload,
     required this.offlineRemaining,
     required this.reduceMotion,
+    required this.active,
     required this.onShowStatus,
     required this.onRefreshOnline,
     required this.onRefreshOffline,
@@ -652,74 +721,30 @@ final class _ExpandedPaymentPass extends StatefulWidget {
   final String? offlinePayload;
   final int? offlineRemaining;
   final bool reduceMotion;
+  final bool active;
   final VoidCallback onShowStatus;
   final VoidCallback onRefreshOnline;
   final VoidCallback onRefreshOffline;
   final VoidCallback onActivateOnline;
 
   @override
-  State<_ExpandedPaymentPass> createState() => _ExpandedPaymentPassState();
-}
-
-class _ExpandedPaymentPassState extends State<_ExpandedPaymentPass> {
-  Timer? _timer;
-  int _remaining = 30;
-
-  @override
-  void initState() {
-    super.initState();
-    _restartTimer();
-  }
-
-  @override
-  void didUpdateWidget(_ExpandedPaymentPass oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.payment.generation != widget.payment.generation ||
-        oldWidget.offlinePayload != widget.offlinePayload) {
-      _restartTimer();
-    }
-  }
-
-  void _restartTimer() {
-    _timer?.cancel();
-    _remaining = 30;
-    if (widget.offline) return;
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) return;
-      if (_remaining <= 1) {
-        timer.cancel();
-        return;
-      }
-      setState(() => _remaining--);
-    });
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    final succeeded =
-        !widget.offline && widget.payment.phase == PaymentCodePhase.succeeded;
-    final result = widget.payment.result;
-    final payload = widget.offline
-        ? widget.offlinePayload
-        : widget.payment.frame?.qrPayload;
-    final loading = widget.offline
-        ? widget.offlineBusy
-        : widget.payment.phase == PaymentCodePhase.initializing ||
-            widget.payment.phase == PaymentCodePhase.refreshing;
-    final showCodeMetadata = widget.offline ||
-        widget.payment.phase == PaymentCodePhase.displaying ||
-        widget.payment.phase == PaymentCodePhase.refreshing ||
-        widget.payment.phase == PaymentCodePhase.polling;
-    final ownerName = widget.card.detailsAvailable
+    final succeeded = !offline && payment.phase == PaymentCodePhase.succeeded;
+    final result = payment.result;
+    final payload = offline ? offlinePayload : payment.frame?.qrPayload;
+    final loading = offline
+        ? offlineBusy
+        : payment.phase == PaymentCodePhase.initializing ||
+            payment.phase == PaymentCodePhase.refreshing ||
+            payment.phase == PaymentCodePhase.stopped;
+    final showCodeMetadata = offline ||
+        payment.phase == PaymentCodePhase.displaying ||
+        payment.phase == PaymentCodePhase.refreshing ||
+        payment.phase == PaymentCodePhase.polling;
+    final ownerName = card.detailsAvailable
         ? cardholderDisplayName(
-            widget.card.ownerName,
+            card.ownerName,
             languageCode: Localizations.localeOf(context).languageCode,
           )
         : l10n.t('campusCardShort');
@@ -781,18 +806,17 @@ class _ExpandedPaymentPassState extends State<_ExpandedPaymentPass> {
                                   button: true,
                                   label: l10n.t('onlineStatus'),
                                   child: GestureDetector(
-                                    onTap: widget.onShowStatus,
+                                    onTap: onShowStatus,
                                     behavior: HitTestBehavior.opaque,
                                     child: SizedBox.square(
                                       dimension: statusSize,
-                                      child: widget.payment.connectionState ==
+                                      child: payment.connectionState ==
                                               PaymentConnectionState.unknown
                                           ? const CupertinoActivityIndicator(
                                               color: Colors.white,
                                             )
                                           : Image.asset(
-                                              switch (widget
-                                                  .payment.connectionState) {
+                                              switch (payment.connectionState) {
                                                 PaymentConnectionState.online =>
                                                   GeekPayAssets.online,
                                                 PaymentConnectionState
@@ -841,9 +865,9 @@ class _ExpandedPaymentPassState extends State<_ExpandedPaymentPass> {
                             left: (width - qrSize) / 2,
                             width: qrSize,
                             height: qrSize,
-                            child: Center(
+                            child: RepaintBoundary(
                               child: AnimatedSwitcher(
-                                duration: widget.reduceMotion
+                                duration: reduceMotion || !active
                                     ? Duration.zero
                                     : const Duration(milliseconds: 320),
                                 switchInCurve: Curves.easeOutCubic,
@@ -852,8 +876,8 @@ class _ExpandedPaymentPassState extends State<_ExpandedPaymentPass> {
                                     ? _PaymentSuccess(
                                         key: const ValueKey('success'),
                                         result: result,
-                                        reduceMotion: widget.reduceMotion,
-                                        onRefresh: widget.onRefreshOnline,
+                                        reduceMotion: reduceMotion,
+                                        onRefresh: onRefreshOnline,
                                       )
                                     : loading
                                         ? const _PaymentCodeActivityIndicator(
@@ -862,26 +886,23 @@ class _ExpandedPaymentPassState extends State<_ExpandedPaymentPass> {
                                             ),
                                             radius: 15,
                                           )
-                                        : widget.payment.phase ==
+                                        : payment.phase ==
                                                 PaymentCodePhase
                                                     .activationRequired
                                             ? _ActivationRequired(
                                                 key: const ValueKey('activate'),
-                                                onActivate:
-                                                    widget.onActivateOnline,
+                                                onActivate: onActivateOnline,
                                               )
-                                            : widget.payment.phase ==
+                                            : payment.phase ==
                                                         PaymentCodePhase
                                                             .failed &&
-                                                    !widget.offline
+                                                    !offline
                                                 ? _CodeFailure(
                                                     key: const ValueKey(
                                                       'failed',
                                                     ),
-                                                    message:
-                                                        widget.payment.message,
-                                                    onRetry:
-                                                        widget.onRefreshOnline,
+                                                    message: payment.message,
+                                                    onRetry: onRefreshOnline,
                                                   )
                                                 : payload == null
                                                     ? const _PaymentCodeActivityIndicator(
@@ -891,28 +912,24 @@ class _ExpandedPaymentPassState extends State<_ExpandedPaymentPass> {
                                                       )
                                                     : _QrCode(
                                                         key: ValueKey(
-                                                          widget.offline
+                                                          offline
                                                               ? payload
-                                                              : widget.payment
+                                                              : payment
                                                                   .generation,
                                                         ),
                                                         payload: payload,
-                                                        binaryPayload: widget
-                                                                .offline ||
-                                                            (widget
-                                                                    .payment
-                                                                    .frame
-                                                                    ?.rawQrCode
-                                                                    .startsWith(
-                                                                  '5638',
-                                                                ) ??
-                                                                false),
+                                                        binaryPayload:
+                                                            offline ||
+                                                                (payment.frame
+                                                                        ?.rawQrCode
+                                                                        .startsWith(
+                                                                      '5638',
+                                                                    ) ??
+                                                                    false),
                                                         size: qrSize,
-                                                        onTap: widget.offline
-                                                            ? widget
-                                                                .onRefreshOffline
-                                                            : widget
-                                                                .onRefreshOnline,
+                                                        onTap: offline
+                                                            ? onRefreshOffline
+                                                            : onRefreshOnline,
                                                       ),
                               ),
                             ),
@@ -926,7 +943,7 @@ class _ExpandedPaymentPassState extends State<_ExpandedPaymentPass> {
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Text(
-                                    widget.offline
+                                    offline
                                         ? l10n.t('offlineCode')
                                         : l10n.t('onlineCode'),
                                     style: TextStyle(
@@ -935,20 +952,27 @@ class _ExpandedPaymentPassState extends State<_ExpandedPaymentPass> {
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
-                                  if (!widget.offline ||
-                                      widget.offlineRemaining != null) ...[
+                                  if (!offline || offlineRemaining != null) ...[
                                     SizedBox(height: width * 0.004),
-                                    Text(
-                                      widget.offline
-                                          ? '${l10n.t('remainingUses')}: ${widget.offlineRemaining}'
-                                          : l10n.refreshIn(_remaining),
-                                      style: TextStyle(
-                                        color: GpTokens.campusRed.withValues(
-                                          alpha: 0.62,
+                                    if (offline)
+                                      Text(
+                                        '${l10n.t('remainingUses')}: $offlineRemaining',
+                                        style: TextStyle(
+                                          color: GpTokens.campusRed
+                                              .withValues(alpha: 0.62),
+                                          fontSize: metadataValueSize,
                                         ),
-                                        fontSize: metadataValueSize,
+                                      )
+                                    else
+                                      _CodeCountdown(
+                                        generation: payment.generation,
+                                        active: active,
+                                        style: TextStyle(
+                                          color: GpTokens.campusRed
+                                              .withValues(alpha: 0.62),
+                                          fontSize: metadataValueSize,
+                                        ),
                                       ),
-                                    ),
                                   ],
                                 ],
                               ),
@@ -978,7 +1002,7 @@ class _ExpandedPaymentPassState extends State<_ExpandedPaymentPass> {
                                       ),
                                       SizedBox(height: width * 0.006),
                                       Text(
-                                        l10n.cardNumber(widget.card.id),
+                                        l10n.cardNumber(card.id),
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                         style: TextStyle(
@@ -994,9 +1018,9 @@ class _ExpandedPaymentPassState extends State<_ExpandedPaymentPass> {
                                 ),
                                 SizedBox(width: width * 0.025),
                                 Text(
-                                  widget.card.detailsAvailable
+                                  card.detailsAvailable
                                       ? formatMoneyFen(
-                                          widget.card.balance.value,
+                                          card.balance.value,
                                         )
                                       : '--',
                                   maxLines: 1,
@@ -1026,10 +1050,75 @@ class _ExpandedPaymentPassState extends State<_ExpandedPaymentPass> {
   }
 }
 
+final class _CodeCountdown extends StatefulWidget {
+  const _CodeCountdown({
+    required this.generation,
+    required this.active,
+    required this.style,
+  });
+  final int generation;
+  final bool active;
+  final TextStyle style;
+
+  @override
+  State<_CodeCountdown> createState() => _CodeCountdownState();
+}
+
+class _CodeCountdownState extends State<_CodeCountdown> {
+  Timer? _timer;
+  int _remaining = 30;
+
+  @override
+  void initState() {
+    super.initState();
+    _startTimer();
+  }
+
+  @override
+  void didUpdateWidget(_CodeCountdown oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.generation != widget.generation) {
+      _remaining = 30;
+      _startTimer();
+    } else if (oldWidget.active != widget.active) {
+      _startTimer();
+    }
+  }
+
+  void _startTimer() {
+    _timer?.cancel();
+    if (!widget.active || _remaining <= 1) return;
+    final initial = _remaining;
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      final next = (initial - timer.tick).clamp(1, 30);
+      setState(() => _remaining = next);
+      if (_remaining == 1) timer.cancel();
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        width: double.infinity,
+        child: RepaintBoundary(
+          child: Text(
+            context.l10n.refreshIn(_remaining),
+            textAlign: TextAlign.center,
+            style: widget.style,
+          ),
+        ),
+      );
+}
+
 double _scaled(double width, double ratio, double minimum, double maximum) =>
     (width * ratio).clamp(minimum, maximum).toDouble();
 
-final class _QrCode extends StatelessWidget {
+final class _QrCode extends StatefulWidget {
   const _QrCode({
     super.key,
     required this.payload,
@@ -1044,50 +1133,73 @@ final class _QrCode extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
+  State<_QrCode> createState() => _QrCodeState();
+}
+
+class _QrCodeState extends State<_QrCode> {
+  late Widget _image;
+
+  @override
+  void initState() {
+    super.initState();
+    _image = _createImage();
+  }
+
+  @override
+  void didUpdateWidget(_QrCode oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.payload != widget.payload ||
+        oldWidget.binaryPayload != widget.binaryPayload) {
+      _image = _createImage();
+    }
+  }
+
+  Widget _createImage() => widget.binaryPayload
+      ? QrImageView.withQr(
+          qr: QrCode.fromUint8List(
+            data: Uint8List.fromList(latin1.encode(widget.payload)),
+            errorCorrectLevel: QrErrorCorrectLevel.L,
+          ),
+          padding: EdgeInsets.zero,
+          eyeStyle: const QrEyeStyle(
+            eyeShape: QrEyeShape.square,
+            color: GpTokens.campusRed,
+          ),
+          dataModuleStyle: const QrDataModuleStyle(
+            dataModuleShape: QrDataModuleShape.square,
+            color: GpTokens.campusRed,
+          ),
+          backgroundColor: GpTokens.cardCanvas,
+        )
+      : QrImageView(
+          data: widget.payload,
+          version: QrVersions.auto,
+          padding: EdgeInsets.zero,
+          eyeStyle: const QrEyeStyle(
+            eyeShape: QrEyeShape.square,
+            color: GpTokens.campusRed,
+          ),
+          dataModuleStyle: const QrDataModuleStyle(
+            dataModuleShape: QrDataModuleShape.square,
+            color: GpTokens.campusRed,
+          ),
+          backgroundColor: GpTokens.cardCanvas,
+        );
+
+  @override
   Widget build(BuildContext context) {
-    final image = binaryPayload
-        ? QrImageView.withQr(
-            qr: QrCode.fromUint8List(
-              data: Uint8List.fromList(latin1.encode(payload)),
-              errorCorrectLevel: QrErrorCorrectLevel.L,
-            ),
-            padding: EdgeInsets.zero,
-            eyeStyle: const QrEyeStyle(
-              eyeShape: QrEyeShape.square,
-              color: GpTokens.campusRed,
-            ),
-            dataModuleStyle: const QrDataModuleStyle(
-              dataModuleShape: QrDataModuleShape.square,
-              color: GpTokens.campusRed,
-            ),
-            backgroundColor: GpTokens.cardCanvas,
-          )
-        : QrImageView(
-            data: payload,
-            version: QrVersions.auto,
-            padding: EdgeInsets.zero,
-            eyeStyle: const QrEyeStyle(
-              eyeShape: QrEyeShape.square,
-              color: GpTokens.campusRed,
-            ),
-            dataModuleStyle: const QrDataModuleStyle(
-              dataModuleShape: QrDataModuleShape.square,
-              color: GpTokens.campusRed,
-            ),
-            backgroundColor: GpTokens.cardCanvas,
-          );
     return Semantics(
       button: true,
       label: context.l10n.t('touchToRefresh'),
       child: GestureDetector(
-        onTap: onTap,
+        onTap: widget.onTap,
         child: Container(
           key: const Key('payment-code-qr'),
-          width: size,
-          height: size,
+          width: widget.size,
+          height: widget.size,
           color: GpTokens.cardCanvas,
-          padding: EdgeInsets.all(size * 0.035),
-          child: image,
+          padding: EdgeInsets.all(widget.size * 0.035),
+          child: _image,
         ),
       ),
     );

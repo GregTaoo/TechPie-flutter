@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -13,6 +15,23 @@ import 'package:techpie/features/campus_card/presentation/scanner/scan_result_co
 import 'package:techpie/features/campus_card/presentation/scanner/scanner_modal.dart';
 
 void main() {
+  test('rebuilding scanner transitions does not retain status listeners', () {
+    final animation = _CountingAnimation();
+    for (var i = 0; i < 20; i++) {
+      gpScannerEntranceTransition(
+        animation,
+        const SizedBox(),
+        reduceMotion: false,
+      );
+      gpScannerPopupTransition(
+        animation,
+        const SizedBox(),
+        reduceMotion: false,
+      );
+    }
+    expect(animation.statusListeners, 0);
+  });
+
   group('ScanFailureContent', () {
     testWidgets('renders server-provided message and rescan action', (
       tester,
@@ -107,6 +126,40 @@ void main() {
     );
     expect(overlay.value.systemNavigationBarColor, Colors.black);
     expect(overlay.value.statusBarIconBrightness, Brightness.light);
+
+    final mask = find.byKey(const Key('scanner-mask'));
+    expect(mask, findsOneWidget);
+    expect(
+      tester.renderObject(mask),
+      paints..everything((method, arguments) => method != #saveLayer),
+    );
+    final painter = tester.widget<CustomPaint>(mask).painter!;
+    await tester.runAsync(() async {
+      final recorder = ui.PictureRecorder();
+      painter.paint(Canvas(recorder), const Size(400, 800));
+      final picture = recorder.endRecording();
+      final image = await picture.toImage(400, 800);
+      final pixels =
+          (await image.toByteData(format: ui.ImageByteFormat.rawRgba))!;
+      int alpha(int x, int y) => pixels.getUint8((y * 400 + x) * 4 + 3);
+      expect(
+        alpha(200, 344),
+        0,
+        reason: 'The scan window remains transparent.',
+      );
+      expect(
+        alpha(10, 10),
+        closeTo(122, 1),
+        reason: 'The outside dimming is unchanged.',
+      );
+      expect(
+        alpha(70, 189),
+        255,
+        reason: 'The white corner marks remain visible.',
+      );
+      image.dispose();
+      picture.dispose();
+    });
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
@@ -212,4 +265,16 @@ Future<(AppRuntime, AppRuntime)> _scannerRuntime(
     scanner: scanner,
   );
   return (base, runtime);
+}
+
+class _CountingAnimation extends AlwaysStoppedAnimation<double> {
+  _CountingAnimation() : super(0.5);
+  int statusListeners = 0;
+
+  @override
+  void addStatusListener(AnimationStatusListener listener) => statusListeners++;
+
+  @override
+  void removeStatusListener(AnimationStatusListener listener) =>
+      statusListeners--;
 }
