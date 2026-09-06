@@ -1119,6 +1119,7 @@ final class _PaymentSuccess extends ConsumerWidget {
           children: [
             AnimatedSuccessCheck(
               size: 88,
+              color: GpTokens.campusRed,
               reduceMotion: reduceMotion,
               feedback: ref.read(appRuntimeProvider).feedback,
             ),

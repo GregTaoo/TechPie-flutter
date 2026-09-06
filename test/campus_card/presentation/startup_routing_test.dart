@@ -17,11 +17,14 @@ import 'package:techpie/features/campus_card/domain/models/card_models.dart';
 import 'package:techpie/features/campus_card/domain/models/offline_models.dart';
 import 'package:techpie/features/campus_card/domain/models/payment_models.dart';
 import 'package:techpie/features/campus_card/domain/models/profile_models.dart';
+import 'package:techpie/features/campus_card/domain/models/scan_models.dart';
+import 'package:techpie/features/campus_card/domain/money_fen.dart';
 import 'package:techpie/features/campus_card/domain/ports/auth_port.dart';
 import 'package:techpie/features/campus_card/domain/ports/card_ports.dart';
 import 'package:techpie/features/campus_card/domain/ports/payment_ports.dart';
 import 'package:techpie/features/campus_card/domain/ports/platform_ports.dart';
 import 'package:techpie/features/campus_card/presentation/app/app.dart';
+import 'package:techpie/features/campus_card/presentation/scanner/scan_result_content.dart';
 import 'package:techpie/features/campus_card/presentation/scanner/scanner_modal.dart';
 import 'package:techpie/features/campus_card/presentation/theme/tokens.dart';
 import 'package:techpie/features/campus_card/presentation/widgets/apple_wallet_components.dart';
@@ -141,10 +144,10 @@ void main() {
     await tester.pump();
   });
 
-  testWidgets('tapping the QR code uses the campus deep-red spinner', (
+  testWidgets('passive payment uses campus red while active scans keep blue', (
     tester,
   ) async {
-    const primary = Color(0xFF6750A4);
+    const primary = GpTokens.appleBlue;
     SharedPreferences.setMockInitialValues({
       'geekpay.onboarding_complete': true,
       'geekpay.preferred_locale': 'zh',
@@ -200,9 +203,42 @@ void main() {
 
     paymentCodes.refresh.complete(paymentCodes.frame('refreshed-code'));
     await tester.pump();
+    paymentCodes.pollResult = PaymentCompleted(
+      TransactionResult(
+        amount: const MoneyFen(1280),
+        confirmedLocallyAt: DateTime.utc(2026, 9, 6),
+      ),
+    );
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump();
+    expect(
+      tester
+          .widget<AnimatedSuccessCheck>(find.byType(AnimatedSuccessCheck))
+          .color,
+      GpTokens.campusRed,
+    );
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
 
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(
+          colorScheme: const ColorScheme.light(primary: primary),
+        ),
+        home: Scaffold(
+          body: ScanResultContent(
+            success: const ScanSucceeded(kind: ScanSuccessKind.payment),
+            onDone: () {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final paintedCheck = find.descendant(
+      of: find.byType(AnimatedSuccessCheck),
+      matching: find.byType(CustomPaint),
+    );
+    expect(tester.renderObject(paintedCheck), paints..arc(color: primary));
   });
 
   testWidgets(
@@ -531,6 +567,7 @@ final class _OfflineCacheMissCardRepository
 final class _RefreshHoldingPaymentCodeRepository
     implements PaymentCodeRepository {
   final refresh = Completer<PaymentCodeFrame>();
+  PaymentCodePollResult pollResult = const PaymentPending();
   int _generation = 0;
 
   PaymentCodeFrame frame(String code) => PaymentCodeFrame(
@@ -553,7 +590,7 @@ final class _RefreshHoldingPaymentCodeRepository
 
   @override
   Future<PaymentCodePollResult> pollTransaction(String payCode) async =>
-      const PaymentPending();
+      pollResult;
 }
 
 final class _RestoredAuthPort implements AuthPort {
