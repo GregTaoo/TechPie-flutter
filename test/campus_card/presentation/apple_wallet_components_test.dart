@@ -197,7 +197,9 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: TransactionList(items: records, onTap: (_) {}),
+          body: CustomScrollView(
+            slivers: [TransactionList(items: records, onTap: (_) {})],
+          ),
         ),
       ),
     );
@@ -208,6 +210,49 @@ void main() {
     expect(find.byIcon(GpPlatformIcons.limits.android), findsOneWidget);
     expect(find.byIcon(GpPlatformIcons.recharge.android), findsOneWidget);
     expect(find.byIcon(GpPlatformIcons.consumption.android), findsOneWidget);
+  });
+
+  testWidgets('appending a page preserves an in-progress transaction tap',
+      (tester) async {
+    TransactionRecord record(int index) => TransactionRecord(
+          id: 'PAGE-$index',
+          occurredAt: DateTime.utc(2026, 9, 1),
+          title: 'Consumption',
+          merchantName: 'page merchant $index',
+          amount: const MoneyFen(-100),
+          kind: TransactionKind.consumption,
+        );
+    var records = [record(0), record(1)];
+    String? selected;
+    late StateSetter update;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) {
+              update = setState;
+              return CustomScrollView(
+                slivers: [
+                  TransactionList(
+                    items: records,
+                    onTap: (item) => selected = item.id,
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    );
+    final pointer = await tester.startGesture(
+      tester.getCenter(find.text('page merchant 1')),
+    );
+    await tester.pump();
+    update(() => records = [...records, record(2)]);
+    await tester.pump();
+    await pointer.up();
+    await tester.pump();
+    expect(selected, 'PAGE-1');
   });
 
   testWidgets('applies and clears pressed color without an animation delay', (

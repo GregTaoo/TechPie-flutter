@@ -26,7 +26,8 @@ final class CardManageScreen extends ConsumerStatefulWidget {
   ConsumerState<CardManageScreen> createState() => _CardManageScreenState();
 }
 
-class _CardManageScreenState extends ConsumerState<CardManageScreen> {
+class _CardManageScreenState extends ConsumerState<CardManageScreen>
+    with SingleTickerProviderStateMixin {
   static final DateTimeRange _clearDateRangeSentinel = DateTimeRange(
     start: DateTime.utc(1900),
     end: DateTime.utc(1900),
@@ -35,16 +36,25 @@ class _CardManageScreenState extends ConsumerState<CardManageScreen> {
   int _segment = 0;
   DateTimeRange? _range;
   late final ScrollController _scrollController;
+  late final AnimationController _tabController;
+  late final Animation<double> _tabOpacity;
 
   @override
   void initState() {
     super.initState();
     _scrollController = ScrollController()..addListener(_loadMoreIfNeeded);
+    _tabController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+      value: 1,
+    );
+    _tabOpacity = _tabController.drive(CurveTween(curve: Curves.easeOutCubic));
   }
 
   @override
   void dispose() {
     _scrollController.dispose();
+    _tabController.dispose();
     super.dispose();
   }
 
@@ -80,8 +90,15 @@ class _CardManageScreenState extends ConsumerState<CardManageScreen> {
   }
 
   Future<void> _setSegment(int value) async {
+    if (value == _segment) return;
     await ref.read(appRuntimeProvider).feedback.play(FeedbackEvent.selection);
+    if (!mounted) return;
     setState(() => _segment = value);
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _tabController.value = 1;
+    } else {
+      unawaited(_tabController.forward(from: 0));
+    }
   }
 
   Future<void> _refreshActivity() async {
@@ -277,62 +294,54 @@ class _CardManageScreenState extends ConsumerState<CardManageScreen> {
                       20,
                       52,
                     ),
-                    sliver: SliverList.list(
-                      children: [
-                        Center(
-                          child: SizedBox(
-                            width: 164,
-                            child: CampusWalletCard(
-                              card: card,
-                              compact: true,
-                              heroTag: 'card-details-thumbnail',
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 22),
-                        Text(
-                          l10n.t('campusCard'),
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: context.gpColors.textPrimary,
-                            fontSize: 28,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: -0.5,
-                          ),
-                        ),
-                        const SizedBox(height: 26),
-                        AppleSegmentedControl(
-                          labels: [l10n.t('information'), l10n.t('activity')],
-                          selectedIndex: _segment,
-                          onChanged: _setSegment,
-                        ),
-                        const SizedBox(height: 28),
-                        AnimatedSwitcher(
-                          duration: MediaQuery.disableAnimationsOf(context)
-                              ? Duration.zero
-                              : const Duration(milliseconds: 300),
-                          transitionBuilder: (child, animation) {
-                            final offset = _segment == 0
-                                ? const Offset(-0.06, 0)
-                                : const Offset(0.06, 0);
-                            return FadeTransition(
-                              opacity: animation,
-                              child: SlideTransition(
-                                position: Tween<Offset>(
-                                  begin: offset,
-                                  end: Offset.zero,
-                                ).animate(animation),
-                                child: child,
-                              ),
-                            );
-                          },
-                          child: _segment == 0
-                              ? _InformationTab(
-                                  key: const ValueKey('info'),
+                    sliver: SliverMainAxisGroup(
+                      slivers: [
+                        SliverList.list(
+                          children: [
+                            Center(
+                              child: SizedBox(
+                                width: 164,
+                                child: CampusWalletCard(
                                   card: card,
-                                  profilePosition: profile?.positionName,
+                                  compact: true,
+                                  heroTag: 'card-details-thumbnail',
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 22),
+                            Text(
+                              l10n.t('campusCard'),
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: context.gpColors.textPrimary,
+                                fontSize: 28,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: -0.5,
+                              ),
+                            ),
+                            const SizedBox(height: 26),
+                            AppleSegmentedControl(
+                              labels: [
+                                l10n.t('information'),
+                                l10n.t('activity'),
+                              ],
+                              selectedIndex: _segment,
+                              onChanged: _setSegment,
+                            ),
+                            const SizedBox(height: 28),
+                          ],
+                        ),
+                        SliverFadeTransition(
+                          opacity: _tabOpacity,
+                          sliver: _segment == 0
+                              ? SliverToBoxAdapter(
+                                  child: _InformationTab(
+                                    key: const ValueKey('info'),
+                                    card: card,
+                                    profilePosition: profile?.positionName,
+                                  ),
                                 )
-                              : _ActivityTab(
+                              : _ActivitySliver(
                                   key: const ValueKey('activity'),
                                   range: _range,
                                   onPickRange: _pickRange,
@@ -441,8 +450,8 @@ final class _InformationTab extends ConsumerWidget {
   }
 }
 
-final class _ActivityTab extends ConsumerWidget {
-  const _ActivityTab({
+final class _ActivitySliver extends ConsumerWidget {
+  const _ActivitySliver({
     super.key,
     required this.range,
     required this.onPickRange,
@@ -469,24 +478,26 @@ final class _ActivityTab extends ConsumerWidget {
             ),
     );
     final transactions = ref.watch(transactionFeedProvider(query));
-    return Column(
-      children: [
-        AppleSection(
-          children: [
-            AppleListRow(
-              label: context.l10n.t('dateRange'),
-              value: range == null
-                  ? context.l10n.t('noDateRange')
-                  : context.l10n.dateRangeDays(range!.start, range!.end),
-              icon: GpPlatformIcons.calendar(context),
-              onTap: onPickRange,
-            ),
-          ],
+    return SliverMainAxisGroup(
+      slivers: [
+        SliverToBoxAdapter(
+          child: AppleSection(
+            children: [
+              AppleListRow(
+                label: context.l10n.t('dateRange'),
+                value: range == null
+                    ? context.l10n.t('noDateRange')
+                    : context.l10n.dateRangeDays(range!.start, range!.end),
+                icon: GpPlatformIcons.calendar(context),
+                onTap: onPickRange,
+              ),
+            ],
+          ),
         ),
-        const SizedBox(height: 20),
+        const SliverToBoxAdapter(child: SizedBox(height: 20)),
         switch (transactions) {
-          AsyncData(:final value) => Column(
-              children: [
+          AsyncData(:final value) => SliverMainAxisGroup(
+              slivers: [
                 TransactionList(
                   items: value.items,
                   onTap: (record) => unawaited(
@@ -494,25 +505,33 @@ final class _ActivityTab extends ConsumerWidget {
                   ),
                 ),
                 if (value.hasMore) ...[
-                  const SizedBox(height: 12),
-                  CupertinoButton(
-                    onPressed: () => unawaited(
-                      ref
-                          .read(transactionFeedProvider(query).notifier)
-                          .loadMore(),
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: CupertinoButton(
+                        onPressed: () => unawaited(
+                          ref
+                              .read(transactionFeedProvider(query).notifier)
+                              .loadMore(),
+                        ),
+                        child: Text(context.l10n.t('loadMore')),
+                      ),
                     ),
-                    child: Text(context.l10n.t('loadMore')),
                   ),
                 ],
               ],
             ),
-          AsyncError(:final error) => GpStateView.error(
-              error,
-              onRetry: () => ref.invalidate(transactionFeedProvider(query)),
+          AsyncError(:final error) => SliverToBoxAdapter(
+              child: GpStateView.error(
+                error,
+                onRetry: () => ref.invalidate(transactionFeedProvider(query)),
+              ),
             ),
-          _ => const Padding(
-              padding: EdgeInsets.all(42),
-              child: CupertinoActivityIndicator(radius: 13),
+          _ => const SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.all(42),
+                child: CupertinoActivityIndicator(radius: 13),
+              ),
             ),
         },
       ],

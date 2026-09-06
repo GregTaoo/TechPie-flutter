@@ -645,6 +645,7 @@ final class AppleListRow extends StatelessWidget {
   }
 }
 
+/// A grouped transaction sliver that builds rows near the viewport only.
 final class TransactionList extends StatelessWidget {
   const TransactionList({
     super.key,
@@ -660,38 +661,49 @@ final class TransactionList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (items.isEmpty) {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 18),
-        decoration: BoxDecoration(
-          color: context.gpColors.surface,
-          borderRadius: BorderRadius.circular(24),
-        ),
-        child: Text(
-          emptyLabel ?? context.l10n.t('noTransactions'),
-          textAlign: TextAlign.center,
-          style: TextStyle(color: context.gpColors.textSecondary),
+      return SliverToBoxAdapter(
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 18),
+          decoration: BoxDecoration(
+            color: context.gpColors.surface,
+            borderRadius: BorderRadius.circular(24),
+          ),
+          child: Text(
+            emptyLabel ?? context.l10n.t('noTransactions'),
+            textAlign: TextAlign.center,
+            style: TextStyle(color: context.gpColors.textSecondary),
+          ),
         ),
       );
     }
-    return Container(
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: context.gpColors.surface,
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: Column(
-        children: [
-          for (var index = 0; index < items.length; index++) ...[
-            _TransactionRow(record: items[index], onTap: onTap),
-            if (index != items.length - 1)
-              Padding(
-                padding: const EdgeInsets.only(left: 72, right: 18),
-                child: Divider(height: 1, color: context.gpColors.border),
-              ),
-          ],
-        ],
-      ),
+    return SliverList.builder(
+      itemCount: items.length,
+      itemBuilder: (context, index) {
+        final first = index == 0;
+        final last = index == items.length - 1;
+        final row = ColoredBox(
+          color: context.gpColors.surface,
+          child: Column(
+            children: [
+              _TransactionRow(record: items[index], onTap: onTap),
+              if (!last)
+                Padding(
+                  padding: const EdgeInsets.only(left: 72, right: 18),
+                  child: Divider(height: 1, color: context.gpColors.border),
+                ),
+            ],
+          ),
+        );
+        return ClipRRect(
+          key: ValueKey(items[index].id),
+          borderRadius: BorderRadius.vertical(
+            top: first ? const Radius.circular(24) : Radius.zero,
+            bottom: last ? const Radius.circular(24) : Radius.zero,
+          ),
+          child: row,
+        );
+      },
     );
   }
 }

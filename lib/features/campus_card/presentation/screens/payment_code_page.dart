@@ -375,7 +375,7 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
                         18,
                         ApplePinnedHeaderLayout.contentTop,
                         18,
-                        52,
+                        0,
                       ),
                       sliver: SliverList.list(
                         children: [
@@ -488,42 +488,48 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
                             ),
                           ),
                           const SizedBox(height: 10),
-                          switch (transactions) {
-                            AsyncData(:final value) => TransactionList(
-                                items: value.items
-                                    .where(
-                                      (record) =>
-                                          !record.id.startsWith('DEBUG-'),
-                                    )
-                                    .take(25)
-                                    .toList(),
-                                onTap: (record) => unawaited(
-                                  context.push(
-                                    GpRoutes.transactionDetail(record.id),
-                                  ),
-                                ),
-                              ),
-                            AsyncError(:final error) => GpStateView.error(
-                                error,
-                                onRetry: () => ref.invalidate(
-                                  transactionFeedProvider(_allTransactions),
-                                ),
-                              ),
-                            _ => Container(
-                                height: 128,
-                                decoration: BoxDecoration(
-                                  color: context.gpColors.surface,
-                                  borderRadius: BorderRadius.circular(24),
-                                ),
-                                child: Center(
-                                  child: CupertinoActivityIndicator(
-                                    color: context.gpColors.textSecondary,
-                                  ),
-                                ),
-                              ),
-                          },
                         ],
                       ),
+                    ),
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(18, 0, 18, 52),
+                      sliver: switch (transactions) {
+                        AsyncData(:final value) => TransactionList(
+                            items: value.items
+                                .where(
+                                  (record) => !record.id.startsWith('DEBUG-'),
+                                )
+                                .take(25)
+                                .toList(),
+                            onTap: (record) => unawaited(
+                              context.push(
+                                GpRoutes.transactionDetail(record.id),
+                              ),
+                            ),
+                          ),
+                        AsyncError(:final error) => SliverToBoxAdapter(
+                            child: GpStateView.error(
+                              error,
+                              onRetry: () => ref.invalidate(
+                                transactionFeedProvider(_allTransactions),
+                              ),
+                            ),
+                          ),
+                        _ => SliverToBoxAdapter(
+                            child: Container(
+                              height: 128,
+                              decoration: BoxDecoration(
+                                color: context.gpColors.surface,
+                                borderRadius: BorderRadius.circular(24),
+                              ),
+                              child: Center(
+                                child: CupertinoActivityIndicator(
+                                  color: context.gpColors.textSecondary,
+                                ),
+                              ),
+                            ),
+                          ),
+                      },
                     ),
                   ],
                 ),
