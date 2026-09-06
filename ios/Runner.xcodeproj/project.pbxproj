@@ -30,6 +30,7 @@
 		ECAD00000000000000000040 /* EcardShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECAD00000000000000000041 /* EcardShortcuts.swift */; };
 		ECAD00000000000000000047 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = ECAD00000000000000000043 /* Localizable.strings */; };
 		ECAD0000000000000000004C /* AppShortcuts.strings in Resources */ = {isa = PBXBuildFile; fileRef = ECAD00000000000000000048 /* AppShortcuts.strings */; };
+		ECAD00000000000000000054 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = ECAD00000000000000000050 /* InfoPlist.strings */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -118,6 +119,9 @@
 		ECAD00000000000000000049 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "en"; path = "en.lproj/AppShortcuts.strings"; sourceTree = "<group>"; };
 		ECAD0000000000000000004A /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/AppShortcuts.strings"; sourceTree = "<group>"; };
 		ECAD0000000000000000004B /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "ja"; path = "ja.lproj/AppShortcuts.strings"; sourceTree = "<group>"; };
+		ECAD00000000000000000051 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		ECAD00000000000000000052 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
+		ECAD00000000000000000053 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -260,6 +264,7 @@
 				ECAD00000000000000000041 /* EcardShortcuts.swift */,
 				ECAD00000000000000000043 /* Localizable.strings */,
 				ECAD00000000000000000048 /* AppShortcuts.strings */,
+				ECAD00000000000000000050 /* InfoPlist.strings */,
 			);
 			path = Shortcuts;
 			sourceTree = "<group>";
@@ -394,6 +399,7 @@
 				97C146FC1CF9000F007C117D /* Main.storyboard in Resources */,
 				ECAD00000000000000000047 /* Localizable.strings in Resources */,
 				ECAD0000000000000000004C /* AppShortcuts.strings in Resources */,
+				ECAD00000000000000000054 /* InfoPlist.strings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -596,6 +602,16 @@
 				ECAD0000000000000000004B /* ja */,
 			);
 			name = AppShortcuts.strings;
+			sourceTree = "<group>";
+		};
+		ECAD00000000000000000050 /* InfoPlist.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				ECAD00000000000000000051 /* en */,
+				ECAD00000000000000000052 /* zh-Hans */,
+				ECAD00000000000000000053 /* ja */,
+			);
+			name = InfoPlist.strings;
 			sourceTree = "<group>";
 		};
 /* End PBXVariantGroup section */

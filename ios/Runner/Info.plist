@@ -47,6 +47,17 @@
 	<string>TechPie 需要使用相机扫描校园消费二维码。</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>TechPie 需要访问相册中的校园消费二维码。</string>
+	<key>UIApplicationShortcutItems</key>
+	<array>
+		<dict>
+			<key>UIApplicationShortcutItemType</key>
+			<string>techpie.ecard.pay</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>Pay Code</string>
+			<key>UIApplicationShortcutItemIconSymbolName</key>
+			<string>qrcode</string>
+		</dict>
+	</array>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
