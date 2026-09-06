@@ -53,9 +53,11 @@ final class GpButton extends StatelessWidget {
     };
 
     final key = labelKey;
-    Widget content = SizedBox(
-      height: GpTokens.minTouchTarget,
+    Widget content = ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: GpTokens.minTouchTarget),
       child: Center(
+        widthFactor: fullWidth ? null : 1,
+        heightFactor: 1,
         child: loading
             ? const SizedBox(
                 width: 20,
@@ -65,9 +67,8 @@ final class GpButton extends StatelessWidget {
             : Text(
                 label,
                 key: key,
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
                       color: fg,
-                      fontWeight: FontWeight.w700,
                     ),
               ),
       ),

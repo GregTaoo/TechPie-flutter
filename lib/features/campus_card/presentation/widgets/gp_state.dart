@@ -110,8 +110,12 @@ final class GpStateView extends StatelessWidget {
               child: MergeSemantics(
                 child: Text(
                   title,
-                  style:
-                      titleStyle ?? Theme.of(context).textTheme.headlineSmall,
+                  style: titleStyle ??
+                      (isError
+                          ? Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                color: c.textSecondary,
+                              )
+                          : Theme.of(context).textTheme.headlineSmall),
                   textAlign: centered ? TextAlign.center : TextAlign.start,
                 ),
               ),
@@ -127,7 +131,7 @@ final class GpStateView extends StatelessWidget {
           ),
         ],
         if (actionLabel != null && onAction != null) ...[
-          const SizedBox(height: GpTokens.space4),
+          SizedBox(height: isError ? GpTokens.space2 : GpTokens.space4),
           GpButton(
             label: actionLabel!,
             variant: GpButtonVariant.secondary,
