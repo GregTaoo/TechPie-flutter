@@ -270,7 +270,7 @@ final class ApplePinnedHeaderLayout extends StatelessWidget {
         // UIKit lays out trailing items from the trailing edge inward.
         trailingItems: [
           for (final action in actions.reversed)
-            _nativeItem(action, 'trailing-main'),
+            _nativeItem(action, 'trailing-${action.id}'),
         ],
         onItemPressed: (id) {
           if (id == leading?.id) {

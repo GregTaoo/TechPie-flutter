@@ -134,9 +134,21 @@ final class NativeNavigationBarPlatformView: NSObject, FlutterPlatformView {
   private func makeVisibleBarButtonItems(
     _ items: [NativeNavigationBarItem]
   ) -> [UIBarButtonItem] {
-    items
-      .filter { !$0.hidden }
-      .map(makeBarButtonItem)
+    var buttons: [UIBarButtonItem] = []
+    var previousGroup: String?
+    for item in items where !item.hidden {
+      if #available(iOS 26.0, *),
+        let group = item.placementGroup,
+        let previousGroup,
+        group != previousGroup
+      {
+        // A zero-width fixed space separates UIKit's shared glass backgrounds.
+        buttons.append(.fixedSpace(0))
+      }
+      buttons.append(makeBarButtonItem(item))
+      previousGroup = item.placementGroup
+    }
+    return buttons
   }
 
   private func makeBarButtonItem(_ item: NativeNavigationBarItem) -> UIBarButtonItem {
