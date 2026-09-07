@@ -77,8 +77,7 @@ void main() {
     final request = logger.entries.first;
     final response = logger.entries.last;
     expect(request.method, 'POST');
-    expect(Uri.parse(request.url).path, '/balance');
-    expect(Uri.parse(request.url).query, isEmpty);
+    expect(request.url, 'https://ecard.test/balance');
     expect(request.tag, 'Campus Card');
     expect(request.requestBody, contains('decryptedDatajson'));
     expect(response.statusCode, 200);
