@@ -20,6 +20,7 @@ typedef AuthPinnedIdSerialReader = Future<String?> Function();
 final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
   EcardOpenIdAuthPort({
     Dio? dio,
+    DecryptedHttpTraceInterceptor? httpTrace,
     EcardSessionIssuer? sessionIssuer,
     EcardCipher? cipher,
     required SessionCredentialStore sessionStore,
@@ -49,7 +50,7 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
         _sessionStore = sessionStore,
         _purgeAccountBoundCredentials = purgeAccountBoundCredentials,
         _pinnedIdSerialReader = pinnedIdSerialReader {
-    installDecryptedHttpTrace(_dio);
+    installDecryptedHttpTrace(_dio, trace: httpTrace);
   }
 
   final Dio _dio;

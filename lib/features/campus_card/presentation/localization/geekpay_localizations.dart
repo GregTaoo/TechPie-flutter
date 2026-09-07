@@ -92,8 +92,6 @@ final class GeekPayLocalizations {
       'feedbackInteraction': '其他操作',
       'vibration': '震动',
       'sound': '音效',
-      'mediaVolumeHint': '音效使用媒体音量，震动和音效可分别关闭。',
-      'disconnectFeedbackHint': '仅在确认由联网切换为断网时提醒；进入页面和手动开启离线码不会触发。',
       'interactionFeedbackHint': '按钮、扫码识别等操作的震动反馈。',
       'widgetTitle': '消费码',
       'widgetSubtitle': '支付一触即达',
@@ -293,6 +291,7 @@ final class GeekPayLocalizations {
       'limitsChanged': '消费限额修改成功',
       'invalidLimits': '请输入有效金额，单日限额不能低于单笔限额；二维码限额还需要 6 位消费密码。',
       'debugMode': '调试模式',
+      'debugModeHint': '开启后会添加用于测试的模拟活动记录。',
       'skipScanConfirmation': '小额免密扫码跳过确认',
       'confirmScanPayment': '是否继续扫码交易？',
       'confirmScanPaymentDescription': '继续后才会向校园支付服务提交二维码。',
@@ -306,10 +305,6 @@ final class GeekPayLocalizations {
       'feedbackInteraction': 'Other Interactions',
       'vibration': 'Vibration',
       'sound': 'Sound',
-      'mediaVolumeHint':
-          'Sound uses media volume. Sound and vibration can be disabled separately.',
-      'disconnectFeedbackHint':
-          'Alerts only after a confirmed loss of connection. Opening this page or manually enabling an offline code stays silent.',
       'interactionFeedbackHint':
           'Vibration for buttons, scan detection and other interactions.',
       'widgetTitle': 'Pay Code',
@@ -531,6 +526,7 @@ final class GeekPayLocalizations {
       'invalidLimits':
           'Enter valid amounts. The daily limit cannot be below the per-transaction limit. QR limits also require a 6-digit payment password.',
       'debugMode': 'Debug Mode',
+      'debugModeHint': 'Adds simulated activity records for testing.',
       'skipScanConfirmation': 'Skip Scan Confirmation',
       'confirmScanPayment': 'Continue this scan payment?',
       'confirmScanPaymentDescription':
@@ -546,9 +542,6 @@ final class GeekPayLocalizations {
       'feedbackInteraction': 'その他の操作',
       'vibration': '振動',
       'sound': '効果音',
-      'mediaVolumeHint': '効果音はメディア音量を使用します。振動と効果音は個別に設定できます。',
-      'disconnectFeedbackHint':
-          '接続から切断への変化を確認した場合のみ通知します。画面を開いた時や手動のオフライン切替では鳴りません。',
       'interactionFeedbackHint': 'ボタンやコード認識などの操作時の振動です。',
       'widgetTitle': '支払いコード',
       'widgetSubtitle': 'タップで支払い',
@@ -751,6 +744,7 @@ final class GeekPayLocalizations {
       'invalidLimits':
           '有効な金額を入力してください。1日限度額は1回限度額以上にし、QR限度額には6桁の支払いパスワードも必要です。',
       'debugMode': 'デバッグモード',
+      'debugModeHint': 'テスト用の模擬アクティビティ記録を追加します。',
       'skipScanConfirmation': '少額スキャン確認を省略',
       'confirmScanPayment': 'スキャン取引を続行しますか？',
       'confirmScanPaymentDescription': '続行した後にのみQRコードを送信します。',

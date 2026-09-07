@@ -42,6 +42,8 @@ final class SettingsScreen extends ConsumerWidget {
             ),
             children: [
               AppleSection(
+                footer:
+                    debugModeFeaturesAvailable ? l10n.t('debugModeHint') : null,
                 children: [
                   AppleListRow(
                     icon: GpPlatformIcons.scan(context),
@@ -100,14 +102,11 @@ final class _FeedbackSection extends ConsumerWidget {
       FeedbackScenario.networkDisconnected => 'feedbackNetworkDisconnected',
       FeedbackScenario.interaction => 'feedbackInteraction',
     };
-    final footer = switch (scenario) {
-      FeedbackScenario.paymentSuccess => 'mediaVolumeHint',
-      FeedbackScenario.networkDisconnected => 'disconnectFeedbackHint',
-      FeedbackScenario.interaction => 'interactionFeedbackHint',
-    };
     return AppleSection(
       header: l10n.t(header),
-      footer: l10n.t(footer),
+      footer: scenario == FeedbackScenario.interaction
+          ? l10n.t('interactionFeedbackHint')
+          : null,
       children: [
         for (final channel in FeedbackChannel.values)
           if (channel == FeedbackChannel.vibration ||

@@ -75,11 +75,10 @@ class DebugLogger extends ChangeNotifier {
     'password',
     'token',
     'tgc',
-    'sessionToken',
+    'sessiontoken',
     'api_token',
     'sid',
     'sid.sig',
-    'CASTGC',
     'castgc',
     'cookies',
     'cookie',
@@ -88,6 +87,21 @@ class DebugLogger extends ChangeNotifier {
     // gives an attacker an offline target; the key is the crown jewel).
     'techpie_sync',
     'sync_master_key',
+    'openid',
+    'jsessionid',
+    'paycode',
+    'qrcode',
+    'barcode',
+    'devcode',
+    'devicecode',
+    'authorinfo',
+    'userprivatekey',
+    'privatekey',
+    'ukey',
+    'authorization',
+    'datajson',
+    'wiredatajson',
+    'wirebody',
   };
 
   // Best-effort redaction: parse as JSON and walk the tree replacing
@@ -102,6 +116,7 @@ class DebugLogger extends ChangeNotifier {
       for (final key in _sensitiveKeys) {
         final pattern = RegExp(
           '"${RegExp.escape(key)}"\\s*:\\s*"([^"\\\\]|\\\\.)*"',
+          caseSensitive: false,
         );
         out = out.replaceAll(pattern, '"$key":"***"');
       }
@@ -113,7 +128,7 @@ class DebugLogger extends ChangeNotifier {
     if (node is Map) {
       return {
         for (final entry in node.entries)
-          entry.key: _sensitiveKeys.contains(entry.key)
+          entry.key: _sensitiveKeys.contains(entry.key.toString().toLowerCase())
               ? (entry.value == null ? null : '***')
               : _redactNode(entry.value),
       };

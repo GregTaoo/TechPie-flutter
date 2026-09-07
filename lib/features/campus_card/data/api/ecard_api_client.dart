@@ -74,6 +74,7 @@ abstract interface class EcardTransport {
 final class EcardApiClient implements EcardTransport {
   EcardApiClient({
     Dio? dio,
+    DecryptedHttpTraceInterceptor? httpTrace,
     EcardCipher? cipher,
     required EcardSessionReader sessionReader,
     required EcardIdentityGuard identityGuard,
@@ -100,7 +101,7 @@ final class EcardApiClient implements EcardTransport {
                 },
               ),
             ) {
-    installDecryptedHttpTrace(_dio);
+    installDecryptedHttpTrace(_dio, trace: httpTrace);
   }
 
   final Dio _dio;

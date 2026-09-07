@@ -61,7 +61,7 @@ Future<void> _realMain(SharedPreferences prefs) async {
   final uniAuthService = UniAuthService();
   final authService = AuthService(storageService, httpClient, uniAuthService);
   final themeService = ThemeService(storageService);
-  final campusCardService = CampusCardService();
+  final campusCardService = CampusCardService(debugLogger: debugLogger);
   final ecardWidgetService = EcardWidgetService();
   if (isIos() || isAndroid()) ecardWidgetService.initialize();
   final thirdPartyAuthService = ThirdPartyAuthService(

@@ -10,6 +10,8 @@ import '../features/campus_card/data/storage/flutter_secure_credential_store.dar
 import '../features/campus_card/domain/models/auth_models.dart';
 import '../features/campus_card/domain/ports/auth_port.dart';
 import '../features/campus_card/domain/ports/credential_store.dart';
+import 'campus_card_http_trace.dart';
+import 'debug_logger.dart';
 
 typedef CampusCardRuntimeFactory = AppRuntime Function();
 
@@ -19,16 +21,23 @@ typedef CampusCardRuntimeFactory = AppRuntime Function();
 /// connectivity, and authentication adapters are not recreated for every
 /// page visit. Only presentation state is rebuilt when a route is opened.
 final class CampusCardService extends ChangeNotifier {
-  CampusCardService() : this.withStore(FlutterSecureCredentialStore());
+  CampusCardService({DebugLogger? debugLogger})
+      : this.withStore(
+          FlutterSecureCredentialStore(),
+          debugLogger: debugLogger,
+        );
 
   CampusCardService.withStore(
     SecureCredentialStore secureStore, {
     CampusCardRuntimeFactory? runtimeFactory,
+    DebugLogger? debugLogger,
   })  : _sessionStore = SecureSessionCredentialStore(secureStore),
         _runtime = runtimeFactory?.call() ??
             buildRealRuntime(
               AppEnvironment.production,
               secureCredentialStore: secureStore,
+              httpTrace:
+                  debugLogger == null ? null : campusCardHttpTrace(debugLogger),
             ) {
     unawaited(CoreErrorCatalog.initialize());
     _authSubscription = _runtime.auth.changes.listen((_) {

@@ -13,15 +13,27 @@ const _marker = '[GEEKPAY_HTTP]';
 bool get decryptedHttpTraceEnabled =>
     debugModeFeaturesAvailable && _traceRequested;
 
-void installDecryptedHttpTrace(Dio dio) {
-  if (!decryptedHttpTraceEnabled ||
+void installDecryptedHttpTrace(
+  Dio dio, {
+  DecryptedHttpTraceInterceptor? trace,
+}) {
+  if ((trace == null && !decryptedHttpTraceEnabled) ||
       dio.interceptors.any((value) => value is DecryptedHttpTraceInterceptor)) {
     return;
   }
-  dio.interceptors.add(DecryptedHttpTraceInterceptor());
+  dio.interceptors.add(trace ?? DecryptedHttpTraceInterceptor());
 }
 
 final class DecryptedHttpTraceInterceptor extends Interceptor {
+  DecryptedHttpTraceInterceptor({
+    bool Function()? enabled,
+    void Function(Map<String, Object?> record)? onRecord,
+  })  : _enabled = enabled ?? (() => decryptedHttpTraceEnabled),
+        _onRecord = onRecord;
+
+  final bool Function() _enabled;
+  final void Function(Map<String, Object?> record)? _onRecord;
+
   static const _requestIdKey = 'geekpay.decryptedTrace.requestId';
   static const _startedAtKey = 'geekpay.decryptedTrace.startedAt';
 
@@ -29,6 +41,10 @@ final class DecryptedHttpTraceInterceptor extends Interceptor {
 
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
+    if (!_enabled()) {
+      handler.next(options);
+      return;
+    }
     final requestId = ++_nextRequestId;
     options.extra[_requestIdKey] = requestId;
     options.extra[_startedAtKey] = DateTime.now().microsecondsSinceEpoch;
@@ -36,6 +52,7 @@ final class DecryptedHttpTraceInterceptor extends Interceptor {
       'event': 'request',
       'requestId': requestId,
       'method': options.method,
+      'url': options.uri.replace(query: '', fragment: '').toString(),
       'scheme': options.uri.scheme,
       'host': options.uri.host,
       'port': options.uri.hasPort ? options.uri.port : null,
@@ -52,10 +69,15 @@ final class DecryptedHttpTraceInterceptor extends Interceptor {
     ResponseInterceptorHandler handler,
   ) {
     final options = response.requestOptions;
+    if (!_enabled() || !options.extra.containsKey(_requestIdKey)) {
+      handler.next(response);
+      return;
+    }
     _write({
       'event': 'response',
       'requestId': options.extra[_requestIdKey],
       'method': options.method,
+      'url': options.uri.replace(query: '', fragment: '').toString(),
       'path': options.uri.path,
       'statusCode': response.statusCode,
       'durationMicros': _durationMicros(options),
@@ -68,11 +90,16 @@ final class DecryptedHttpTraceInterceptor extends Interceptor {
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
     final options = err.requestOptions;
+    if (!_enabled() || !options.extra.containsKey(_requestIdKey)) {
+      handler.next(err);
+      return;
+    }
     final response = err.response;
     _write({
       'event': 'errorResponse',
       'requestId': options.extra[_requestIdKey],
       'method': options.method,
+      'url': options.uri.replace(query: '', fragment: '').toString(),
       'path': options.uri.path,
       'statusCode': response?.statusCode,
       'durationMicros': _durationMicros(options),
@@ -116,6 +143,7 @@ final class DecryptedHttpTraceInterceptor extends Interceptor {
   }
 
   Object? _decodeResponse(Object? body) {
+    if (body is List<int>) return {'binaryBytes': body.length};
     try {
       return EcardCipher.decodeResponse(body);
     } catch (error) {
@@ -130,7 +158,15 @@ final class DecryptedHttpTraceInterceptor extends Interceptor {
   }
 
   void _write(Map<String, Object?> record) {
-    if (!decryptedHttpTraceEnabled) return;
+    if (!_enabled()) return;
+    final onRecord = _onRecord;
+    if (onRecord != null) {
+      // An optional diagnostics consumer must never interrupt a payment request.
+      try {
+        onRecord(record);
+      } catch (_) {}
+      return;
+    }
     final requestId = record['requestId'] ?? '?';
     final encoded = JsonEncoder.withIndent('  ', _toEncodable).convert(record);
     for (final line in const LineSplitter().convert(encoded)) {

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import '../application/offline_payment_service.dart';
 import '../core/config/app_environment.dart';
+import '../data/api/decrypted_http_trace.dart';
 import '../data/api/ecard_api_client.dart';
 import '../data/auth/ecard_openid_auth_port.dart';
 import '../data/crypto/sm2_offline_crypto.dart';
@@ -25,6 +26,7 @@ import 'app_runtime.dart';
 AppRuntime buildRealRuntime(
   AppEnvironment environment, {
   SecureCredentialStore? secureCredentialStore,
+  DecryptedHttpTraceInterceptor? httpTrace,
 }) {
   if (environment == AppEnvironment.demo) {
     throw ArgumentError('The real composition root cannot build demo');
@@ -68,11 +70,13 @@ AppRuntime buildRealRuntime(
   }
 
   final auth = EcardOpenIdAuthPort(
+    httpTrace: httpTrace,
     sessionStore: sessionStore,
     purgeAccountBoundCredentials: purgeAccountMaterial,
     pinnedIdSerialReader: readPinnedIdSerial,
   );
   final client = EcardApiClient(
+    httpTrace: httpTrace,
     sessionReader: auth.readSession,
     identityGuard: auth.verifyCurrentIdentity,
     onAuthenticationExpired: auth.handleAuthenticationFailure,
