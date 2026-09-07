@@ -103,6 +103,9 @@ final class NativeNavigationBarPlatformView: NSObject, FlutterPlatformView {
   }
 
   private func applyConfiguration(animated: Bool) {
+    // The app can override the system theme, including AMOLED dark mode.
+    // Let UIKit resolve its semantic title and button colors in that appearance.
+    rootView.overrideUserInterfaceStyle = configuration.userInterfaceStyle
     nextTag = 1
     itemIdByTag.removeAll()
 
@@ -270,6 +273,7 @@ final class NativeNavigationBarPlatformView: NSObject, FlutterPlatformView {
 }
 
 private struct NativeNavigationBarConfiguration {
+  var userInterfaceStyle: UIUserInterfaceStyle = .unspecified
   var title = ""
   var subtitle: String?
   var leadingItems: [NativeNavigationBarItem] = []
@@ -281,6 +285,11 @@ private struct NativeNavigationBarConfiguration {
 
   init(arguments: Any?) {
     guard let params = arguments as? [String: Any] else { return }
+    switch params["brightness"] as? String {
+    case "dark": userInterfaceStyle = .dark
+    case "light": userInterfaceStyle = .light
+    default: userInterfaceStyle = .unspecified
+    }
     title = params["title"] as? String ?? ""
     subtitle = params["subtitle"] as? String
     selectionMode = params["selectionMode"] as? Bool ?? false
