@@ -17,6 +17,7 @@ import '../theme/glass.dart';
 import '../theme/tokens.dart';
 import '../widgets/apple_wallet_components.dart';
 import 'scan_result_content.dart';
+import 'scanner_geometry.dart';
 import 'scanner_viewport.dart';
 import 'six_digit_password_panel.dart';
 
@@ -659,12 +660,7 @@ final class _ScannerMask extends StatelessWidget {
 final class _ScannerMaskPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
-    final side = size.width.clamp(250.0, 310.0);
-    final rect = Rect.fromCenter(
-      center: Offset(size.width / 2, size.height * 0.43),
-      width: side,
-      height: side,
-    );
+    final rect = scannerWindowForSize(size);
     final mask = Path()
       ..fillType = PathFillType.evenOdd
       ..addRect(Offset.zero & size)

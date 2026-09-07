@@ -17,7 +17,10 @@ final class MobileScannerSession implements ScannerPort {
   })  : controller = controller ??
             MobileScannerController(
               autoStart: false,
-              detectionSpeed: DetectionSpeed.noDuplicates,
+              // Decode at most four times a second without throttling preview.
+              // ScannerModal gates duplicate results before any submission.
+              detectionSpeed: DetectionSpeed.normal,
+              detectionTimeoutMs: 250,
               facing: CameraFacing.back,
               formats: const [BarcodeFormat.qrCode],
               returnImage: false,

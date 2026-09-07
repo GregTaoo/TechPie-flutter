@@ -11,6 +11,7 @@ import 'package:techpie/features/campus_card/app/demo_runtime_factory.dart';
 import 'package:techpie/features/campus_card/core/config/scan_payment_preferences.dart';
 import 'package:techpie/features/campus_card/data/mock/in_memory_ports.dart';
 import 'package:techpie/features/campus_card/domain/models/scan_models.dart';
+import 'package:techpie/features/campus_card/domain/ports/payment_ports.dart';
 import 'package:techpie/features/campus_card/presentation/scanner/scan_result_content.dart';
 import 'package:techpie/features/campus_card/presentation/scanner/scanner_modal.dart';
 
@@ -242,11 +243,53 @@ void main() {
       ScanFlowPhase.succeeded,
     );
   });
+
+  for (final skipConfirmation in [false, true]) {
+    testWidgets('repeated detections submit once (skip=$skipConfirmation)',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final scanner = InMemoryScannerPort();
+      final repository = _CountingScanRepository();
+      final (base, runtime) = await _scannerRuntime(
+        scanner,
+        scanPayments: repository,
+      );
+      addTearDown(base.dispose);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [appRuntimeProvider.overrideWithValue(runtime)],
+          child: MaterialApp(home: ScannerModal(onClose: () {})),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(ScannerModal)),
+      );
+      await container
+          .read(skipScanConfirmationProvider.notifier)
+          .setEnabled(skipConfirmation);
+      for (var i = 0; i < 5; i++) {
+        scanner.emit('SYNTHETIC-REPEATED-CODE');
+      }
+      await tester.pumpAndSettle();
+      if (!skipConfirmation) {
+        expect(repository.submissions, 0);
+        await tester.tap(find.text('继续'));
+        await tester.pumpAndSettle();
+      }
+      scanner.emit('SYNTHETIC-LATE-FRAME');
+      await tester.pumpAndSettle();
+      expect(repository.submissions, 1);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    });
+  }
 }
 
 Future<(AppRuntime, AppRuntime)> _scannerRuntime(
-  InMemoryScannerPort scanner,
-) async {
+  InMemoryScannerPort scanner, {
+  ScanPaymentRepository? scanPayments,
+}) async {
   final base = await buildDemoRuntime();
   final runtime = AppRuntime(
     environment: base.environment,
@@ -254,7 +297,7 @@ Future<(AppRuntime, AppRuntime)> _scannerRuntime(
     auth: base.auth,
     cards: base.cards,
     paymentCodes: base.paymentCodes,
-    scanPayments: base.scanPayments,
+    scanPayments: scanPayments ?? base.scanPayments,
     transactions: base.transactions,
     securitySettings: base.securitySettings,
     offlinePayments: base.offlinePayments,
@@ -265,6 +308,20 @@ Future<(AppRuntime, AppRuntime)> _scannerRuntime(
     scanner: scanner,
   );
   return (base, runtime);
+}
+
+class _CountingScanRepository implements ScanPaymentRepository {
+  int submissions = 0;
+
+  @override
+  Future<ScanPaymentResult> submit({
+    required String qrCode,
+    required DateTime payTime,
+    String? password,
+  }) async {
+    submissions++;
+    return const ScanSucceeded(kind: ScanSuccessKind.payment);
+  }
 }
 
 class _CountingAnimation extends AlwaysStoppedAnimation<double> {

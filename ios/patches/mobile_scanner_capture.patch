@@ -1,0 +1,266 @@
+--- MobileScannerPlugin.swift
++++ MobileScannerPlugin.swift
+@@ -29,6 +29,10 @@
+ 
+     // Image to be sent to the texture
+     var latestBuffer: CVImageBuffer!
++    private let previewBufferLock = NSLock()
++    private var previewOutput: AVCaptureVideoDataOutput?
++    // Camera lifecycle and recognition eligibility are owned by the main queue.
++    private var scanGeneration = 0
+ 
+     // optional window to limit scan search
+     var scanWindow: CGRect?
+@@ -123,112 +127,76 @@
+     
+     // FlutterTexture
+     public func copyPixelBuffer() -> Unmanaged<CVPixelBuffer>? {
+-        if latestBuffer == nil {
+-            return nil
+-        }
+-        return Unmanaged<CVPixelBuffer>.passRetained(latestBuffer)
+-    }
+-    
++        previewBufferLock.lock()
++        defer { previewBufferLock.unlock() }
++        guard let buffer = latestBuffer else { return nil }
++        return Unmanaged<CVPixelBuffer>.passRetained(buffer)
++    }
++
+     var nextScanTime = 0.0
+     var imagesCurrentlyBeingProcessed = false
+-    
+-    // Gets called when a new image is added to the buffer
++
+     public func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+-        // Ignore invalid texture id.
+-        if textureId == nil {
+-            return
+-        }
+-        guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+-            return
+-        }
++        guard output === previewOutput, let textureId = textureId,
++              let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
++        previewBufferLock.lock()
+         latestBuffer = imageBuffer
++        previewBufferLock.unlock()
+         registry.textureFrameAvailable(textureId)
+-        
+-        let currentTime = Date().timeIntervalSince1970
++
++        let currentTime = ProcessInfo.processInfo.systemUptime
+         let eligibleForScan = currentTime > nextScanTime && !imagesCurrentlyBeingProcessed
+-        if ((detectionSpeed == DetectionSpeed.normal || detectionSpeed == DetectionSpeed.noDuplicates) && eligibleForScan || detectionSpeed == DetectionSpeed.unrestricted) {
+-            nextScanTime = currentTime + timeoutSeconds
+-            imagesCurrentlyBeingProcessed = true
+-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+-                if self!.latestBuffer == nil {
+-                    return
+-                }
+-                var cgImage: CGImage?
+-                VTCreateCGImageFromCVPixelBuffer(self!.latestBuffer, options: nil, imageOut: &cgImage)
+-                let imageRequestHandler = VNImageRequestHandler(cgImage: cgImage!)
+-                do {
+-                    let barcodeRequest: VNDetectBarcodesRequest = VNDetectBarcodesRequest(completionHandler: { [weak self] (request, error) in
+-                        self?.imagesCurrentlyBeingProcessed = false
+-
+-                        if error != nil {
+-                            DispatchQueue.main.async {
+-                                self?.sink?(FlutterError(
+-                                    code: MobileScannerErrorCodes.BARCODE_ERROR,
+-                                    message: error?.localizedDescription, details: nil))
+-                            }
+-                            return
+-                        }
+-
+-                        guard let results: [VNBarcodeObservation] = request.results as? [VNBarcodeObservation] else {
+-                            return
+-                        }
+-
+-                        if results.isEmpty {
+-                            return
+-                        }
+-
+-                        let barcodes: [VNBarcodeObservation] = results.compactMap({ barcode in
+-                            return barcode
+-                        })
+-
+-                        DispatchQueue.main.async {
+-                            // If the image is nil, use zero as the size.
+-                            guard let image = cgImage else {
+-                                self?.sink?([
+-                                    "name": "barcode",
+-                                    "data": barcodes.map({ $0.toMap(imageWidth: 0, imageHeight: 0, scanWindow: nil)}),
+-                                ])
+-                                return
+-                            }
+-
+-                            // The image dimensions are always provided.
+-                            // The image bytes are only non-null when `returnImage` is true.
+-                            let imageData: [String: Any?] = [
+-                                "bytes": MobileScannerPlugin.returnImage ? FlutterStandardTypedData(bytes: image.jpegData(compressionQuality: 0.8)!) : nil,
+-                                "width": Double(image.width),
+-                                "height": Double(image.height),
+-                            ]
+-
+-                            self?.sink?([
+-                                "name": "barcode",
+-                                "data": barcodes.map({ $0.toMap(imageWidth: image.width, imageHeight: image.height, scanWindow: self?.scanWindow) }),
+-                                "image": imageData,
+-                            ])
+-                        }
+-                    })
+-
+-                    if self?.symbologies.isEmpty == false {
+-                        // Add the symbologies the user wishes to support.
+-                        barcodeRequest.symbologies = self!.symbologies
++        guard detectionSpeed == .unrestricted || eligibleForScan else { return }
++        nextScanTime = currentTime + timeoutSeconds
++        imagesCurrentlyBeingProcessed = true
++        let generation = scanGeneration
++        let requestedSymbologies = symbologies
++        let region = scanWindow
++        let returnImage = Self.returnImage
++        let width = CVPixelBufferGetWidth(imageBuffer)
++        let height = CVPixelBufferGetHeight(imageBuffer)
++
++        // Retain this frame, not the mutable preview buffer. Vision consumes the
++        // native pixel buffer directly; no full-frame CGImage conversion is needed.
++        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
++            guard let self = self else { return }
++            let request = VNDetectBarcodesRequest()
++            if !requestedSymbologies.isEmpty { request.symbologies = requestedSymbologies }
++            if let region = region { request.regionOfInterest = region }
++            do {
++                try VNImageRequestHandler(cvPixelBuffer: imageBuffer, options: [:]).perform([request])
++                let barcodes = request.results ?? []
++                var bytes: FlutterStandardTypedData?
++                if returnImage && !barcodes.isEmpty {
++                    var image: CGImage?
++                    VTCreateCGImageFromCVPixelBuffer(imageBuffer, options: nil, imageOut: &image)
++                    if let data = image?.jpegData(compressionQuality: 0.8) {
++                        bytes = FlutterStandardTypedData(bytes: data)
+                     }
+-
+-                    // Set the region of interest to match scanWindow
+-                    if let scanWindow = self?.scanWindow {
+-                        barcodeRequest.regionOfInterest = scanWindow
+-                    }
+-
+-                    try imageRequestHandler.perform([barcodeRequest])
+-                } catch let error {
+-                    DispatchQueue.main.async {
+-                        self?.sink?(FlutterError(
+-                            code: MobileScannerErrorCodes.BARCODE_ERROR,
+-                            message: error.localizedDescription, details: nil))
+-                    }
+-                }
+-            }
+-        }
+-    }
+-    
++                }
++                let imageBytes = bytes
++                DispatchQueue.main.async {
++                    guard self.scanGeneration == generation else { return }
++                    self.imagesCurrentlyBeingProcessed = false
++                    guard !self.stopped, !barcodes.isEmpty else { return }
++                    self.sink?([
++                        "name": "barcode",
++                        "data": barcodes.map { $0.toMap(imageWidth: width, imageHeight: height, scanWindow: region) },
++                        "image": ["bytes": imageBytes, "width": Double(width), "height": Double(height)] as [String: Any?],
++                    ])
++                }
++            } catch {
++                DispatchQueue.main.async {
++                    guard self.scanGeneration == generation else { return }
++                    self.imagesCurrentlyBeingProcessed = false
++                    guard !self.stopped else { return }
++                    self.sink?(FlutterError(code: MobileScannerErrorCodes.BARCODE_ERROR,
++                                            message: error.localizedDescription, details: nil))
++                }
++            }
++        }
++    }
++
+     func checkPermission(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
+         if #available(iOS 12.0, macOS 10.14, *) {
+             let status = AVCaptureDevice.authorizationStatus(for: .video)
+@@ -374,11 +342,24 @@
+                 message: error.localizedDescription, details: nil))
+             return
+         }
++#if os(iOS)
++        // Scanning needs a responsive video preview, not a photo-resolution stream.
++        for preset in [AVCaptureSession.Preset.hd1920x1080, .hd1280x720, .vga640x480] {
++            if captureSession!.canSetSessionPreset(preset) {
++                captureSession!.sessionPreset = preset
++                break
++            }
++        }
++#else
+         captureSession!.sessionPreset = AVCaptureSession.Preset.photo
++#endif
+ 
+         // Add video output
+         let videoOutput = AVCaptureVideoDataOutput()
++        previewOutput = videoOutput
++#if !os(iOS)
+         videoOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
++#endif
+         videoOutput.alwaysDiscardsLateVideoFrames = true
+ 
+         videoOutput.setSampleBufferDelegate(self, queue: DispatchQueue.main)
+@@ -397,6 +378,30 @@
+         }
+ 
+         captureSession!.commitConfiguration()
++#if os(iOS)
++        // FlutterTexture and Vision accept native NV12 buffers.
++        let formats = videoOutput.availableVideoPixelFormatTypes
++        let pixelFormat = [kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
++                           kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange]
++            .first { formats.contains($0) } ?? kCVPixelFormatType_32BGRA
++        videoOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: pixelFormat]
++        // Prefer up to 60 fps, allowing exposure to fall back to 30 fps.
++        // Keep defaults when this format cannot support the requested range.
++        if let range = device.activeFormat.videoSupportedFrameRateRanges
++            .filter({ $0.maxFrameRate >= 30 && $0.minFrameRate <= 60 })
++            .max(by: { $0.maxFrameRate < $1.maxFrameRate }) {
++            do {
++                try device.lockForConfiguration()
++                defer { device.unlockForConfiguration() }
++                let maximumFPS = min(60.0, range.maxFrameRate)
++                let minimumFPS = max(30.0, range.minFrameRate)
++                device.activeVideoMinFrameDuration = CMTimeMakeWithSeconds(1 / maximumFPS, preferredTimescale: 600000)
++                device.activeVideoMaxFrameDuration = CMTimeMakeWithSeconds(1 / minimumFPS, preferredTimescale: 600000)
++            } catch {
++                // Optional tuning must not prevent a usable camera from starting.
++            }
++        }
++#endif
+ 
+         // Move startRunning to a background thread to avoid blocking the main UI thread.
+         DispatchQueue.global(qos: .background).async {
+@@ -652,6 +657,10 @@
+             return
+         }
+ 
++        scanGeneration += 1
++        imagesCurrentlyBeingProcessed = false
++        nextScanTime = 0
++        previewOutput = nil
+         captureSession.stopRunning()
+         for input in captureSession.inputs {
+             captureSession.removeInput(input)
+@@ -661,7 +670,9 @@
+         }
+         device.removeObserver(self, forKeyPath: #keyPath(AVCaptureDevice.torchMode))
+ 
++        previewBufferLock.lock()
+         latestBuffer = nil
++        previewBufferLock.unlock()
+         self.captureSession = nil
+         device = nil
+     }
