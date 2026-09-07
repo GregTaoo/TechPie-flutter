@@ -144,7 +144,7 @@ void main() {
     await tester.pump();
   });
 
-  testWidgets('passive payment uses campus red while active scans keep blue', (
+  testWidgets('passive and active payment success use campus red', (
     tester,
   ) async {
     const primary = GpTokens.appleBlue;
@@ -238,7 +238,7 @@ void main() {
       of: find.byType(AnimatedSuccessCheck),
       matching: find.byType(CustomPaint),
     );
-    expect(tester.renderObject(paintedCheck), paints..arc(color: primary));
+    expect(tester.renderObject(paintedCheck), paints..arc(color: GpTokens.campusRed));
   });
 
   testWidgets(

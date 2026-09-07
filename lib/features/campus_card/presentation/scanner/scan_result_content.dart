@@ -6,6 +6,7 @@ import '../../domain/ports/platform_ports.dart';
 import '../icons/platform_icons.dart';
 import '../localization/geekpay_localizations.dart';
 import '../theme/colors.dart';
+import '../theme/tokens.dart';
 import '../widgets/apple_wallet_components.dart';
 
 final class ScanFailureContent extends StatefulWidget {
@@ -99,6 +100,9 @@ final class ScanResultContent extends StatelessWidget {
       children: [
         AnimatedSuccessCheck(
           size: 112,
+          color: success.kind == ScanSuccessKind.payment
+              ? GpTokens.campusRed
+              : null,
           reduceMotion: MediaQuery.disableAnimationsOf(context),
           feedback: feedback,
         ),
