@@ -238,7 +238,10 @@ void main() {
       of: find.byType(AnimatedSuccessCheck),
       matching: find.byType(CustomPaint),
     );
-    expect(tester.renderObject(paintedCheck), paints..arc(color: GpTokens.campusRed));
+    expect(
+      tester.renderObject(paintedCheck),
+      paints..arc(color: GpTokens.campusRed),
+    );
   });
 
   testWidgets(
