@@ -268,24 +268,36 @@ final class PaymentCodeExperienceController {
   PaymentCodeExperienceController({
     required PaymentCodeController payment,
     required BrightnessPort brightness,
+    bool maximizeBrightness = false,
   })  : _payment = payment,
-        _brightness = brightness;
+        _brightness = brightness,
+        _maximizeBrightness = maximizeBrightness;
 
   final PaymentCodeController _payment;
   final BrightnessPort _brightness;
   bool _entered = false;
+  bool _online = false;
+  bool _maximizeBrightness;
+  bool _brightnessTouched = false;
   int _brightnessEpoch = 0;
+  Future<void> _brightnessUpdates = Future<void>.value();
 
   PaymentCodeViewState get state => _payment.state;
   Stream<PaymentCodeViewState> get states => _payment.states;
 
-  Future<void> enter() async {
-    if (_entered) return;
-    _entered = true;
-    final brightnessEpoch = ++_brightnessEpoch;
-    unawaited(_raiseBrightness(brightnessEpoch));
+  Future<void> enter({bool online = true}) async {
+    if (_entered && _online == online) return;
+    if (!_entered) {
+      _entered = true;
+      unawaited(_updateBrightness());
+    }
+    _online = online;
     try {
-      await _payment.start();
+      if (online) {
+        await _payment.start();
+      } else {
+        _payment.stop();
+      }
     } catch (_) {
       await leave();
       rethrow;
@@ -294,7 +306,14 @@ final class PaymentCodeExperienceController {
 
   Future<void> restart() async {
     if (!_entered) return enter();
+    _online = true;
     await _payment.start();
+  }
+
+  Future<void> setMaximizeBrightness(bool enabled) async {
+    if (_maximizeBrightness == enabled) return;
+    _maximizeBrightness = enabled;
+    await _updateBrightness();
   }
 
   Future<void> activateAndRestart() => _payment.activateAndRestart();
@@ -306,23 +325,42 @@ final class PaymentCodeExperienceController {
   Future<void> leave() async {
     if (!_entered) return;
     _entered = false;
-    ++_brightnessEpoch;
+    _online = false;
     _payment.stop();
-    try {
-      await _brightness.restore().timeout(const Duration(seconds: 2));
-    } catch (_) {
-      // A platform brightness failure must not keep the payment session alive.
-    }
+    await _updateBrightness();
   }
 
-  Future<void> _raiseBrightness(int epoch) async {
-    try {
-      await _brightness.current().timeout(const Duration(seconds: 2));
-      if (!_entered || epoch != _brightnessEpoch) return;
-      await _brightness.set(1).timeout(const Duration(seconds: 2));
-    } catch (_) {
-      // Payment-code networking must not wait for a platform brightness API.
-    }
+  Future<void> _updateBrightness() {
+    final epoch = ++_brightnessEpoch;
+    return _brightnessUpdates = _brightnessUpdates.then((_) async {
+      if (epoch != _brightnessEpoch) return;
+      try {
+        if (_entered && _maximizeBrightness) {
+          await _brightness.current().timeout(const Duration(seconds: 2));
+          if (epoch != _brightnessEpoch) return;
+          _brightnessTouched = true;
+          final pending = _brightness.set(1);
+          unawaited(
+            pending.then<void>(
+              (_) {
+                // Platform calls may finish after a timeout or after leaving.
+                if (!_entered || !_maximizeBrightness) {
+                  _brightnessTouched = true;
+                  unawaited(_updateBrightness());
+                }
+              },
+              onError: (Object _) {},
+            ),
+          );
+          await pending.timeout(const Duration(seconds: 2));
+        } else if (_brightnessTouched) {
+          await _brightness.restore().timeout(const Duration(seconds: 2));
+          _brightnessTouched = false;
+        }
+      } catch (_) {
+        // Optional brightness changes never interrupt payment or navigation.
+      }
+    });
   }
 
   Future<void> dispose() async {

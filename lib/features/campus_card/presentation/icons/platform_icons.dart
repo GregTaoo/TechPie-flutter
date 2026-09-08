@@ -23,6 +23,10 @@ final class GpPlatformIcon {
 /// platforms use Material Icons. App-owned painted geometry and branded image
 /// assets remain identical on every platform.
 abstract final class GpPlatformIcons {
+  static const brightness = GpPlatformIcon(
+    apple: CupertinoIcons.brightness,
+    android: Icons.brightness_high_outlined,
+  );
   static const vibration = GpPlatformIcon(
     apple: CupertinoIcons.device_phone_portrait,
     android: Icons.vibration_rounded,
@@ -185,6 +189,7 @@ abstract final class GpPlatformIcons {
   );
 
   static const all = <GpPlatformIcon>[
+    brightness,
     back,
     forward,
     close,

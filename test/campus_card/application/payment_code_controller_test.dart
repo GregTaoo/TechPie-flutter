@@ -212,6 +212,7 @@ void main() {
       final experience = PaymentCodeExperienceController(
         payment: payment,
         brightness: brightness,
+        maximizeBrightness: true,
       );
       unawaited(experience.enter());
       async.flushMicrotasks();
@@ -232,6 +233,7 @@ void main() {
       final experience = PaymentCodeExperienceController(
         payment: PaymentCodeController(repository: repository),
         brightness: _HangingBrightnessPort(),
+        maximizeBrightness: true,
       );
 
       unawaited(experience.enter());
@@ -327,6 +329,7 @@ void main() {
       expect(controller.state.generation, 2);
     });
   });
+
   test('declined payment silently replaces the code and stays online', () {
     fakeAsync((async) {
       final repository = _PaymentRepository(
@@ -428,6 +431,126 @@ void main() {
     });
   });
 
+  test('default brightness preference never touches the platform setting', () {
+    fakeAsync((async) {
+      final brightness = _CountingBrightnessPort();
+      final experience = PaymentCodeExperienceController(
+        payment: PaymentCodeController(repository: _PaymentRepository()),
+        brightness: brightness,
+      );
+      unawaited(experience.enter());
+      async.flushMicrotasks();
+      unawaited(experience.leave());
+      async.flushMicrotasks();
+      unawaited(experience.dispose());
+      async.flushMicrotasks();
+
+      expect(brightness.calls, isEmpty);
+      expect(brightness.value, 0.42);
+    });
+  });
+
+  test('brightness changes apply immediately without restarting payment', () {
+    fakeAsync((async) {
+      final brightness = _CountingBrightnessPort();
+      final repository = _PaymentRepository();
+      final experience = PaymentCodeExperienceController(
+        payment: PaymentCodeController(repository: repository),
+        brightness: brightness,
+      );
+      unawaited(experience.enter());
+      async.flushMicrotasks();
+      unawaited(experience.setMaximizeBrightness(true));
+      async.flushMicrotasks();
+      expect(brightness.value, 1);
+      expect(repository.generateCalls, 1);
+
+      unawaited(experience.setMaximizeBrightness(false));
+      async.flushMicrotasks();
+      expect(brightness.value, 0.42);
+      expect(repository.generateCalls, 1);
+      expect(brightness.calls, ['current', 'set', 'restore']);
+      unawaited(experience.dispose());
+      async.flushMicrotasks();
+      expect(brightness.calls, ['current', 'set', 'restore']);
+    });
+  });
+
+  test('offline code visibility honors the optional brightness setting', () {
+    fakeAsync((async) {
+      final brightness = _CountingBrightnessPort();
+      final repository = _PaymentRepository();
+      final experience = PaymentCodeExperienceController(
+        payment: PaymentCodeController(repository: repository),
+        brightness: brightness,
+        maximizeBrightness: true,
+      );
+      unawaited(experience.enter(online: false));
+      async.flushMicrotasks();
+      expect(brightness.value, 1);
+      expect(repository.generateCalls, 0);
+      unawaited(experience.leave());
+      async.flushMicrotasks();
+      expect(brightness.value, 0.42);
+      unawaited(experience.dispose());
+      async.flushMicrotasks();
+    });
+  });
+
+  test('a late platform brightness write is undone after leaving', () {
+    fakeAsync((async) {
+      final brightness = _DelayedBrightnessPort();
+      final experience = PaymentCodeExperienceController(
+        payment: PaymentCodeController(repository: _PaymentRepository()),
+        brightness: brightness,
+        maximizeBrightness: true,
+      );
+      unawaited(experience.enter());
+      async.flushMicrotasks();
+      unawaited(experience.leave());
+      async.elapse(const Duration(seconds: 3));
+      async.flushMicrotasks();
+      brightness.pendingSet.complete();
+      async.flushMicrotasks();
+
+      expect(brightness.value, 0.42);
+      unawaited(experience.dispose());
+      async.flushMicrotasks();
+    });
+  });
+}
+
+class _CountingBrightnessPort implements BrightnessPort {
+  final calls = <String>[];
+  double value = 0.42;
+
+  @override
+  Future<double> current() async {
+    calls.add('current');
+    return value;
+  }
+
+  @override
+  Future<void> set(double brightness) async {
+    calls.add('set');
+    value = brightness;
+  }
+
+  @override
+  Future<void> restore() async {
+    calls.add('restore');
+    value = 0.42;
+  }
+}
+
+final class _DelayedBrightnessPort extends _CountingBrightnessPort {
+  final pendingSet = Completer<void>();
+
+  @override
+  Future<void> set(double brightness) async {
+    await pendingSet.future;
+    await super.set(brightness);
+  }
 }
 
 final class _RefreshAndPollRepository implements PaymentCodeRepository {

@@ -33,7 +33,7 @@ void main() {
         }
         final control =
             find.byKey(ValueKey('feedback-${scenario.name}-${channel.name}'));
-        await tester.ensureVisible(control);
+        await tester.scrollUntilVisible(control, 160);
         expect(
           tester
               .widget<Switch>(
@@ -46,7 +46,7 @@ void main() {
     }
 
     final sound = find.byKey(const ValueKey('feedback-paymentSuccess-sound'));
-    await tester.ensureVisible(sound);
+    await tester.scrollUntilVisible(sound, -160);
     await tester.tap(sound);
     await tester.pumpAndSettle();
     final success =

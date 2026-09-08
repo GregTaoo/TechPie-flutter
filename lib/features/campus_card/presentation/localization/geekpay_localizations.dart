@@ -164,6 +164,9 @@ final class GeekPayLocalizations {
       'touchToRefresh': '轻触二维码刷新',
       'paymentCodeLoading': '正在生成付款码…',
       'paymentCodeFailed': '付款码生成失败',
+      'maximizePaymentCodeBrightness': '付款码最大亮度',
+      'maximizePaymentCodeBrightnessHint':
+          '开启后，显示付款码时使用最大亮度，离开后恢复。默认关闭，使用系统亮度。',
       'networkOnline': '网络正常',
       'networkDisconnected': '网络已断开',
       'networkApiError': '服务响应异常',
@@ -392,6 +395,9 @@ final class GeekPayLocalizations {
       'touchToRefresh': 'Tap the code to refresh',
       'paymentCodeLoading': 'Generating payment code…',
       'paymentCodeFailed': 'Unable to generate code',
+      'maximizePaymentCodeBrightness': 'Maximum Pay Code Brightness',
+      'maximizePaymentCodeBrightnessHint':
+          'Use maximum brightness while showing the pay code and restore it when leaving. Off by default to keep system brightness.',
       'networkOnline': 'Online',
       'networkDisconnected': 'Disconnected',
       'networkApiError': 'Service response error',
@@ -616,6 +622,9 @@ final class GeekPayLocalizations {
       'touchToRefresh': 'コードをタップして更新',
       'paymentCodeLoading': '支払いコードを作成中…',
       'paymentCodeFailed': 'コードを作成できません',
+      'maximizePaymentCodeBrightness': '支払いコードの明るさを最大にする',
+      'maximizePaymentCodeBrightnessHint':
+          'コード表示中は明るさを最大にし、画面を離れると元に戻します。初期設定はオフで、システムの明るさを使用します。',
       'networkOnline': 'オンライン',
       'networkDisconnected': 'オフライン',
       'networkApiError': 'サービス応答異常',

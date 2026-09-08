@@ -110,8 +110,8 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
 
   Future<void> _applyActivity(int revision) async {
     if (!mounted || revision != _activityRevision) return;
-    if (_active && !ref.read(manualOfflineModeProvider)) {
-      await _paymentCodes.enter();
+    if (_active) {
+      await _paymentCodes.enter(online: !ref.read(manualOfflineModeProvider));
     } else {
       await _paymentCodes.leave();
     }
@@ -168,7 +168,7 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
       if (_active) await _paymentCodes.restart();
       return;
     }
-    await _paymentCodes.leave();
+    if (_active) await _paymentCodes.enter(online: false);
     await _generateOffline(card, switching: true);
     if (_offlinePayload == null) {
       ref.read(manualOfflineModeProvider.notifier).setEnabled(false);

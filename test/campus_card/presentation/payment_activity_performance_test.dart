@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:techpie/features/campus_card/app/app_providers.dart';
 import 'package:techpie/features/campus_card/app/app_runtime.dart';
 import 'package:techpie/features/campus_card/app/demo_runtime_factory.dart';
+import 'package:techpie/features/campus_card/core/config/payment_code_preferences.dart';
 import 'package:techpie/features/campus_card/data/mock/in_memory_ports.dart';
 import 'package:techpie/features/campus_card/domain/models/auth_models.dart';
 import 'package:techpie/features/campus_card/domain/models/payment_models.dart';
@@ -31,7 +32,7 @@ void main() {
 
   testWidgets('a non-opaque status sheet keeps the visible code active',
       (tester) async {
-    final rig = await _Rig.mount(tester);
+    final rig = await _Rig.mount(tester, maximizeBrightness: true);
     final context = tester.element(find.byKey(const Key('payment-code-page')));
     unawaited(
       showModalBottomSheet<void>(
@@ -108,7 +109,7 @@ void main() {
 
   testWidgets('covered payment routes stop polling and restore brightness',
       (tester) async {
-    final rig = await _Rig.mount(tester);
+    final rig = await _Rig.mount(tester, maximizeBrightness: true);
     final router = rig.container.read(gpRouterProvider);
     unawaited(router.push('/card/manage'));
     await tester.pumpAndSettle();
@@ -128,7 +129,7 @@ void main() {
 
   testWidgets('a covered host route stays paused when the app resumes',
       (tester) async {
-    final rig = await _Rig.mount(tester);
+    final rig = await _Rig.mount(tester, maximizeBrightness: true);
     unawaited(
       rig.navigator.currentState!.push(
         MaterialPageRoute<void>(
@@ -153,7 +154,7 @@ void main() {
 
   testWidgets('backgrounding stops payment work and resumes with a fresh code',
       (tester) async {
-    final rig = await _Rig.mount(tester);
+    final rig = await _Rig.mount(tester, maximizeBrightness: true);
     final before = rig.repository.polls;
     rig.lifecycle.setState(ports.AppLifecycleState.paused);
     await tester.pump(const Duration(seconds: 6));
@@ -168,6 +169,28 @@ void main() {
     expect(rig.brightness.value, 1);
     await rig.dispose(tester);
   });
+
+  testWidgets('brightness is unchanged by default and the setting applies live',
+      (tester) async {
+    final rig = await _Rig.mount(tester);
+    expect(rig.brightness.value, 0.5);
+    final generations = rig.repository.generations;
+
+    await rig.container
+        .read(maximizePaymentCodeBrightnessProvider.notifier)
+        .setEnabled(true);
+    await tester.pumpAndSettle();
+    expect(rig.brightness.value, 1);
+
+    await rig.container
+        .read(maximizePaymentCodeBrightnessProvider.notifier)
+        .setEnabled(false);
+    await tester.pumpAndSettle();
+    expect(rig.brightness.value, 0.5);
+    expect(rig.repository.generations, generations);
+    await rig.dispose(tester);
+  });
+
   testWidgets('password rejection silently refreshes without outcome messages',
       (tester) async {
     final rig = await _Rig.mount(tester);
@@ -230,9 +253,16 @@ class _Rig {
     await base.dispose();
   }
 
-  static Future<_Rig> mount(WidgetTester tester) async {
+  static Future<_Rig> mount(
+    WidgetTester tester, {
+    bool maximizeBrightness = false,
+  }) async {
     SharedPreferences.setMockInitialValues(
-      {'geekpay.onboarding_complete': true},
+      {
+        'geekpay.onboarding_complete': true,
+        if (maximizeBrightness)
+          'geekpay.maximize_payment_code_brightness': true,
+      },
     );
     final base = await buildDemoRuntime();
     await base.auth.signIn(const DemoAuthCredential());

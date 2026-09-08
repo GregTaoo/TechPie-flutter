@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:techpie/features/campus_card/app/app_providers.dart';
 import 'package:techpie/features/campus_card/app/app_runtime.dart';
 import 'package:techpie/features/campus_card/app/demo_runtime_factory.dart';
 import 'package:techpie/features/campus_card/core/config/app_environment.dart';
+import 'package:techpie/features/campus_card/core/config/payment_code_preferences.dart';
 import 'package:techpie/features/campus_card/presentation/screens/me_screen.dart';
 import 'package:techpie/features/campus_card/presentation/screens/security_limit_screen.dart';
 import 'package:techpie/features/campus_card/presentation/screens/settings_screen.dart';
@@ -97,5 +99,32 @@ void main() {
 
     expect(find.text('••••\u00A00001'), findsOneWidget);
     expect(find.textContaining('DEMO-CARD-0001'), findsNothing);
+  });
+
+  testWidgets('the maximum brightness switch defaults off and saves the choice',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final runtime = await productionLike();
+    addTearDown(runtime.dispose);
+    await pumpScreen(tester, runtime, const SettingsScreen());
+    final control = find.byKey(const Key('maximize-payment-code-brightness'));
+    final container = ProviderScope.containerOf(tester.element(control));
+
+    expect(find.text('付款码最大亮度'), findsOneWidget);
+    expect(
+      container.read(maximizePaymentCodeBrightnessProvider).value,
+      isFalse,
+    );
+    await tester.tap(control);
+    await tester.pumpAndSettle();
+    expect(
+      container.read(maximizePaymentCodeBrightnessProvider).value,
+      isTrue,
+    );
+    expect(
+      (await SharedPreferences.getInstance())
+          .getBool('geekpay.maximize_payment_code_brightness'),
+      isTrue,
+    );
   });
 }

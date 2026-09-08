@@ -5,7 +5,7 @@ import 'package:techpie/features/campus_card/presentation/icons/platform_icons.d
 
 void main() {
   test('every semantic icon has Apple and Material resources', () {
-    expect(GpPlatformIcons.all, hasLength(36));
+    expect(GpPlatformIcons.all, hasLength(37));
     for (final icon in GpPlatformIcons.all) {
       final apple = icon.forPlatform(TargetPlatform.iOS);
       final mac = icon.forPlatform(TargetPlatform.macOS);

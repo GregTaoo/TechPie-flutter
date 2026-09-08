@@ -8,6 +8,7 @@ import '../application/scan_payment_controller.dart';
 import '../core/config/debug_mode_controller.dart';
 import '../core/config/debug_mode_features.dart';
 import '../core/config/offline_authorization_banner_controller.dart';
+import '../core/config/payment_code_preferences.dart';
 import '../data/mock/debug_transactions.dart';
 import '../domain/models/auth_models.dart';
 import '../domain/models/bill_models.dart';
@@ -576,6 +577,13 @@ final class PaymentCodeNotifier
         ref.watch(appRuntimeProvider).createPaymentCodeController();
     final subscription = controller.states.listen((value) => state = value);
     _controller = controller;
+    ref.listen(
+      maximizePaymentCodeBrightnessProvider,
+      (_, next) {
+        unawaited(controller.setMaximizeBrightness(next.valueOrNull ?? false));
+      },
+      fireImmediately: true,
+    );
     ref.onDispose(() {
       unawaited(subscription.cancel());
       unawaited(controller.dispose());
@@ -583,7 +591,8 @@ final class PaymentCodeNotifier
     return controller.state;
   }
 
-  Future<void> enter() => _guardPaymentAction(_controller.enter);
+  Future<void> enter({bool online = true}) =>
+      _guardPaymentAction(() => _controller.enter(online: online));
   Future<void> restart() => _guardPaymentAction(_controller.restart);
   Future<void> activateAndRestart() =>
       _guardPaymentAction(_controller.activateAndRestart);

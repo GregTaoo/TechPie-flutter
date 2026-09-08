@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/config/debug_mode_controller.dart';
 import '../../core/config/debug_mode_features.dart';
 import '../../core/config/feedback_settings.dart';
+import '../../core/config/payment_code_preferences.dart';
 import '../../core/config/scan_payment_preferences.dart';
 import '../../domain/models/feedback_models.dart';
 import '../icons/platform_icons.dart';
@@ -20,6 +21,8 @@ final class SettingsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final debugMode = ref.watch(debugModeProvider);
     final skipScanConfirmation = ref.watch(skipScanConfirmationProvider);
+    final maximizeBrightness =
+        ref.watch(maximizePaymentCodeBrightnessProvider).valueOrNull;
     final l10n = context.l10n;
     return Scaffold(
       body: AppleWalletPage(
@@ -41,6 +44,31 @@ final class SettingsScreen extends ConsumerWidget {
               52,
             ),
             children: [
+              AppleSection(
+                footer: l10n.t('maximizePaymentCodeBrightnessHint'),
+                children: [
+                  AppleListRow(
+                    icon: GpPlatformIcons.brightness(context),
+                    label: l10n.t('maximizePaymentCodeBrightness'),
+                    verticalPadding: 4,
+                    trailing: _SettingsSwitch(
+                      key: const Key('maximize-payment-code-brightness'),
+                      value: maximizeBrightness ?? false,
+                      onChanged: maximizeBrightness == null
+                          ? null
+                          : (enabled) => unawaited(
+                                ref
+                                    .read(
+                                      maximizePaymentCodeBrightnessProvider
+                                          .notifier,
+                                    )
+                                    .setEnabled(enabled),
+                              ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
               AppleSection(
                 footer:
                     debugModeFeaturesAvailable ? l10n.t('debugModeHint') : null,
