@@ -229,7 +229,11 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
 
   Future<void> _refreshRecentTransactions() async {
     ref.invalidate(transactionFeedProvider(_allTransactions));
-    await ref.read(transactionFeedProvider(_allTransactions).future);
+    try {
+      await ref.read(transactionFeedProvider(_allTransactions).future);
+    } catch (_) {
+      // The activity feed reports its own error without changing the outcome.
+    }
   }
 
   @override

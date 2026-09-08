@@ -132,7 +132,10 @@ final class PaymentCodeController {
         case PaymentCodeExpired():
           await _refresh(epoch);
         case PaymentCompleted(:final result):
-          _completePayment(result, epoch: epoch, generation: generation);
+          _completePayment(result);
+        case PaymentNotCompleted():
+          // Retire the consumed/rejected code without a user-facing error.
+          await start();
         case PaymentShouldUseOffline(:final reason):
           _cancelTimers();
           _emit(
@@ -195,22 +198,21 @@ final class PaymentCodeController {
         tradeAt: DateTime.now().toUtc(),
         orderId: 'DEBUG-PAYMENT-SUCCESS',
       ),
-      epoch: _epoch,
-      generation: _state.generation,
     );
   }
 
-  void _completePayment(
-    TransactionResult result, {
-    required int epoch,
-    required int generation,
-  }) {
+  void _completePayment(TransactionResult result) {
+    final epoch = ++_epoch;
+    final generation = _state.generation;
     _cancelTimers();
     _emit(
-      _state.copyWith(
+      PaymentCodeViewState(
         phase: PaymentCodePhase.succeeded,
+        generation: generation,
+        frame: _state.frame,
         result: result,
-        clearMessage: true,
+        connectionState: PaymentConnectionState.online,
+        requestLatency: _state.requestLatency,
       ),
     );
     _successTimer = Timer(successDisplayDuration, () {

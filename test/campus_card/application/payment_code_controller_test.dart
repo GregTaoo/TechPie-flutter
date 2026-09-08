@@ -5,10 +5,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:techpie/features/campus_card/application/payment_code_controller.dart';
 import 'package:techpie/features/campus_card/core/errors/app_failure.dart';
 import 'package:techpie/features/campus_card/data/mock/in_memory_ports.dart';
+import 'package:techpie/features/campus_card/data/repositories/ecard_payment_code_repository.dart';
 import 'package:techpie/features/campus_card/domain/models/payment_models.dart';
 import 'package:techpie/features/campus_card/domain/money_fen.dart';
 import 'package:techpie/features/campus_card/domain/ports/payment_ports.dart';
 import 'package:techpie/features/campus_card/domain/ports/platform_ports.dart';
+
+import '../support/fake_ecard_transport.dart';
 
 void main() {
   test('shows success for three seconds and then obtains a new code', () {
@@ -324,6 +327,127 @@ void main() {
       expect(controller.state.generation, 2);
     });
   });
+  test('declined payment silently replaces the code and stays online', () {
+    fakeAsync((async) {
+      final repository = _PaymentRepository(
+        nextPoll: const PaymentNotCompleted(reason: '密码错误'),
+      );
+      final controller = PaymentCodeController(repository: repository);
+      final phases = <PaymentCodePhase>[];
+      controller.states.listen((value) => phases.add(value.phase));
+      unawaited(controller.start());
+      async.flushMicrotasks();
+      async.elapse(const Duration(seconds: 3));
+      async.flushMicrotasks();
+
+      expect(controller.state.phase, PaymentCodePhase.displaying);
+      expect(repository.generateCalls, 2);
+      expect(controller.state.message, isNull);
+      expect(controller.state.result, isNull);
+      expect(controller.state.connectionState, PaymentConnectionState.online);
+      repository.nextPoll = const PaymentPending();
+      async.elapse(const Duration(seconds: 3));
+      async.flushMicrotasks();
+
+      expect(repository.generateCalls, 2);
+      expect(controller.state.phase, PaymentCodePhase.displaying);
+      expect(controller.state.connectionState, PaymentConnectionState.online);
+      expect(phases, isNot(contains(PaymentCodePhase.succeeded)));
+      expect(phases, isNot(contains(PaymentCodePhase.failed)));
+      expect(phases, isNot(contains(PaymentCodePhase.switchingOffline)));
+      unawaited(controller.dispose());
+      async.flushMicrotasks();
+    });
+  });
+
+  test('a late refresh cannot replace a silently renewed payment code', () {
+    fakeAsync((async) {
+      final repository = _RefreshAndPollRepository();
+      final controller = PaymentCodeController(repository: repository);
+      unawaited(controller.start());
+      async.flushMicrotasks();
+      async.elapse(const Duration(seconds: 30));
+      async.flushMicrotasks();
+      expect(repository.generations, 2);
+
+      repository.poll.complete(const PaymentNotCompleted(reason: '密码错误'));
+      async.flushMicrotasks();
+      repository.refresh.complete(_frame('superseded-refresh'));
+      async.flushMicrotasks();
+
+      expect(controller.state.phase, PaymentCodePhase.displaying);
+      expect(controller.state.message, isNull);
+      expect(controller.state.connectionState, PaymentConnectionState.online);
+      expect(controller.state.frame!.payCode, 'code-3');
+      unawaited(controller.dispose());
+      async.flushMicrotasks();
+    });
+  });
+
+  test('repeated unused-code responses keep the same code until normal refresh',
+      () {
+    fakeAsync((async) {
+      final transport = FakeEcardTransport()
+        ..enqueue('POST', '/offlineCode/openVirtualcard', {
+          'success': true,
+          'data': {'code': '5638AABBCCDD', 'qrcode': ''},
+        });
+      for (var i = 0; i < 4; i++) {
+        transport.enqueue('POST', '/virtualcard/queryOrderStatus', {
+          'success': false,
+          'data': {'status': 5, 'message': '支付失败，付款码未使用', 'txamt': 0},
+        });
+      }
+      final controller = PaymentCodeController(
+        repository: EcardPaymentCodeRepository(transport),
+      );
+      final states = <PaymentCodeViewState>[];
+      controller.states.listen(states.add);
+      unawaited(controller.start());
+      async.flushMicrotasks();
+      async.elapse(const Duration(seconds: 12));
+      async.flushMicrotasks();
+
+      expect(
+        transport.requests
+            .where((r) => r.path == '/offlineCode/openVirtualcard'),
+        hasLength(1),
+      );
+      expect(
+        transport.requests
+            .where((r) => r.path == '/virtualcard/queryOrderStatus'),
+        hasLength(4),
+      );
+      expect(controller.state.generation, 1);
+      expect(controller.state.phase, PaymentCodePhase.displaying);
+      expect(controller.state.connectionState, PaymentConnectionState.online);
+      expect(states.every((s) => s.message == null), isTrue);
+      expect(states.any((s) => s.phase == PaymentCodePhase.failed), isFalse);
+      unawaited(controller.dispose());
+      async.flushMicrotasks();
+    });
+  });
+
+}
+
+final class _RefreshAndPollRepository implements PaymentCodeRepository {
+  final refresh = Completer<PaymentCodeFrame>();
+  final poll = Completer<PaymentCodePollResult>();
+  int generations = 0;
+
+  @override
+  Future<void> activateOnlineCode() async {}
+
+  @override
+  Future<PaymentCodeFrame> generateOnlineCode() {
+    generations++;
+    return generations == 2
+        ? refresh.future
+        : Future.value(_frame('code-$generations'));
+  }
+
+  @override
+  Future<PaymentCodePollResult> pollTransaction(String payCode) => poll.future;
 }
 
 final class _PaymentRepository implements PaymentCodeRepository {

@@ -168,6 +168,40 @@ void main() {
     expect(rig.brightness.value, 1);
     await rig.dispose(tester);
   });
+  testWidgets('password rejection silently refreshes without outcome messages',
+      (tester) async {
+    final rig = await _Rig.mount(tester);
+    rig.repository.pendingPoll = Future.value(
+      const PaymentNotCompleted(reason: '密码错误'),
+    );
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('payment-not-completed')), findsNothing);
+    expect(find.text('密码错误'), findsNothing);
+    expect(find.text('支付结果未确认，请查看消费记录。'), findsNothing);
+    expect(find.byKey(const Key('payment-code-qr')), findsOneWidget);
+    expect(rig.repository.generations, 2);
+    expect(find.byKey(const ValueKey('success')), findsNothing);
+    expect(
+      rig.container.read(paymentCodeControllerProvider).connectionState,
+      PaymentConnectionState.online,
+    );
+    expect(
+      (rig.base.feedback as InMemoryFeedbackPort).events,
+      isNot(contains(ports.FeedbackEvent.paymentSuccess)),
+    );
+
+    rig.repository.pendingPoll = null;
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('payment-code-qr')), findsOneWidget);
+    expect(
+      rig.container.read(paymentCodeControllerProvider).connectionState,
+      PaymentConnectionState.online,
+    );
+    await rig.dispose(tester);
+  });
 }
 
 class _Rig {

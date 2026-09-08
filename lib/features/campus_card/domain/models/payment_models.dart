@@ -70,6 +70,12 @@ final class PaymentCompleted extends PaymentCodePollResult {
   final TransactionResult result;
 }
 
+/// A terminal result that does not confirm a successful payment.
+final class PaymentNotCompleted extends PaymentCodePollResult {
+  const PaymentNotCompleted({this.reason});
+  final String? reason;
+}
+
 final class PaymentShouldUseOffline extends PaymentCodePollResult {
   const PaymentShouldUseOffline(this.reason);
   final String reason;

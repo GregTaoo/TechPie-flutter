@@ -12,6 +12,17 @@ final class EcardPaymentCodeRepository implements PaymentCodeRepository {
       : _clock = clock ?? const Clock();
 
   static const _gatewayFallbackMessages = {'开放平台返回失败', '开放平台请求超时'};
+  static const _successResultPath = '/pages/common/paysuccess/paysuccess';
+  static final _unusedCodeMessage = RegExp(
+    r'未(?:被)?使用|\bunused\b|\bnot (?:yet )?used\b',
+    caseSensitive: false,
+  );
+  static final _paymentFailureMessage = RegExp(
+    r'密码.*(?:错误|不正确|有误|失败|锁定|不匹配)|(?:支付|付款|交易)(?:失败|被拒绝|已取消)|'
+    r'(?:incorrect|invalid|wrong)\s+password|password.*(?:error|incorrect|invalid|failed|locked)|'
+    r'(?:payment|transaction)\s+(?:failed|declined|rejected|cancelled)',
+    caseSensitive: false,
+  );
 
   final EcardTransport _client;
   final Clock _clock;
@@ -99,18 +110,36 @@ final class EcardPaymentCodeRepository implements PaymentCodeRepository {
     final data = response['data'] is Map
         ? requireObjectMap(response['data'], context: 'PAYMENT_RESULT_DATA')
         : response;
-    final message = (data['message'] ?? response['message'])?.toString() ?? '';
-    if (_gatewayFallbackMessages.contains(message)) {
-      return PaymentShouldUseOffline(message);
-    }
-    if (!apiSuccess(response)) {
-      return PaymentShouldUseOffline(message.isEmpty ? '付款状态查询失败。' : message);
-    }
+    final message = apiMessage(
+      data,
+      fallback: apiMessage(response, fallback: ''),
+    );
     final status = int.tryParse(data['status']?.toString() ?? '');
     if (status == 5) return const PaymentPending();
     if (status == 3) return const PaymentCodeExpired();
+    // Some successful polling responses label an unused code as "支付失败".
+    // The unused-code qualifier takes precedence over generic failure text.
+    if (_unusedCodeMessage.hasMatch(message)) {
+      return const PaymentPending();
+    }
+    if (_gatewayFallbackMessages.contains(message)) {
+      return PaymentShouldUseOffline(message);
+    }
+    if (_paymentFailureMessage.hasMatch(message)) {
+      return PaymentNotCompleted(reason: message);
+    }
     final resultUrl = (data['url'] ?? response['url'])?.toString().trim() ?? '';
-    if (resultUrl.isNotEmpty && data['txamt'] != null) {
+    // `success` belongs to the query, and a result URL may lead to a failure
+    // page. Only the known success destination confirms payment completion.
+    final resultUri = Uri.tryParse(resultUrl);
+    final urlMessage = resultUri?.queryParameters['message'] ?? '';
+    if (_paymentFailureMessage.hasMatch(urlMessage)) {
+      return PaymentNotCompleted(reason: urlMessage);
+    }
+    if (apiSuccess(response) &&
+        !apiRejected(data) &&
+        resultUri?.path == _successResultPath &&
+        data['txamt'] != null) {
       return PaymentCompleted(
         TransactionResult(
           amount: _paymentResultFen(data['txamt']),
@@ -119,7 +148,9 @@ final class EcardPaymentCodeRepository implements PaymentCodeRepository {
         ),
       );
     }
-    return PaymentShouldUseOffline(message.isEmpty ? '付款状态响应内容不完整。' : message);
+    if (resultUrl.isNotEmpty) return const PaymentNotCompleted();
+    // No result yet is a normal polling response, not a network failure.
+    return const PaymentPending();
   }
 
   MoneyFen _paymentResultFen(Object? value) {
