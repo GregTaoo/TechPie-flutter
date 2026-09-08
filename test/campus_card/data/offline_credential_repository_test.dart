@@ -117,6 +117,35 @@ void main() {
       );
     });
 
+    test('concurrent renewal cannot restore an authorization after logout',
+        () async {
+      await repository.install(
+        authorization: _authorization(total: 2),
+        privateKeyHex: privateKey,
+      );
+
+      await Future.wait([
+        repository.updateAuthorization(
+          _authorization(total: 3),
+          resetUsage: true,
+        ),
+        repository.removeAll(),
+      ]);
+
+      expect(
+        await repository.read('DEMO-CARD', deviceCode: 'DEMO-DEVICE'),
+        isNull,
+      );
+      expect(
+        await repository.readPrivateKey('DEMO-CARD', deviceCode: 'DEMO-DEVICE'),
+        isNull,
+      );
+      expect(
+        await repository.readMostRecent(deviceCode: 'DEMO-DEVICE'),
+        isNull,
+      );
+    });
+
     test('never exposes an offline grant to another OPENID', () async {
       await repository.install(
         authorization: _authorization(total: 2),

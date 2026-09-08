@@ -15,9 +15,8 @@ final class SecureOfflineCredentialRepository
   static const _indexKey = 'offline.bundle.index.v1';
 
   final SecureCredentialStore _store;
-  final Map<String, AsyncMutex> _locks = {};
-
-  AsyncMutex _lock(String cardId) => _locks.putIfAbsent(cardId, AsyncMutex.new);
+  // Bundle updates and account-wide removal share an ordering boundary.
+  final AsyncMutex _mutationMutex = AsyncMutex();
 
   String _bundleKey(String cardId) =>
       'offline.bundle.v1.${sha256.convert(utf8.encode(cardId))}';
@@ -70,7 +69,7 @@ final class SecureOfflineCredentialRepository
     required OfflineAuthorization authorization,
     required String privateKeyHex,
   }) =>
-      _lock(authorization.cardId).protect(() async {
+      _mutationMutex.protect(() async {
         _validatePrivateKey(privateKeyHex);
         final key = _bundleKey(authorization.cardId);
         await _store.write(key, _encodeBundle(authorization, privateKeyHex));
@@ -84,7 +83,7 @@ final class SecureOfflineCredentialRepository
     String cardId, {
     required String deviceCode,
   }) =>
-      _lock(cardId).protect(() async {
+      _mutationMutex.protect(() async {
         final bundle = await _readBundle(
           cardId,
           expectedDeviceCode: deviceCode,
@@ -122,7 +121,7 @@ final class SecureOfflineCredentialRepository
     OfflineAuthorization authorization, {
     bool resetUsage = false,
   }) =>
-      _lock(authorization.cardId).protect(() async {
+      _mutationMutex.protect(() async {
         final bundle = await _readBundle(
           authorization.cardId,
           expectedDeviceCode: authorization.deviceCode,
@@ -148,7 +147,7 @@ final class SecureOfflineCredentialRepository
       });
 
   @override
-  Future<void> remove(String cardId) => _lock(cardId).protect(() async {
+  Future<void> remove(String cardId) => _mutationMutex.protect(() async {
         final key = _bundleKey(cardId);
         await _store.delete(key);
         final index = await _readIndex()
@@ -161,11 +160,10 @@ final class SecureOfflineCredentialRepository
       });
 
   @override
-  Future<void> removeAll() async {
-    final index = await _readIndex();
-    await _store.deleteAll({...index, _indexKey});
-    _locks.clear();
-  }
+  Future<void> removeAll() => _mutationMutex.protect(() async {
+        final index = await _readIndex();
+        await _store.deleteAll({...index, _indexKey});
+      });
 
   Future<_OfflineBundle?> _readBundle(
     String cardId, {
