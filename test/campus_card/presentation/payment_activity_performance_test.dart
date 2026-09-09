@@ -10,15 +10,96 @@ import 'package:techpie/features/campus_card/app/app_runtime.dart';
 import 'package:techpie/features/campus_card/app/demo_runtime_factory.dart';
 import 'package:techpie/features/campus_card/core/config/payment_code_preferences.dart';
 import 'package:techpie/features/campus_card/data/mock/in_memory_ports.dart';
+import 'package:techpie/features/campus_card/data/repositories/ecard_payment_code_repository.dart';
 import 'package:techpie/features/campus_card/domain/models/auth_models.dart';
+import 'package:techpie/features/campus_card/domain/models/bill_models.dart';
+import 'package:techpie/features/campus_card/domain/models/card_models.dart';
 import 'package:techpie/features/campus_card/domain/models/payment_models.dart';
+import 'package:techpie/features/campus_card/domain/models/profile_models.dart';
+import 'package:techpie/features/campus_card/domain/money_fen.dart';
+import 'package:techpie/features/campus_card/domain/ports/bill_ports.dart';
+import 'package:techpie/features/campus_card/domain/ports/card_ports.dart';
 import 'package:techpie/features/campus_card/domain/ports/payment_ports.dart';
 import 'package:techpie/features/campus_card/domain/ports/platform_ports.dart'
     as ports;
 import 'package:techpie/features/campus_card/presentation/app/app.dart';
 import 'package:techpie/features/campus_card/presentation/app/providers.dart';
 
+import '../support/fake_ecard_transport.dart';
+import '../support/successful_payment_poll.dart';
+
 void main() {
+  testWidgets(
+      'captured payment success animates and refreshes balance and activity together',
+      (tester) async {
+    final cards = _PaymentRefreshCards();
+    final transactions = _PaymentRefreshTransactions();
+    final rig =
+        await _Rig.mount(tester, cards: cards, transactions: transactions);
+    final cardCalls = cards.refreshCalls;
+    final transactionCalls = transactions.calls;
+    cards.pending = Completer<CampusCard?>();
+    transactions.pending = Completer<TransactionPage>();
+    final transport = FakeEcardTransport()
+      ..enqueue('POST', '/virtualcard/queryOrderStatus', successfulPaymentPoll);
+    rig.repository.pendingPoll =
+        EcardPaymentCodeRepository(transport).pollTransaction('synthetic-code');
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.byKey(const ValueKey('success')), findsOneWidget);
+    expect(cards.refreshCalls, cardCalls + 1);
+    expect(transactions.calls, transactionCalls + 1);
+    // A slow ledger/card endpoint must not delay or dismiss the confirmation.
+    expect(rig.container.read(cardControllerProvider).valueOrNull!.balance,
+        const MoneyFen(2500),);
+    cards.pending!.complete(cards.card(1620));
+    transactions.pending!.complete(transactions.updated);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(rig.container.read(cardControllerProvider).valueOrNull!.balance,
+        const MoneyFen(1620),);
+    expect(
+        rig.container
+            .read(transactionFeedProvider((begin: null, end: null)))
+            .valueOrNull!
+            .items
+            .single
+            .id,
+        'SYNTHETIC-NEW-TRANSACTION',);
+    expect(find.byKey(const ValueKey('success')), findsOneWidget);
+    expect(rig.repository.generations, 1);
+    await rig.dispose(tester);
+  });
+
+  testWidgets(
+      'balance refresh failure does not suppress success or activity refresh',
+      (tester) async {
+    final cards = _PaymentRefreshCards();
+    final transactions = _PaymentRefreshTransactions();
+    final rig =
+        await _Rig.mount(tester, cards: cards, transactions: transactions);
+    cards.fail = true;
+    transactions.showUpdated = true;
+    final transport = FakeEcardTransport()
+      ..enqueue('POST', '/virtualcard/queryOrderStatus', successfulPaymentPoll);
+    rig.repository.pendingPoll =
+        EcardPaymentCodeRepository(transport).pollTransaction('synthetic-code');
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.byKey(const ValueKey('success')), findsOneWidget);
+    expect(rig.container.read(cardControllerProvider).valueOrNull!.balance,
+        const MoneyFen(2500),);
+    expect(
+        rig.container
+            .read(transactionFeedProvider((begin: null, end: null)))
+            .valueOrNull!
+            .items
+            .single
+            .id,
+        'SYNTHETIC-NEW-TRANSACTION',);
+    expect(tester.takeException(), isNull);
+    await rig.dispose(tester);
+  });
   testWidgets('a refreshed payload replaces the cached QR matrix',
       (tester) async {
     final rig = await _Rig.mount(tester);
@@ -256,6 +337,8 @@ class _Rig {
   static Future<_Rig> mount(
     WidgetTester tester, {
     bool maximizeBrightness = false,
+    CardRepository? cards,
+    TransactionHistoryPort? transactions,
   }) async {
     SharedPreferences.setMockInitialValues(
       {
@@ -271,10 +354,10 @@ class _Rig {
       environment: base.environment,
       capabilities: base.capabilities,
       auth: base.auth,
-      cards: base.cards,
+      cards: cards ?? base.cards,
       paymentCodes: repository,
       scanPayments: base.scanPayments,
-      transactions: base.transactions,
+      transactions: transactions ?? base.transactions,
       securitySettings: base.securitySettings,
       offlinePayments: base.offlinePayments,
       brightness: base.brightness,
@@ -347,4 +430,74 @@ class _Repository implements PaymentCodeRepository {
     polls++;
     return pendingPoll ?? const PaymentPending();
   }
+}
+
+final class _PaymentRefreshCards implements CacheFirstCardRepository {
+  int refreshCalls = 0;
+  bool fail = false;
+  Completer<CampusCard?>? pending;
+  CampusCard card(int balance) => CampusCard(
+        id: 'DEMO-CARD-0001',
+        maskedNumber: '****0001',
+        ownerName: '示例用户',
+        balance: MoneyFen(balance),
+        status: CampusCardStatus.normal,
+        positionName: '学生',
+        offlineCodeAllowed: true,
+      );
+  @override
+  Future<CampusCard?> currentCard() async => card(2500);
+  @override
+  Future<CampusCard?> readCachedCard() async => card(2500);
+  @override
+  Future<CampusCard?> refreshCard() async {
+    refreshCalls++;
+    if (fail) throw StateError('Synthetic card refresh failure');
+    return pending == null ? card(2500) : await pending!.future;
+  }
+
+  @override
+  Future<UserProfile> profile() async => const UserProfile(
+      displayName: '示例用户', maskedCardNumber: '****0001', positionName: '学生',);
+  @override
+  Future<BindCardResult> bind(BindCardCommand command) =>
+      throw UnimplementedError();
+  @override
+  Future<void> unbind({required String cardPassword}) =>
+      throw UnimplementedError();
+}
+
+final class _PaymentRefreshTransactions
+    implements TransactionHistoryPort, DateRangeTransactionHistoryPort {
+  int calls = 0;
+  bool showUpdated = false;
+  Completer<TransactionPage>? pending;
+  TransactionPage get updated => TransactionPage(items: [
+        TransactionRecord(
+          id: 'SYNTHETIC-NEW-TRANSACTION',
+          occurredAt: DateTime(2026, 9, 9, 14, 39, 44),
+          title: '新消费记录',
+          amount: const MoneyFen(-880),
+          kind: TransactionKind.consumption,
+        ),
+      ], hasMore: false,);
+  @override
+  Future<TransactionPage> timelineRange(
+      {DateTime? begin,
+      DateTime? end,
+      String? cursor,
+      int pageSize = 20,}) async {
+    calls++;
+    if (pending != null) return pending!.future;
+    return showUpdated
+        ? updated
+        : const TransactionPage(items: [], hasMore: false);
+  }
+
+  @override
+  Future<TransactionPage> timeline(
+          {required String month, String? cursor, int pageSize = 20,}) =>
+      timelineRange(cursor: cursor, pageSize: pageSize);
+  @override
+  Future<TransactionRecord> detail(String id) async => updated.items.single;
 }

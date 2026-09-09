@@ -12,7 +12,10 @@ final class EcardPaymentCodeRepository implements PaymentCodeRepository {
       : _clock = clock ?? const Clock();
 
   static const _gatewayFallbackMessages = {'开放平台返回失败', '开放平台请求超时'};
-  static const _successResultPath = '/pages/common/paysuccess/paysuccess';
+  static const _successResultPaths = {
+    '/pages/common/success/success',
+    '/pages/common/paysuccess/paysuccess',
+  };
   static final _unusedCodeMessage = RegExp(
     r'未(?:被)?使用|\bunused\b|\bnot (?:yet )?used\b',
     caseSensitive: false,
@@ -138,13 +141,16 @@ final class EcardPaymentCodeRepository implements PaymentCodeRepository {
     }
     if (apiSuccess(response) &&
         !apiRejected(data) &&
-        resultUri?.path == _successResultPath &&
+        status == 1 &&
+        _successResultPaths.contains(resultUri?.path) &&
         data['txamt'] != null) {
       return PaymentCompleted(
         TransactionResult(
           amount: _paymentResultFen(data['txamt']),
           confirmedLocallyAt: _clock.now().toUtc(),
           tradeAt: _date(data['paytime']),
+          merchantName: _nonEmpty(data['merchantname']),
+          orderId: _nonEmpty(data['journo']),
         ),
       );
     }
@@ -164,6 +170,11 @@ final class EcardPaymentCodeRepository implements PaymentCodeRepository {
       );
     }
     return MoneyFen.fromApiFen(match.group(1)!, field: 'txamt');
+  }
+
+  String? _nonEmpty(Object? value) {
+    final text = value?.toString().trim();
+    return text == null || text.isEmpty ? null : text;
   }
 
   DateTime? _date(Object? value) {

@@ -5,8 +5,39 @@ import 'package:techpie/features/campus_card/domain/models/payment_models.dart';
 import 'package:techpie/features/campus_card/domain/money_fen.dart';
 
 import '../support/fake_ecard_transport.dart';
+import '../support/successful_payment_poll.dart';
 
 void main() {
+  test('recognizes the captured successful payment contract', () async {
+    final transport = FakeEcardTransport()
+      ..enqueue('POST', '/virtualcard/queryOrderStatus', successfulPaymentPoll);
+    final result = await EcardPaymentCodeRepository(transport)
+        .pollTransaction('synthetic-code');
+    expect(result, isA<PaymentCompleted>());
+    final transaction = (result as PaymentCompleted).result;
+    expect(transaction.amount, const MoneyFen(880));
+    expect(transaction.orderId, 'SYNTHETIC-ORDER');
+    expect(transaction.merchantName, '示例商户');
+  });
+
+  test('success destination cannot override failed, missing, or unknown status',
+      () async {
+    for (final status in [2, 9, null]) {
+      final transport = FakeEcardTransport()
+        ..enqueue('POST', '/virtualcard/queryOrderStatus', {
+          ...successfulPaymentPoll,
+          'data': {
+            ...(successfulPaymentPoll['data']! as Map<String, Object?>),
+            'status': status,
+            'message': '',
+          },
+        });
+      expect(
+          await EcardPaymentCodeRepository(transport)
+              .pollTransaction('synthetic-code'),
+          isA<PaymentNotCompleted>(),);
+    }
+  });
   test('uses live POST contract and accepts code as QR fallback', () async {
     final transport = FakeEcardTransport()
       ..enqueue('POST', '/offlineCode/openVirtualcard', {

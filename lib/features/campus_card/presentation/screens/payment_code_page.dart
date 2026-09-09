@@ -229,6 +229,21 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
 
   Future<void> _refreshRecentTransactions() async {
     ref.invalidate(transactionFeedProvider(_allTransactions));
+    await _loadRecentTransactions();
+  }
+
+  Future<void> _refreshAfterPayment() async {
+    // Refresh through the card controller so its identity checks and cached
+    // balance stay intact while the confirmed success animation is displayed.
+    final cardRefresh = ref.read(cardControllerProvider.notifier).refresh();
+    ref.invalidate(transactionFeedProvider);
+    await Future.wait<void>([
+      _loadRecentTransactions(),
+      cardRefresh.then<void>((_) {}, onError: (Object _) {}),
+    ]);
+  }
+
+  Future<void> _loadRecentTransactions() async {
     try {
       await ref.read(transactionFeedProvider(_allTransactions).future);
     } catch (_) {
@@ -286,7 +301,7 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
       }
       if (next.phase == PaymentCodePhase.succeeded &&
           previous?.phase != PaymentCodePhase.succeeded) {
-        unawaited(_refreshRecentTransactions());
+        unawaited(_refreshAfterPayment());
       }
       final shouldFallback = next.phase == PaymentCodePhase.switchingOffline ||
           (next.phase == PaymentCodePhase.failed &&
