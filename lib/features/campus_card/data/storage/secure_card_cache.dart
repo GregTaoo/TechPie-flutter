@@ -71,6 +71,7 @@ final class SecureCardCache {
         lastTransactionAt: _date(value['lastTransactionAt']),
         accountType: value['accountType'] as String?,
         detailsAvailable: value['detailsAvailable'] as bool? ?? true,
+        updatedAt: _date(value['cachedAt']),
       );
     } catch (_) {
       try {
@@ -131,7 +132,7 @@ final class SecureCardCache {
         'lastTransactionAt': card.lastTransactionAt?.toUtc().toIso8601String(),
         'accountType': card.accountType,
         'detailsAvailable': card.detailsAvailable,
-        'cachedAt': DateTime.now().toUtc().toIso8601String(),
+        'cachedAt': card.updatedAt?.toUtc().toIso8601String(),
       }),
     );
   }

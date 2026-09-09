@@ -25,6 +25,7 @@ import 'debug_log_page.dart';
 import 'login_page.dart';
 import 'sync_settings_page.dart';
 import 'third_party_accounts_page.dart';
+import 'watch_settings_page.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -188,6 +189,16 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               ),
             const Divider(),
+
+            if (isIos())
+              ListTile(
+                leading: const Icon(Icons.watch_outlined),
+                title: const Text('Apple Watch'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => unawaited(
+                  pushAdaptivePage<void>(context, builder: (_) => const WatchSettingsPage()),
+                ),
+              ),
 
             // Appearance section
             _sectionHeader(theme, 'Appearance'),

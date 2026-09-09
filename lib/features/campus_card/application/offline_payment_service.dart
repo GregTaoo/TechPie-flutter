@@ -6,6 +6,7 @@ import '../core/errors/app_failure.dart';
 import '../data/api/qr_payload_codec.dart';
 import '../data/crypto/sm2_offline_crypto.dart';
 import '../domain/models/offline_models.dart';
+import '../domain/models/watch_models.dart';
 import '../domain/ports/offline_ports.dart';
 import '../domain/ports/platform_ports.dart';
 
@@ -37,6 +38,33 @@ final class OfflinePaymentService {
   final Duration _transientRetryDelay;
   final Map<String, Future<OfflineAuthorization>> _activations = {};
   final Map<String, Future<OfflineAuthorization>> _renewals = {};
+  final _changes = StreamController<void>.broadcast();
+  Stream<void> get changes => _changes.stream;
+
+  Future<void> dispose() => _changes.close();
+
+  /// Reads without consuming a presentation. Rechecks identity and grant after
+  /// reading the separately exposed key to reject a concurrent renewal/sign-out.
+  Future<WatchOfflineCredential?> exportForWatch(String cardId) async {
+    final device = await _requireDeviceCode();
+    final grant = await _credentials.read(cardId, deviceCode: device);
+    if (grant == null || grant.expiresOn == null || grant.isLimited || _isExpired(grant.expiresOn)) {
+      return null;
+    }
+    final key = await _credentials.readPrivateKey(cardId, deviceCode: device);
+    final current = await _credentials.read(cardId, deviceCode: device);
+    if (key == null ||
+        current == null ||
+        current.publicKeyCompressed != grant.publicKeyCompressed ||
+        current.authorInfo != grant.authorInfo ||
+        current.updatedAt != grant.updatedAt ||
+        current.expiresOn != grant.expiresOn ||
+        await _deviceCodeReader() != device) {
+      return null;
+    }
+    return WatchOfflineCredential(grant, key, Sm2OfflineCrypto.deviceChecksum(device));
+  }
+
   Future<OfflineAuthorization?> mostRecentAuthorization() async {
     final deviceCode = await _deviceCodeReader();
     if (deviceCode == null || deviceCode.isEmpty) return null;
@@ -132,6 +160,7 @@ final class OfflinePaymentService {
     );
     await (response.commitInSession?.call(install) ?? install());
     await response.validateContext?.call();
+    if (!_changes.isClosed) _changes.add(null);
     return authorization;
   }
 
@@ -182,6 +211,7 @@ final class OfflinePaymentService {
     Future<void> update() => _credentials.updateAuthorization(renewed, resetUsage: true);
     await (response.commitInSession?.call(update) ?? update());
     await response.validateContext?.call();
+    if (!_changes.isClosed) _changes.add(null);
     return renewed;
   }
 
@@ -252,10 +282,12 @@ final class OfflinePaymentService {
     final deviceCode = await _requireDeviceCode();
     await _credentials.read(cardId, deviceCode: deviceCode);
     await _credentials.remove(cardId);
+    if (!_changes.isClosed) _changes.add(null);
   }
 
   Future<void> removeAllFromThisDevice() async {
     await _credentials.removeAll();
+    if (!_changes.isClosed) _changes.add(null);
   }
 
   Future<String> _requireDeviceCode() async {

@@ -14,6 +14,36 @@ import 'package:techpie/features/campus_card/domain/ports/offline_ports.dart';
 void main() {
   final now = DateTime.utc(2026, 8, 31, 12);
 
+  test('watch export preserves shared credentials without consuming a use', () async {
+    final fixture = await _fixture(now: now, totalUses: null);
+    addTearDown(fixture.service.dispose);
+    final exported = await fixture.service.exportForWatch('DEMO-CARD');
+    expect(exported, isNotNull);
+    final originalKey = await fixture.credentials.readPrivateKey('DEMO-CARD', deviceCode: 'DEMO-DEVICE-0001');
+    expect(exported!.privateKey, originalKey);
+    expect(exported.toMessage().containsKey('deviceCode'), isFalse);
+    expect(exported.toMessage()['deviceChecksum'], Sm2OfflineCrypto.deviceChecksum('DEMO-DEVICE-0001'));
+    expect(exported.toMessage()['expiresAt'], DateTime.utc(2026, 10, 1).millisecondsSinceEpoch / 1000);
+    expect((await fixture.credentials.read('DEMO-CARD', deviceCode: 'DEMO-DEVICE-0001'))!.used, 0);
+    expect(fixture.remote.activateCalls, 0);
+    expect(fixture.remote.renewCalls, 0);
+  });
+
+  test('watch export rejects missing expiry, expired, bounded and removed grants', () async {
+    for (final fixture in [
+      await _fixture(now: now, expiresOn: null, totalUses: null),
+      await _fixture(now: now, expiresOn: DateTime.utc(2026, 8, 30), totalUses: null),
+      await _fixture(now: now, totalUses: 20),
+    ]) {
+      expect(await fixture.service.exportForWatch('DEMO-CARD'), isNull);
+      await fixture.service.dispose();
+    }
+    final fixture = await _fixture(now: now, totalUses: null);
+    await fixture.service.removeAllFromThisDevice();
+    expect(await fixture.service.exportForWatch('DEMO-CARD'), isNull);
+    await fixture.service.dispose();
+  });
+
   test('generating reserves the use before calculating the QR', () async {
     final fixture = await _fixture(now: now, authorInfo: 'NOT-HEX');
 

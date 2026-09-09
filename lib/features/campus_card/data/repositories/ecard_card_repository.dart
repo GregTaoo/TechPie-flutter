@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import '../../core/errors/app_failure.dart';
@@ -25,6 +26,9 @@ final class EcardCardRepository implements CacheFirstCardRepository {
   final SecureCardCache _cache;
   final LocalSecurityPurge _purgeLocalSecurityState;
   final VerifiedCardIdSerialReader _verifiedIdSerialReader;
+  final _changes = StreamController<void>.broadcast();
+  Stream<void> get changes => _changes.stream;
+  Future<void> dispose() => _changes.close();
 
   @override
   Future<CampusCard?> currentCard() async =>
@@ -41,6 +45,7 @@ final class EcardCardRepository implements CacheFirstCardRepository {
     if (rawCard == null) {
       await commitEcardResponse(account, _clearCacheBestEffort);
       await validateEcardResponse(account);
+      if (!_changes.isClosed) _changes.add(null);
       return null;
     }
     final card = requireObjectMap(rawCard, context: 'CARD_INFO');
@@ -61,6 +66,7 @@ final class EcardCardRepository implements CacheFirstCardRepository {
       ownerName:
           card['username']?.toString() ?? user['username']?.toString() ?? '',
       balance: MoneyFen.fromApiYuan(card['cardbal'] ?? 0, field: 'cardbal'),
+      updatedAt: DateTime.now().toUtc(),
       status: CampusCardStatusRules.fromApi(
         card['accstatusStr'] ?? card['accstatus'],
       ),
@@ -91,6 +97,7 @@ final class EcardCardRepository implements CacheFirstCardRepository {
     }
     await _assertVerifiedIdSerial(id);
     await validateEcardResponse(account);
+    if (!_changes.isClosed) _changes.add(null);
     return result;
   }
 

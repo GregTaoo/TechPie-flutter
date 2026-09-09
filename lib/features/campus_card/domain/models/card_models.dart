@@ -41,6 +41,7 @@ final class CampusCard {
     this.lastTransactionAt,
     this.accountType,
     this.detailsAvailable = true,
+    this.updatedAt,
   });
 
   final String id;
@@ -57,6 +58,7 @@ final class CampusCard {
   final DateTime? lastTransactionAt;
   final String? accountType;
   final bool detailsAvailable;
+  final DateTime? updatedAt;
 }
 
 final class CampusPositionProfile {

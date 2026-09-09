@@ -115,9 +115,7 @@ final class Sm2OfflineCrypto {
     required String deviceCode,
     required DateTime now,
   }) {
-    final checksum = _sm3(
-      utf8.encode(deviceCode),
-    ).fold<int>(0, (sum, byte) => sum ^ byte);
+    final checksum = deviceChecksum(deviceCode);
     final seconds = now.toUtc().millisecondsSinceEpoch ~/ 1000;
     if (seconds < 0 || seconds > 0xffffffff) {
       throw RangeError.range(seconds, 0, 0xffffffff, 'Unix seconds');
@@ -131,6 +129,10 @@ final class Sm2OfflineCrypto {
     bytes.add(bytes.fold<int>(checksum, (value, byte) => value ^ byte));
     return _hexBytes(bytes).toUpperCase();
   }
+
+  /// The offline protocol uses only this checksum, not the raw login identifier.
+  static int deviceChecksum(String deviceCode) =>
+      _sm3(utf8.encode(deviceCode)).fold<int>(0, (sum, byte) => sum ^ byte);
 
   String buildOfflineQrHex({
     required String authorInfo,

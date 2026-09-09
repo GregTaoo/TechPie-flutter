@@ -125,6 +125,8 @@ AppRuntime buildRealRuntime(
       await lifecycle.dispose();
       client.dispose();
       await auth.dispose();
+      await cards.dispose();
+      await offline.dispose();
     },
   );
 }

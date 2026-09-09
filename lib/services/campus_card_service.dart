@@ -20,6 +20,7 @@ import 'api_base_url.dart';
 import 'campus_card_http_trace.dart';
 import 'debug_logger.dart';
 import 'storage_service.dart';
+import 'watch_sync_service.dart';
 
 typedef CampusCardRuntimeFactory = AppRuntime Function();
 
@@ -55,6 +56,7 @@ final class CampusCardService extends ChangeNotifier implements EcardSyncStore {
                   debugLogger == null ? null : campusCardHttpTrace(debugLogger),
             ) {
     unawaited(CoreErrorCatalog.initialize());
+    watchSync = WatchSyncService(_runtime, _sessionStore)..initialize();
     _authSubscription = _runtime.auth.changes.listen((_) {
       unawaited(refreshAccount());
     });
@@ -131,6 +133,7 @@ final class CampusCardService extends ChangeNotifier implements EcardSyncStore {
 
   final SecureSessionCredentialStore _sessionStore;
   final AppRuntime _runtime;
+  late final WatchSyncService watchSync;
 
   StreamSubscription<AuthSnapshot>? _authSubscription;
   String? _maskedOpenId;
@@ -228,6 +231,7 @@ final class CampusCardService extends ChangeNotifier implements EcardSyncStore {
 
   @override
   void dispose() {
+    watchSync.dispose();
     unawaited(_authSubscription?.cancel());
     _authSubscription = null;
     unawaited(_runtime.dispose());
