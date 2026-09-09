@@ -3,12 +3,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../features/campus_card/core/errors/app_failure.dart';
+import '../features/campus_card/domain/models/auth_models.dart';
 import '../services/campus_card_service.dart';
 import '../services/service_provider.dart';
 import '../utils/platform.dart';
 import '../widgets/adaptive_button.dart';
 import '../widgets/adaptive_confirmation_button.dart';
 import '../widgets/adaptive_page_navigation.dart';
+import '../widgets/adaptive_select.dart';
 import '../widgets/adaptive_text_field_group.dart';
 import '../widgets/app_shell/app_shell_metrics.dart';
 import '../widgets/blurred_app_bar.dart';
@@ -24,6 +26,7 @@ class CampusCardAccountPage extends StatefulWidget {
 class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
   final _openIdController = TextEditingController();
   bool _loaded = false;
+  EcardOpenIdChannel _channel = EcardOpenIdChannel.wechat;
   bool _checking = false;
   bool _saving = false;
   String? _inlineMessage;
@@ -47,8 +50,12 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
     final service = ServiceProvider.of(context).campusCardService;
     await service.refreshAccount();
     final openId = await service.readOpenId();
+    final channel = await service.readOpenIdChannel();
     if (!mounted) return;
-    setState(() => _openIdController.text = openId ?? '');
+    setState(() {
+      _openIdController.text = openId ?? '';
+      _channel = channel;
+    });
   }
 
   @override
@@ -66,7 +73,7 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
       extendBodyBehindAppBar: !useIosChrome && !useLegacyIosChrome,
       appBar: useIosChrome
           ? IosNativeNavigationBar(
-              title: 'OPENID',
+              title: 'eCard',
               leadingItems: const [
                 IosNativeNavigationBarItem(
                   id: 'back',
@@ -82,7 +89,7 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
                 }
               },
             )
-          : const BlurredAppBar(title: Text('OPENID')),
+          : const BlurredAppBar(title: Text('eCard')),
       body: ListenableBuilder(
         listenable: service,
         builder: (context, _) => ListView(
@@ -93,20 +100,37 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
             AppShellMetrics.bottomContentPaddingOf(context),
           ),
           children: [
-            Text('eCard OPENID', style: theme.textTheme.titleLarge),
+            Text('eCard', style: theme.textTheme.titleLarge),
             const SizedBox(height: 8),
             Text(
-              'OPENID 用于登录上海科技大学 eCard。它与 TechPie 主账号、CpDaily 和其他关联账号相互独立，并仅保存在本机安全存储中。',
+              '使用 OPENID 通过 GeekPie 会话服务连接 eCard。OPENID 保存在本机安全存储中；开启 Cloud sync 后会端到端加密同步。会话 Cookie 和离线密钥仍由各设备单独保存。',
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
             const SizedBox(height: 16),
+            Row(children: [
+              const Expanded(child: Text('OPENID 渠道')),
+              SizedBox(width: 200, child: IgnorePointer(ignoring: busy, child: AdaptiveSelect(
+                value: _channel.method,
+                width: 200,
+                options: [for (final channel in EcardOpenIdChannel.values)
+                  AdaptiveSelectOption(value: channel.method, label: channel.label),],
+                onChanged: (value) {
+                  if (busy) return;
+                  setState(() {
+                    _channel = EcardOpenIdChannel.parse(value);
+                    _inlineMessage = null;
+                  });
+                },
+              ),),),
+            ],),
+            const SizedBox(height: 12),
             AdaptiveTextFieldGroup(
               items: [
                 AdaptiveTextFieldGroupItem(
                   controller: _openIdController,
-                  placeholder: 'OPENID',
+                  placeholder: '${_channel.label} OPENID',
                   textInputAction: TextInputAction.done,
                   enabled: !busy,
                   onSubmitted: (_) => unawaited(_save(service)),
@@ -141,12 +165,12 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
               onPressed: busy ? null : () => unawaited(_save(service)),
               icon: Icons.save_outlined,
               sfSymbol: 'checkmark',
-              label: service.configured ? '更新 OPENID' : '保存 OPENID',
+              label: service.configured ? '更新 eCard' : '连接 eCard',
               role: AdaptiveButtonRole.prominent,
               loading: _saving,
               width: double.infinity,
               accessibilityLabel:
-                  service.configured ? '更新 OPENID' : '保存 OPENID',
+                  service.configured ? '更新 eCard' : '连接 eCard',
             ),
             const SizedBox(height: 8),
             AdaptiveButton(
@@ -158,15 +182,15 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
               role: AdaptiveButtonRole.standard,
               loading: _checking,
               width: double.infinity,
-              accessibilityLabel: '检查 OPENID 登录',
+              accessibilityLabel: '检查 eCard 连接',
             ),
             if (service.configured) ...[
               const SizedBox(height: 8),
               AdaptiveConfirmationButton(
-                label: '移除 OPENID',
+                label: '移除 eCard',
                 icon: Icons.link_off,
                 sfSymbol: 'link.badge.minus',
-                confirmTitle: '移除 OPENID？',
+                confirmTitle: '移除 eCard？',
                 confirmLabel: '移除',
                 destructive: true,
                 width: double.infinity,
@@ -186,7 +210,7 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
       _inlineMessage = null;
     });
     try {
-      await service.verifyOpenId(openId);
+      await service.verifyOpenId(openId, channel: _channel);
       if (!mounted) return;
       setState(() {
         _inlineError = false;
@@ -210,11 +234,11 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
       _inlineMessage = null;
     });
     try {
-      await service.connect(openId);
+      await service.connect(openId, channel: _channel);
       if (!mounted) return;
       setState(() {
         _inlineError = false;
-        _inlineMessage = 'OPENID 已验证并保存';
+        _inlineMessage = 'eCard 已连接';
       });
     } catch (error) {
       if (!mounted) return;
@@ -234,7 +258,7 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
       setState(() {
         _openIdController.clear();
         _inlineError = false;
-        _inlineMessage = 'OPENID 已移除';
+        _inlineMessage = 'eCard 已移除';
       });
     } catch (error) {
       if (!mounted) return;

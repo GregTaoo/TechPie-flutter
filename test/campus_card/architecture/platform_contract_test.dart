@@ -77,9 +77,8 @@ void main() {
     expect(plist, contains('NSPhotoLibraryUsageDescription'));
   });
 
-  test('TechPie home exposes one eCard entry and Account owns OPENID', () {
+  test('TechPie home exposes one eCard entry with an account parameter editor', () {
     final features = File('lib/models/feature.dart').readAsStringSync();
-    final settings = File('lib/pages/settings_page.dart').readAsStringSync();
     final account = File(
       'lib/pages/campus_card_account_page.dart',
     ).readAsStringSync();
@@ -88,8 +87,6 @@ void main() {
     expect(features, isNot(contains("description: '消费码'")));
     expect(features, contains("id: 'campus_card'"));
     expect(features, contains('entry: CampusCardEntry.paymentCode'));
-    expect(settings, contains("Text('OPENID')"));
-    expect(account, contains("Text('OPENID')"));
     expect(account, contains('AdaptiveTextFieldGroup('));
     expect(account, contains("label: '检查登录'"));
     expect(account, isNot(contains('showAdaptiveTextInputDialog')));

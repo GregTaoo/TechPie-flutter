@@ -21,7 +21,6 @@ import '../widgets/app_shell/app_shell_metrics.dart';
 import '../widgets/blurred_app_bar.dart';
 import '../widgets/desktop_popup.dart';
 import '../widgets/ios/ios_native_navigation_bar.dart';
-import 'campus_card_account_page.dart';
 import 'debug_log_page.dart';
 import 'login_page.dart';
 import 'sync_settings_page.dart';
@@ -123,20 +122,6 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
               _CpdailyBindingTile(tpAuth: tpAuth),
               ListTile(
-                leading: const Icon(Icons.account_tree_outlined),
-                title: const Text('Linked accounts'),
-                subtitle: Text(
-                  '${tpAuth.boundPlatforms.length} bound · Gradescope / Hydro / eGate',
-                ),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => unawaited(
-                  pushAdaptivePage<void>(
-                    context,
-                    builder: (_) => const ThirdPartyAccountsPage(),
-                  ),
-                ),
-              ),
-              ListTile(
                 leading: const Icon(Icons.cloud_sync_outlined),
                 title: const Text('Cloud sync'),
                 subtitle: Text(_cloudSyncSubtitle(sp.syncService)),
@@ -188,25 +173,20 @@ class _SettingsPageState extends State<SettingsPage> {
                 subtitle: const Text('通过 GeekPie Uni-Auth 登录'),
                 onTap: () => unawaited(presentLoginPage(context)),
               ),
-            ListTile(
-              leading: Icon(
-                campusCard.configured ? Icons.key : Icons.key_outlined,
-                color: campusCard.configured ? theme.colorScheme.primary : null,
-              ),
-              title: const Text('OPENID'),
-              subtitle: Text(
-                campusCard.configured
-                    ? 'eCard · 已连接 · ${campusCard.maskedOpenId}'
-                    : 'eCard · 未配置',
-              ),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => unawaited(
-                pushAdaptivePage<void>(
-                  context,
-                  builder: (_) => const CampusCardAccountPage(),
+              ListTile(
+                leading: const Icon(Icons.account_tree_outlined),
+                title: const Text('Linked accounts'),
+                subtitle: Text(
+                  '${tpAuth.boundPlatforms.length + (campusCard.configured ? 1 : 0)} bound · eCard / eGate / Gradescope / Hydro',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => unawaited(
+                  pushAdaptivePage<void>(
+                    context,
+                    builder: (_) => const ThirdPartyAccountsPage(),
+                  ),
                 ),
               ),
-            ),
             const Divider(),
 
             // Appearance section
