@@ -1,5 +1,6 @@
 import 'package:clock/clock.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:techpie/features/campus_card/core/errors/app_failure.dart';
 import 'package:techpie/features/campus_card/data/repositories/ecard_payment_code_repository.dart';
 import 'package:techpie/features/campus_card/domain/models/payment_models.dart';
 import 'package:techpie/features/campus_card/domain/money_fen.dart';
@@ -8,6 +9,52 @@ import '../support/fake_ecard_transport.dart';
 import '../support/successful_payment_poll.dart';
 
 void main() {
+  test('preserves yuan amounts including cents without a 100-fold reduction',
+      () async {
+    for (final value in ['38.00', '8.80', '0.01', '0.00', 38, 8.8]) {
+      final transport = FakeEcardTransport()
+        ..enqueue('POST', '/virtualcard/queryOrderStatus', {
+          ...successfulPaymentPoll,
+          'data': {
+            ...(successfulPaymentPoll['data']! as Map<String, Object?>),
+            'txamt': value,
+          },
+        });
+      final result = await EcardPaymentCodeRepository(transport)
+          .pollTransaction('synthetic-code') as PaymentCompleted;
+      final expected = switch (value) {
+        '38.00' || 38 => '38.00',
+        '8.80' || 8.8 => '8.80',
+        '0.01' => '0.01',
+        _ => '0.00',
+      };
+      expect(result.result.amount.toYuanFixed(), expected);
+    }
+  });
+
+  test('rejects malformed, negative and sub-fen payment amounts', () async {
+    for (final value in ['invalid', '-1.00', '0.001']) {
+      final transport = FakeEcardTransport()
+        ..enqueue('POST', '/virtualcard/queryOrderStatus', {
+          ...successfulPaymentPoll,
+          'data': {
+            ...(successfulPaymentPoll['data']! as Map<String, Object?>),
+            'txamt': value,
+          },
+        });
+      await expectLater(
+        EcardPaymentCodeRepository(transport).pollTransaction('synthetic-code'),
+        throwsA(
+          isA<AppFailure>().having(
+            (failure) => failure.code,
+            'code',
+            'PAYMENT_RESULT_AMOUNT_INVALID',
+          ),
+        ),
+      );
+    }
+  });
+
   test('recognizes the captured successful payment contract', () async {
     final transport = FakeEcardTransport()
       ..enqueue('POST', '/virtualcard/queryOrderStatus', successfulPaymentPoll);
@@ -124,13 +171,13 @@ void main() {
     }
   });
 
-  test('maps the explicitly successful result page amount in fen', () async {
+  test('converts the successful result page amount from yuan to fen', () async {
     final transport = FakeEcardTransport()
       ..enqueue('POST', '/virtualcard/queryOrderStatus', {
         'success': true,
         'data': {
           'status': 1,
-          'txamt': '880.00',
+          'txamt': '8.80',
           'url': '/pages/common/paysuccess/paysuccess',
           'paytime': '2026-09-02 12:30:45',
         },

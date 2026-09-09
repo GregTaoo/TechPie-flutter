@@ -47,6 +47,7 @@ void main() {
     await tester.pump(const Duration(seconds: 3));
     await tester.pump(const Duration(milliseconds: 100));
     expect(find.byKey(const ValueKey('success')), findsOneWidget);
+    expect(find.textContaining('8.80'), findsOneWidget);
     expect(cards.refreshCalls, cardCalls + 1);
     expect(transactions.calls, transactionCalls + 1);
     // A slow ledger/card endpoint must not delay or dismiss the confirmation.

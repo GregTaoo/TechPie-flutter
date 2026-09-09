@@ -146,7 +146,7 @@ final class EcardPaymentCodeRepository implements PaymentCodeRepository {
         data['txamt'] != null) {
       return PaymentCompleted(
         TransactionResult(
-          amount: _paymentResultFen(data['txamt']),
+          amount: _paymentResultAmount(data['txamt']),
           confirmedLocallyAt: _clock.now().toUtc(),
           tradeAt: _date(data['paytime']),
           merchantName: _nonEmpty(data['merchantname']),
@@ -159,17 +159,19 @@ final class EcardPaymentCodeRepository implements PaymentCodeRepository {
     return const PaymentPending();
   }
 
-  MoneyFen _paymentResultFen(Object? value) {
-    final source = value?.toString().trim() ?? '';
-    final match = RegExp(r'^(\d+)(?:\.0+)?$').firstMatch(source);
-    if (match == null) {
+  MoneyFen _paymentResultAmount(Object? value) {
+    try {
+      // queryOrderStatus returns yuan; the domain stores integer fen.
+      final amount = MoneyFen.fromApiYuan(value, field: 'txamt');
+      if (amount.isNegative) throw const FormatException('Negative payment');
+      return amount;
+    } on FormatException {
       throw const AppFailure(
         FailureKind.protocol,
         '付款结果金额格式无效。',
         code: 'PAYMENT_RESULT_AMOUNT_INVALID',
       );
     }
-    return MoneyFen.fromApiFen(match.group(1)!, field: 'txamt');
   }
 
   String? _nonEmpty(Object? value) {
