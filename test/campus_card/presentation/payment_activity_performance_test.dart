@@ -427,7 +427,7 @@ class _Repository implements PaymentCodeRepository {
   }
 
   @override
-  Future<PaymentCodePollResult> pollTransaction(String payCode) async {
+  Future<PaymentCodePollResult> pollTransaction(String payCode, {PaymentRequestContext? context}) async {
     polls++;
     return pendingPoll ?? const PaymentPending();
   }

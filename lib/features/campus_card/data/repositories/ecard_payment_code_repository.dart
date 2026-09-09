@@ -86,6 +86,8 @@ final class EcardPaymentCodeRepository implements PaymentCodeRepository {
       qrPayload: payload,
       offlineAllowed: data['allowOfflineCode']?.toString() == '1',
       generatedAt: _clock.now().toUtc(),
+      requestContext:
+          response is EcardResponseMap ? response.requestContext : null,
     );
   }
 
@@ -105,9 +107,13 @@ final class EcardPaymentCodeRepository implements PaymentCodeRepository {
   }
 
   @override
-  Future<PaymentCodePollResult> pollTransaction(String payCode) async {
+  Future<PaymentCodePollResult> pollTransaction(String payCode,
+      {PaymentRequestContext? context,}) async {
     final response = requireObjectMap(
-      await _client.post('/virtualcard/queryOrderStatus', {'paycode': payCode}),
+      await (_client is EcardApiClient
+          ? (_client).pollPaymentResult(payCode, context)
+          : _client
+              .post('/virtualcard/queryOrderStatus', {'paycode': payCode})),
       context: 'PAYMENT_RESULT',
     );
     final data = response['data'] is Map

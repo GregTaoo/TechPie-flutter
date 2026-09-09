@@ -1,11 +1,27 @@
+import 'dart:async';
 import 'package:clock/clock.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:techpie/features/campus_card/application/scan_payment_controller.dart';
+import 'package:techpie/features/campus_card/domain/models/payment_models.dart';
 import 'package:techpie/features/campus_card/domain/models/scan_models.dart';
 import 'package:techpie/features/campus_card/domain/money_fen.dart';
 import 'package:techpie/features/campus_card/domain/ports/payment_ports.dart';
 
 void main() {
+  test(
+      'reset discards an in-flight success instead of reviving a cancelled scan',
+      () async {
+    final pending = Completer<ScanPaymentResult>();
+    final repository = _PendingScanRepository(pending);
+    final controller = ScanPaymentController(repository: repository);
+    final submitted = controller.submitCode('QR');
+    controller.reset();
+    pending.complete(const ScanSucceeded(kind: ScanSuccessKind.payment));
+    await submitted;
+    expect(controller.state.phase, ScanFlowPhase.idle);
+    await controller.dispose();
+  });
+
   test(
     'retries with the exact server-returned QR code and six-digit password',
     () async {
@@ -67,6 +83,7 @@ final class _ScanRepository implements ScanPaymentRepository {
     required String qrCode,
     required DateTime payTime,
     String? password,
+    PaymentRequestContext? context,
   }) async {
     requests.add((qrCode, password));
     if (fail) return const ScanFailed(message: '演示服务拒绝');
@@ -75,4 +92,17 @@ final class _ScanRepository implements ScanPaymentRepository {
     }
     return const ScanSucceeded(kind: ScanSuccessKind.payment);
   }
+}
+
+final class _PendingScanRepository implements ScanPaymentRepository {
+  _PendingScanRepository(this.pending);
+  final Completer<ScanPaymentResult> pending;
+  @override
+  Future<ScanPaymentResult> submit({
+    required String qrCode,
+    required DateTime payTime,
+    String? password,
+    PaymentRequestContext? context,
+  }) =>
+      pending.future;
 }

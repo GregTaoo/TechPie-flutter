@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:clock/clock.dart';
 
 import '../core/errors/app_failure.dart';
@@ -35,7 +37,6 @@ final class OfflinePaymentService {
   final Duration _transientRetryDelay;
   final Map<String, Future<OfflineAuthorization>> _activations = {};
   final Map<String, Future<OfflineAuthorization>> _renewals = {};
-
   Future<OfflineAuthorization?> mostRecentAuthorization() async {
     final deviceCode = await _deviceCodeReader();
     if (deviceCode == null || deviceCode.isEmpty) return null;
@@ -93,7 +94,7 @@ final class OfflinePaymentService {
     late final Future<OfflineAuthorization> operation;
     operation = _activate(cardId).whenComplete(() {
       if (identical(_activations[cardId], operation)) {
-        _activations.remove(cardId);
+        unawaited(_activations.remove(cardId));
       }
     });
     _activations[cardId] = operation;
@@ -124,10 +125,13 @@ final class OfflinePaymentService {
       updatedAt: _clock.now().toUtc(),
       expiresOn: response.expiresOn,
     );
-    await _credentials.install(
+    await response.validateContext?.call();
+    Future<void> install() => _credentials.install(
       authorization: authorization,
       privateKeyHex: keyPair.privateKeyHex,
     );
+    await (response.commitInSession?.call(install) ?? install());
+    await response.validateContext?.call();
     return authorization;
   }
 
@@ -154,7 +158,7 @@ final class OfflinePaymentService {
     late final Future<OfflineAuthorization> operation;
     operation = _renewOnline(authorization).whenComplete(() {
       if (identical(_renewals[cardId], operation)) {
-        _renewals.remove(cardId);
+        unawaited(_renewals.remove(cardId));
       }
     });
     _renewals[cardId] = operation;
@@ -174,7 +178,10 @@ final class OfflinePaymentService {
       updatedAt: _clock.now().toUtc(),
       expiresOn: response.expiresOn,
     );
-    await _credentials.updateAuthorization(renewed, resetUsage: true);
+    await response.validateContext?.call();
+    Future<void> update() => _credentials.updateAuthorization(renewed, resetUsage: true);
+    await (response.commitInSession?.call(update) ?? update());
+    await response.validateContext?.call();
     return renewed;
   }
 
@@ -247,7 +254,9 @@ final class OfflinePaymentService {
     await _credentials.remove(cardId);
   }
 
-  Future<void> removeAllFromThisDevice() => _credentials.removeAll();
+  Future<void> removeAllFromThisDevice() async {
+    await _credentials.removeAll();
+  }
 
   Future<String> _requireDeviceCode() async {
     final deviceCode = await _deviceCodeReader();

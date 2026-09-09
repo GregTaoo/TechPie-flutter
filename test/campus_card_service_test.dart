@@ -96,7 +96,7 @@ final class _VerifyingAuthPort implements AuthPort, OpenIdAuthVerifier {
   }
 
   @override
-  Future<void> verifyOpenId(String openId) async {
+  Future<void> verifyOpenId(String openId, {EcardOpenIdChannel channel = EcardOpenIdChannel.wechat}) async {
     OpenIdAuthCredential(openId: openId).validate();
     verifyCalls += 1;
   }

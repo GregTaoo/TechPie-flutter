@@ -19,8 +19,12 @@ final class OfflineActivationResponse {
     required this.authorInfo,
     required this.totalUses,
     this.expiresOn,
+    this.validateContext,
+    this.commitInSession,
   });
 
+  final Future<void> Function()? validateContext;
+  final Future<void> Function(Future<void> Function())? commitInSession;
   final String authorInfo;
 
   /// Null represents the backend value 0, which means unlimited use.

@@ -529,7 +529,7 @@ final class _OfflinePaymentCodeRepository implements PaymentCodeRepository {
       );
 
   @override
-  Future<PaymentCodePollResult> pollTransaction(String payCode) async =>
+  Future<PaymentCodePollResult> pollTransaction(String payCode, {PaymentRequestContext? context}) async =>
       const PaymentPending();
 }
 
@@ -592,7 +592,7 @@ final class _RefreshHoldingPaymentCodeRepository
   }
 
   @override
-  Future<PaymentCodePollResult> pollTransaction(String payCode) async =>
+  Future<PaymentCodePollResult> pollTransaction(String payCode, {PaymentRequestContext? context}) async =>
       pollResult;
 }
 

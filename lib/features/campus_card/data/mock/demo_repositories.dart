@@ -61,7 +61,7 @@ final class DemoPaymentCodeRepository implements PaymentCodeRepository {
   }
 
   @override
-  Future<PaymentCodePollResult> pollTransaction(String payCode) async {
+  Future<PaymentCodePollResult> pollTransaction(String payCode, {PaymentRequestContext? context}) async {
     if (_scenario.scenario == DemoScenario.onlineGatewayFallback) {
       return const PaymentShouldUseOffline('开放平台请求超时');
     }
@@ -91,6 +91,7 @@ final class DemoScanPaymentRepository implements ScanPaymentRepository {
     required String qrCode,
     required DateTime payTime,
     String? password,
+    PaymentRequestContext? context,
   }) async {
     ++_scenario.scanSubmissionCount;
     final scenario = _scenario.scenario;

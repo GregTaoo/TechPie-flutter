@@ -124,7 +124,7 @@ final class PaymentCodeController {
     _pollInFlight = true;
     _emit(_state.copyWith(phase: PaymentCodePhase.polling));
     try {
-      final result = await _repository.pollTransaction(frame.payCode);
+      final result = await _repository.pollTransaction(frame.payCode, context: frame.requestContext);
       if (!_isCurrent(epoch) || _state.generation != generation) return;
       switch (result) {
         case PaymentPending():

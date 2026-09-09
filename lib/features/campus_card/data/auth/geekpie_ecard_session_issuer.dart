@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 
 import '../../core/errors/app_failure.dart';
+import '../../domain/models/auth_models.dart';
 
 final class IssuedEcardSession {
   const IssuedEcardSession({required this.cookie, required this.orgId,
@@ -12,7 +13,7 @@ final class IssuedEcardSession {
 }
 
 abstract interface class EcardSessionIssuer {
-  Future<IssuedEcardSession> issue(String openId);
+  Future<IssuedEcardSession> issue(String openId, {EcardOpenIdChannel channel = EcardOpenIdChannel.wechat});
 }
 
 /// Only GeekPie may acquire/bind a new eCard cookie. There is no direct fallback.
@@ -25,11 +26,11 @@ final class GeekPieEcardSessionIssuer implements EcardSessionIssuer {
   final Dio _dio;
 
   @override
-  Future<IssuedEcardSession> issue(String openId) async {
+  Future<IssuedEcardSession> issue(String openId, {EcardOpenIdChannel channel = EcardOpenIdChannel.wechat}) async {
     final endpoint = _endpoint();
     try {
       final response = await _dio.postUri<Object?>(endpoint,
-        data: {'method': 'wechat_openid', 'openid': openId},
+        data: {'method': channel.method, 'openid': openId},
         options: Options(followRedirects: false, headers: {'content-type': 'application/json'}),);
       if (_endpoint() != endpoint) {
         throw const AppFailure(FailureKind.cancelled, '测试服务器设置已变化，请重试。', code: 'ECARD_ISSUER_CHANGED');

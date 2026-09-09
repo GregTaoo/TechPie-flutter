@@ -15,6 +15,9 @@ enum PaymentCodePhase {
 
 enum PaymentConnectionState { unknown, online, apiError, disconnected }
 
+/// Opaque local proof of the account/session that issued a code or challenge.
+abstract interface class PaymentRequestContext {}
+
 final class PaymentCodeFrame {
   const PaymentCodeFrame({
     required this.payCode,
@@ -22,8 +25,10 @@ final class PaymentCodeFrame {
     required this.qrPayload,
     required this.offlineAllowed,
     required this.generatedAt,
+    this.requestContext,
   });
 
+  final PaymentRequestContext? requestContext;
   final String payCode;
   final String rawQrCode;
   final String qrPayload;

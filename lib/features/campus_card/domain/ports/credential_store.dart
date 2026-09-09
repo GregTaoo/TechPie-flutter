@@ -1,3 +1,5 @@
+import '../models/auth_models.dart';
+
 abstract interface class SecureCredentialStore {
   Future<String?> read(String key);
   Future<void> write(String key, String value);
@@ -11,6 +13,7 @@ abstract interface class SecureCredentialStore {
 abstract interface class SessionCredentialStore {
   Future<String?> readSessionCookie();
   Future<String?> readOpenId();
+  Future<EcardOpenIdChannel> readOpenIdChannel();
   Future<String?> readOrgId();
   Future<String?> readVerifiedIdSerial();
   Future<String?> readVerifiedCardId();
@@ -20,7 +23,9 @@ abstract interface class SessionCredentialStore {
     required String orgId,
     required String verifiedIdSerial,
     required String verifiedCardId,
+    EcardOpenIdChannel channel = EcardOpenIdChannel.wechat,
   });
+  Future<void> stageOpenId(String openId, {EcardOpenIdChannel channel = EcardOpenIdChannel.wechat});
   Future<void> clearSessionCookie();
   Future<void> clear();
 }

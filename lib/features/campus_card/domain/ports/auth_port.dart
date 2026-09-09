@@ -13,5 +13,5 @@ abstract interface class AuthPort {
 
 /// Verifies an OpenID against eCard without changing the saved account.
 abstract interface class OpenIdAuthVerifier {
-  Future<void> verifyOpenId(String openId);
+  Future<void> verifyOpenId(String openId, {EcardOpenIdChannel channel = EcardOpenIdChannel.wechat});
 }

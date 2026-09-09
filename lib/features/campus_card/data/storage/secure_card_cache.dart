@@ -82,7 +82,9 @@ final class SecureCardCache {
     }
   }
 
-  Future<void> write(CampusCard card) async {
+  Future<void> write(CampusCard card,
+      {String? expectedSubjectId,
+      Future<void> Function()? validateContext,}) async {
     final subjectId = await _subjectReader();
     final verifiedIdSerial = await _verifiedIdSerialReader();
     if (subjectId == null ||
@@ -95,6 +97,13 @@ final class SecureCardCache {
         code: 'CARD_CACHE_SUBJECT_MISSING',
       );
     }
+    if (expectedSubjectId != null && subjectId != expectedSubjectId) {
+      throw const AppFailure(
+        FailureKind.authenticationExpired,
+        '请求期间校园卡账户已变化。',
+        code: 'CARD_CACHE_IDENTITY_MISMATCH',
+      );
+    }
     if (card.id != verifiedIdSerial) {
       throw const AppFailure(
         FailureKind.authenticationExpired,
@@ -102,6 +111,7 @@ final class SecureCardCache {
         code: 'CARD_CACHE_IDENTITY_MISMATCH',
       );
     }
+    await validateContext?.call();
     await _store.write(
       _key,
       jsonEncode({

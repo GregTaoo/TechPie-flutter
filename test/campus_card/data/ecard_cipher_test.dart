@@ -410,7 +410,7 @@ void main() {
           onIdentityMismatch: () {},
         );
 
-        final response = await client.get('/test', const {});
+        final response = await client.get('/home/userImageIsexists', const {});
 
         expect(response, {'success': true});
         expect(recoveries, 1);
@@ -418,7 +418,7 @@ void main() {
       },
     );
 
-    test('replays a POST once after successful session recovery', () async {
+    test('does not replay a mutation after successful session recovery', () async {
       final dio = Dio(BaseOptions(baseUrl: 'https://example.invalid'));
       final adapter = _SequenceAdapter([401, 200]);
       dio.httpClientAdapter = adapter;
@@ -446,11 +446,10 @@ void main() {
         onIdentityMismatch: () {},
       );
 
-      final response = await client.post('/test', const {});
-
-      expect(response, {'success': true});
+      await expectLater(client.post('/scan/scanningResult', const {'qrcode': 'SYNTHETIC'}),
+          throwsA(isA<AppFailure>()),);
       expect(recoveries, 1);
-      expect(adapter.requestCount, 2);
+      expect(adapter.requestCount, 1);
     });
   });
 }

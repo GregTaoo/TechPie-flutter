@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:collection';
 
 import 'package:dio/dio.dart';
 
 import '../../core/async_mutex.dart';
 import '../../core/errors/app_failure.dart';
 import '../../core/errors/core_error_catalog.dart';
+import '../../domain/models/auth_models.dart';
+import '../../domain/models/payment_models.dart';
 import 'decrypted_http_trace.dart';
 import 'ecard_cipher.dart';
 
@@ -36,13 +39,31 @@ final class EcardSession {
     required this.openId,
     required this.orgId,
     required this.subjectId,
+    this.generation = 0,
+    this.channel = EcardOpenIdChannel.wechat,
+    this.identity,
   });
+
+  final int generation;
+  final EcardOpenIdChannel channel;
+  final EcardVerifiedIdentity? identity;
+
+  bool sameSession(EcardSession other) =>
+      generation == other.generation && channel == other.channel &&
+      sessionCookie == other.sessionCookie &&
+      openId == other.openId &&
+      orgId == other.orgId &&
+      subjectId == other.subjectId &&
+      identity == other.identity;
 
   final String sessionCookie;
   final String openId;
   final String orgId;
   final String subjectId;
 }
+
+typedef EcardSessionCommit = Future<void> Function(
+    EcardSession session, Future<void> Function() action,);
 
 typedef EcardSessionReader = Future<EcardSession?> Function();
 typedef EcardIdentityGuard = Future<EcardVerifiedIdentity> Function();
@@ -78,12 +99,16 @@ final class EcardApiClient implements EcardTransport {
     EcardCipher? cipher,
     required EcardSessionReader sessionReader,
     required EcardIdentityGuard identityGuard,
+    int Function()? sessionGenerationReader,
+    EcardSessionCommit? commitInSession,
     required AuthenticationExpiredCallback onAuthenticationExpired,
     required IdentityMismatchCallback onIdentityMismatch,
     String baseUrl = 'https://ecard.shanghaitech.edu.cn',
   })  : _cipher = cipher ?? EcardCipher(),
         _sessionReader = sessionReader,
         _identityGuard = identityGuard,
+        _sessionGenerationReader = sessionGenerationReader,
+        _commitInSession = commitInSession,
         _onAuthenticationExpired = onAuthenticationExpired,
         _onIdentityMismatch = onIdentityMismatch,
         _dio = dio ??
@@ -108,6 +133,8 @@ final class EcardApiClient implements EcardTransport {
   final EcardCipher _cipher;
   final EcardSessionReader _sessionReader;
   final EcardIdentityGuard _identityGuard;
+  final int Function()? _sessionGenerationReader;
+  final EcardSessionCommit? _commitInSession;
   final AuthenticationExpiredCallback _onAuthenticationExpired;
   final IdentityMismatchCallback _onIdentityMismatch;
   final AsyncMutex _requestMutex = AsyncMutex();
@@ -116,32 +143,36 @@ final class EcardApiClient implements EcardTransport {
 
   void dispose() => _dio.close(force: true);
 
+  Future<Object?> pollPaymentResult(
+          String payCode, PaymentRequestContext? context,) =>
+      _execute('POST', '/virtualcard/queryOrderStatus', {'paycode': payCode},
+          permission: context,);
+
+  Future<Object?> submitScanPayment(
+          Map<String, Object?> data, PaymentRequestContext? context,) =>
+      _execute('POST', '/scan/scanningResult', data, permission: context);
+
+  _CodeLease? _code;
+  _CodeLease? _challenge;
+
+  // Only these reads may be repeated automatically after authentication recovery.
+  // HTTP method alone is insufficient: some upstream GET endpoints mutate data.
+  static const _replayableReads = {
+    '/myaccount/openMyAccountApp',
+    '/home/userImageIsexists',
+    '/repair/showImage',
+    '/selftrade/queryCardSelfTradeList',
+    '/virtualcard/openQrcodePwdModify',
+    '/virtualcard/openQrcodeQuotaModify',
+  };
+
   @override
   Future<Object?> get(
     String path,
     Map<String, Object?> data, {
     bool includeOpenId = true,
   }) =>
-      _withVerifiedIdentity((identity, session) async {
-        final request =
-            _requestData(data, session, includeOpenId: includeOpenId);
-        _validateRequestIdentity(path, request, identity);
-        final response = await _sendWithAuthRecovery(
-          (credentials) async => _dio.get<Object?>(
-            path,
-            queryParameters: {'datajson': _cipher.encodeRequest(request)},
-            options: Options(
-              headers: {
-                'cookie': credentials.sessionCookie,
-                'orgid': credentials.orgId,
-              },
-            ),
-          ),
-          expectedIdentity: identity,
-          session: session,
-        );
-        return _validatedResponse(response.data, identity);
-      });
+      _execute('GET', path, data, includeOpenId: includeOpenId);
 
   @override
   Future<Object?> post(
@@ -149,49 +180,7 @@ final class EcardApiClient implements EcardTransport {
     Map<String, Object?> data, {
     bool includeOpenId = true,
   }) =>
-      _withVerifiedIdentity((identity, session) async {
-        final request =
-            _requestData(data, session, includeOpenId: includeOpenId);
-        _validateRequestIdentity(path, request, identity);
-        final response = await _sendWithAuthRecovery(
-          (credentials) async => _dio.post<Object?>(
-            path,
-            data: {'datajson': _cipher.encodeRequest(request)},
-            options: Options(
-              headers: {
-                'cookie': credentials.sessionCookie,
-                'orgid': credentials.orgId,
-              },
-            ),
-          ),
-          expectedIdentity: identity,
-          session: session,
-        );
-        return _validatedResponse(response.data, identity);
-      });
-
-  @override
-  Future<List<int>> download(String path) =>
-      _withVerifiedIdentity((identity, session) async {
-        final response = await _sendWithAuthRecovery(
-          (credentials) async => _dio.get<List<int>>(
-            path,
-            options: Options(
-              responseType: ResponseType.bytes,
-              headers: {
-                'cookie': credentials.sessionCookie,
-                'orgid': credentials.orgId,
-              },
-            ),
-          ),
-          expectedIdentity: identity,
-          session: session,
-        );
-        await _assertSessionSubject(identity);
-        final data = response.data;
-        if (data == null) throw const FormatException('Empty binary response');
-        return data;
-      });
+      _execute('POST', path, data, includeOpenId: includeOpenId);
 
   @override
   Future<Object?> getPlain(
@@ -199,36 +188,186 @@ final class EcardApiClient implements EcardTransport {
     Map<String, Object?> query, {
     bool includeOpenId = false,
   }) =>
-      _withVerifiedIdentity((identity, session) async {
+      _execute('GET', path, query, includeOpenId: includeOpenId, plain: true);
+
+  @override
+  Future<List<int>> download(String path) async =>
+      (await _execute('GET', path, const {}, bytes: true))! as List<int>;
+
+  Future<void> _assertSession(EcardSession expected) async {
+    final current = await _sessionReader();
+    if (current == null || !current.sameSession(expected)) {
+      throw _identityFailure('AUTH_SESSION_SUBJECT_CHANGED');
+    }
+  }
+
+  Future<Object?> _execute(
+    String method,
+    String path,
+    Map<String, Object?> data, {
+    bool includeOpenId = true,
+    bool plain = false,
+    bool bytes = false,
+    PaymentRequestContext? permission,
+  }) async {
+    data = Map<String, Object?>.unmodifiable(data);
+    // Capture before queueing. Queued A requests must never run as account B.
+    final invocationGeneration = _sessionGenerationReader?.call();
+    final queuedSession = await _sessionReader();
+    if (invocationGeneration != null &&
+        queuedSession?.generation != invocationGeneration) {
+      throw _identityFailure('AUTH_SESSION_SUBJECT_CHANGED');
+    }
+    if (queuedSession == null) {
+      throw _identityFailure('AUTH_VERIFIED_SESSION_MISSING');
+    }
+    final endpoint = Uri.parse(path).path;
+    final polling = endpoint == '/virtualcard/queryOrderStatus';
+    final generating = endpoint == '/offlineCode/openVirtualcard';
+    final scanning = endpoint == '/scan/scanningResult';
+    final lease = polling
+        ? _code
+        : scanning && data['password'] != null
+            ? _challenge
+            : null;
+    if (polling || (scanning && data['password'] != null)) {
+      final supplied = polling ? data['paycode'] : data['qrcode'];
+      if (lease == null ||
+          !identical(permission, lease) ||
+          !lease.session.sameSession(queuedSession) ||
+          supplied != lease.code) {
+        throw _identityFailure('AUTH_PAYMENT_CONTEXT_EXPIRED');
+      }
+    }
+    return _requestMutex.protect(() async {
+      await _assertSession(queuedSession);
+      if (polling && !identical(_code, lease) ||
+          scanning &&
+              data['password'] != null &&
+              !identical(_challenge, lease)) {
+        throw _identityFailure('AUTH_PAYMENT_CONTEXT_EXPIRED');
+      }
+      if (generating) _code = null;
+      if (scanning) _challenge = null;
+      var session = queuedSession;
+      for (var attempt = 0; attempt < 2; attempt++) {
+        final readsQuota = endpoint == '/virtualcard/openQrcodeQuotaModify';
+        final identity = polling
+            ? lease!.identity
+            : readsQuota && session.identity != null
+                ? session.identity!
+                : await _identityGuard();
+        await _assertSession(session);
+        if (identity.subjectId != session.subjectId ||
+            session.identity != null && identity != session.identity) {
+          throw _identityFailure('AUTH_SESSION_SUBJECT_CHANGED');
+        }
         final request =
-            _requestData(query, session, includeOpenId: includeOpenId);
+            _requestData(data, session, includeOpenId: includeOpenId);
         _validateRequestIdentity(path, request, identity);
-        final response = await _sendWithAuthRecovery(
-          (credentials) async => _dio.get<Object?>(
+        try {
+          final response = await _dio.request<Object?>(
             path,
-            queryParameters: request,
+            data: method == 'POST'
+                ? {'datajson': _cipher.encodeRequest(request)}
+                : null,
+            queryParameters: method != 'POST' && !bytes
+                ? plain
+                    ? request
+                    : {'datajson': _cipher.encodeRequest(request)}
+                : null,
             options: Options(
+              method: method,
+              responseType: bytes ? ResponseType.bytes : ResponseType.json,
               headers: {
-                'cookie': credentials.sessionCookie,
-                'orgid': credentials.orgId,
+                'cookie': session.sessionCookie,
+                'orgid': session.orgId,
               },
             ),
-          ),
-          expectedIdentity: identity,
-          session: session,
-        );
-        return _validatedResponse(response.data, identity);
-      });
-
-  Future<T> _withVerifiedIdentity<T>(
-    Future<T> Function(EcardVerifiedIdentity identity, EcardSession session)
-        operation,
-  ) =>
-      _requestMutex.protect(() async {
-        final identity = await _identityGuard();
-        final session = await _sessionForIdentity(identity);
-        return operation(identity, session);
-      });
+          );
+          await _assertSession(session);
+          if (bytes) return response.data;
+          final decoded = _decode(response.data);
+          try {
+            _validateIdentityFields(decoded, identity);
+            if (readsQuota) {
+              final map = requireObjectMap(decoded, context: 'IDENTITY_QUOTA');
+              final fields = map['data'] is Map ? map['data'] as Map : map;
+              if (apiRejected(map) ||
+                  fields['idserial']?.toString() != identity.idSerial ||
+                  fields['cardid']?.toString() != identity.cardId) {
+                throw _identityFailure('AUTH_IDENTITY_MISMATCH');
+              }
+            }
+          } on AppFailure {
+            await _onIdentityMismatch();
+            rethrow;
+          }
+          await _assertSession(session);
+          if (polling && !identical(_code, lease)) {
+            throw _identityFailure('AUTH_PAYMENT_CONTEXT_EXPIRED');
+          }
+          if (decoded is Map &&
+              apiSuccess(requireObjectMap(decoded, context: 'RESPONSE'))) {
+            if (generating && decoded['data'] is Map) {
+              final code = (decoded['data'] as Map)['code']?.toString() ?? '';
+              if (code.isNotEmpty) _code = _CodeLease(code, session, identity);
+            }
+            if (scanning &&
+                (decoded['issuccess']?.toString() == '2004' ||
+                    Uri.tryParse(decoded['url']?.toString() ?? '')?.path ==
+                        '/pages/common/inputPass/inputPass')) {
+              final nested = decoded['data'] is Map
+                  ? decoded['data'] as Map
+                  : const <String, Object?>{};
+              final code =
+                  (nested['qrcode'] ?? decoded['qrcode'])?.toString() ?? '';
+              if (code.isNotEmpty) {
+                _challenge =
+                    _CodeLease(Uri.decodeFull(code), session, identity);
+              }
+            }
+          }
+          final responseSession = session;
+          return _bindResponse(
+            decoded,
+            responseSession,
+            () => _assertSession(responseSession),
+            generating
+                ? _code
+                : scanning
+                    ? _challenge
+                    : null,
+            _commitInSession,
+          );
+        } on DioException catch (error) {
+          // Never expire or recover B due to a late failure from A.
+          await _assertSession(session);
+          final status = error.response?.statusCode;
+          if (status == 401 || status == 403) {
+            _code = null;
+            _challenge = null;
+            await _onAuthenticationExpired(status!);
+            final recovered = await _sessionReader();
+            if (attempt == 0 &&
+                status == 401 &&
+                _replayableReads.contains(endpoint) &&
+                recovered != null &&
+                recovered.subjectId == session.subjectId &&
+                recovered.openId == session.openId &&
+                recovered.channel == session.channel &&
+                recovered.orgId == session.orgId &&
+                recovered.identity == session.identity) {
+              session = recovered;
+              continue;
+            }
+          }
+          throw await _mapDioFailure(error, notifyAuthentication: false);
+        }
+      }
+      throw _identityFailure('AUTH_RECOVERY_FAILED');
+    });
+  }
 
   Map<String, Object?> _requestData(
     Map<String, Object?> data,
@@ -236,8 +375,12 @@ final class EcardApiClient implements EcardTransport {
     required bool includeOpenId,
   }) {
     final request = Map<String, Object?>.from(data);
+    if (request.containsKey('usertype')) request['usertype'] = session.channel.userType;
     if (includeOpenId && !request.containsKey('openid')) {
       request['openid'] = session.openId;
+    }
+    if (request.containsKey('devcode') && request['devcode'] != session.openId) {
+      throw _identityFailure('AUTH_REQUEST_IDENTITY_MISMATCH');
     }
     if (request.containsKey('openid') && request['openid'] != session.openId) {
       throw _identityFailure('AUTH_REQUEST_IDENTITY_MISMATCH');
@@ -256,63 +399,6 @@ final class EcardApiClient implements EcardTransport {
         cause: error,
       );
     }
-  }
-
-  Future<Response<T>> _sendWithAuthRecovery<T>(
-    Future<Response<T>> Function(EcardSession session) send, {
-    required EcardSession session,
-    required EcardVerifiedIdentity expectedIdentity,
-  }) async {
-    try {
-      return await send(session);
-    } on DioException catch (error) {
-      if (error.response?.statusCode != 401) {
-        throw await _mapDioFailure(error);
-      }
-      await _onAuthenticationExpired(401);
-      if (await _sessionReader() == null) {
-        throw await _mapDioFailure(error, notifyAuthentication: false);
-      }
-      final recoveredIdentity = await _identityGuard();
-      if (recoveredIdentity != expectedIdentity) {
-        throw _identityFailure('AUTH_RECOVERY_IDENTITY_CHANGED');
-      }
-      final recoveredSession = await _sessionForIdentity(expectedIdentity);
-      try {
-        return await send(recoveredSession);
-      } on DioException catch (retryError) {
-        throw await _mapDioFailure(retryError, notifyAuthentication: false);
-      }
-    }
-  }
-
-  Future<EcardSession> _sessionForIdentity(
-    EcardVerifiedIdentity identity,
-  ) async {
-    final session = await _sessionReader();
-    if (session == null || session.subjectId != identity.subjectId) {
-      throw _identityFailure('AUTH_SESSION_SUBJECT_CHANGED');
-    }
-    return session;
-  }
-
-  Future<void> _assertSessionSubject(EcardVerifiedIdentity identity) async {
-    await _sessionForIdentity(identity);
-  }
-
-  Future<Object?> _validatedResponse(
-    Object? body,
-    EcardVerifiedIdentity identity,
-  ) async {
-    final decoded = _decode(body);
-    await _assertSessionSubject(identity);
-    try {
-      _validateIdentityFields(decoded, identity);
-    } on AppFailure {
-      await _onIdentityMismatch();
-      rethrow;
-    }
-    return decoded;
   }
 
   void _validateIdentityFields(Object? value, EcardVerifiedIdentity identity) {
@@ -410,6 +496,7 @@ Map<String, Object?> requireObjectMap(
   Object? value, {
   required String context,
 }) {
+  if (value is EcardResponseMap) return value;
   if (value is Map) {
     return value.map((key, value) => MapEntry(key.toString(), value));
   }
@@ -463,4 +550,74 @@ String apiMessage(Map<String, Object?> map, {String fallback = '请求失败'}) 
   final raw = map['message']?.toString().trim();
   if (raw == null || raw.isEmpty) return fallback;
   return CoreErrorCatalog.resolve(raw);
+}
+
+final class _CodeLease implements PaymentRequestContext {
+  const _CodeLease(this.code, this.session, this.identity);
+  final String code;
+  final EcardSession session;
+  final EcardVerifiedIdentity identity;
+}
+
+/// Carries local provenance through repository parsing, never over the network.
+final class EcardResponseMap extends MapBase<String, Object?> {
+  EcardResponseMap(this._values, this.session, this.validateContext,
+      this.requestContext, this.commitInSession,);
+  final EcardSessionCommit? commitInSession;
+  final PaymentRequestContext? requestContext;
+  final Map<String, Object?> _values;
+  final EcardSession session;
+  final Future<void> Function() validateContext;
+  @override
+  Object? operator [](Object? key) => _values[key];
+  @override
+  void operator []=(String key, Object? value) => _values[key] = value;
+  @override
+  Iterable<String> get keys => _values.keys;
+  @override
+  void clear() => _values.clear();
+  @override
+  Object? remove(Object? key) => _values.remove(key);
+}
+
+Object? _bindResponse(
+  Object? value,
+  EcardSession session,
+  Future<void> Function() validate, [
+  PaymentRequestContext? context,
+  EcardSessionCommit? commit,
+]) {
+  if (value is Map) {
+    return EcardResponseMap(
+      value.map(
+        (key, item) => MapEntry(key.toString(),
+            _bindResponse(item, session, validate, context, commit),),
+      ),
+      session,
+      validate,
+      context,
+      commit,
+    );
+  }
+  if (value is List) {
+    return value
+        .map((item) => _bindResponse(item, session, validate, context, commit))
+        .toList();
+  }
+  return value;
+}
+
+Future<void> validateEcardResponse(Object? response) async {
+  if (response is EcardResponseMap) await response.validateContext();
+}
+
+Future<void> commitEcardResponse(
+    Object? response, Future<void> Function() action,) async {
+  if (response is EcardResponseMap && response.commitInSession != null) {
+    await response.commitInSession!(response.session, action);
+  } else {
+    await validateEcardResponse(response);
+    await action();
+    await validateEcardResponse(response);
+  }
 }

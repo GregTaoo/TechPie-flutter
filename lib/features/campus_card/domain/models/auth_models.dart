@@ -1,3 +1,26 @@
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
+
+enum EcardOpenIdChannel {
+  wechat('wechat_openid', 'WeChat（微信）', '8'),
+  alipay('alipay_openid', 'Alipay（支付宝）', '18');
+
+  const EcardOpenIdChannel(this.method, this.label, this.userType);
+  final String method;
+  final String label;
+  final String userType;
+
+  static EcardOpenIdChannel parse(Object? value) {
+    if (value == null) return wechat; // Pre-channel settings were WeChat-only.
+    return values.firstWhere((channel) => channel.method == value,
+      orElse: () => throw const FormatException('Unknown OPENID channel'),);
+  }
+
+  String subjectId(String openId) => sha256.convert(utf8.encode(
+    this == wechat ? openId : '$method:$openId',
+  ),).toString();
+}
+
 enum AuthState { signedOut, signingIn, authenticated, unconfigured, expired }
 
 sealed class AuthCredential {
@@ -11,11 +34,13 @@ final class DemoAuthCredential extends AuthCredential {
 final class OpenIdAuthCredential extends AuthCredential {
   const OpenIdAuthCredential({
     required this.openId,
+    this.channel = EcardOpenIdChannel.wechat,
     this.expectedIdSerial,
     this.expectedCardId,
   });
 
   final String openId;
+  final EcardOpenIdChannel channel;
 
   /// Optional one-shot guard values supplied by an authorized caller.
   /// They must never be logged or persisted.
@@ -37,11 +62,13 @@ final class AuthSession {
     required this.subjectId,
     required this.orgId,
     this.maskedIdentity,
+    this.generation = 0,
   });
 
   /// Opaque local subject identifier. It must not be logged.
   final String subjectId;
   final String orgId;
+  final int generation;
 
   /// Presentation-safe identifier. Implementations may expose only a short
   /// first/last mask; the complete credential never leaves secure storage.

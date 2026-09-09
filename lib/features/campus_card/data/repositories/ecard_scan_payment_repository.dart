@@ -1,3 +1,4 @@
+import 'package:techpie/features/campus_card/domain/models/payment_models.dart';
 import '../../domain/models/scan_models.dart';
 import '../../domain/money_fen.dart';
 import '../../domain/ports/payment_ports.dart';
@@ -18,6 +19,7 @@ final class EcardScanPaymentRepository implements ScanPaymentRepository {
     required String qrCode,
     required DateTime payTime,
     String? password,
+    PaymentRequestContext? context,
   }) async {
     final outboundQrCode = password == null ? qrCode : Uri.decodeFull(qrCode);
     final payload = <String, Object?>{
@@ -26,7 +28,9 @@ final class EcardScanPaymentRepository implements ScanPaymentRepository {
     };
     if (password != null) payload['password'] = password;
     final response = requireObjectMap(
-      await _client.post('/scan/scanningResult', payload),
+      await (_client is EcardApiClient
+          ? (_client).submitScanPayment(payload, context)
+          : _client.post('/scan/scanningResult', payload)),
       context: 'SCAN_PAYMENT',
     );
     final status = response['issuccess']?.toString();
@@ -47,7 +51,10 @@ final class EcardScanPaymentRepository implements ScanPaymentRepository {
           code: 'SCAN_PASSWORD_QR_MISSING',
         );
       }
-      return ScanPasswordRequired(serverQrCode: serverQrCode);
+      return ScanPasswordRequired(
+        serverQrCode: serverQrCode,
+        context: response is EcardResponseMap ? response.requestContext : null,
+      );
     }
     if (apiSuccess(response) &&
         !apiRejected(data) &&

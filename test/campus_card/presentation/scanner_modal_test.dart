@@ -11,6 +11,7 @@ import 'package:techpie/features/campus_card/app/demo_runtime_factory.dart';
 import 'package:techpie/features/campus_card/core/config/scan_payment_preferences.dart';
 import 'package:techpie/features/campus_card/data/mock/in_memory_ports.dart';
 import 'package:techpie/features/campus_card/data/repositories/ecard_scan_payment_repository.dart';
+import 'package:techpie/features/campus_card/domain/models/payment_models.dart';
 import 'package:techpie/features/campus_card/domain/models/scan_models.dart';
 import 'package:techpie/features/campus_card/domain/ports/payment_ports.dart';
 import 'package:techpie/features/campus_card/presentation/scanner/scan_result_content.dart';
@@ -380,6 +381,7 @@ class _CountingScanRepository implements ScanPaymentRepository {
     required String qrCode,
     required DateTime payTime,
     String? password,
+    PaymentRequestContext? context,
   }) async {
     submissions++;
     return const ScanSucceeded(kind: ScanSuccessKind.payment);

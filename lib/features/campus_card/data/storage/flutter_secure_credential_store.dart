@@ -8,6 +8,7 @@ import 'package:techpie/utils/secure_storage.dart';
 
 import '../../core/async_mutex.dart';
 import '../../core/errors/app_failure.dart';
+import '../../domain/models/auth_models.dart';
 import '../../domain/ports/credential_store.dart';
 
 final class FlutterSecureCredentialStore implements SecureCredentialStore {
@@ -140,6 +141,7 @@ final class SecureSessionCredentialStore implements SessionCredentialStore {
 
   static const _sessionKey = 'geekpay.auth.session_cookie';
   static const _openIdKey = 'geekpay.auth.openid';
+  static const _channelKey = 'geekpay.auth.openid_channel';
   static const _orgIdKey = 'geekpay.auth.orgid';
   static const _verifiedIdSerialKey = 'geekpay.auth.verified_idserial';
   static const _verifiedCardIdKey = 'geekpay.auth.verified_cardid';
@@ -151,6 +153,9 @@ final class SecureSessionCredentialStore implements SessionCredentialStore {
 
   @override
   Future<String?> readOpenId() => _store.read(_openIdKey);
+
+  @override
+  Future<EcardOpenIdChannel> readOpenIdChannel() async => EcardOpenIdChannel.parse(await _store.read(_channelKey));
 
   @override
   Future<String?> readOrgId() => _store.read(_orgIdKey);
@@ -168,14 +173,22 @@ final class SecureSessionCredentialStore implements SessionCredentialStore {
     required String orgId,
     required String verifiedIdSerial,
     required String verifiedCardId,
+    EcardOpenIdChannel channel = EcardOpenIdChannel.wechat,
   }) =>
       _store.replaceAtomically({
         _sessionKey: sessionCookie,
         _openIdKey: openId,
+        _channelKey: channel.method,
         _orgIdKey: orgId,
         _verifiedIdSerialKey: verifiedIdSerial,
         _verifiedCardIdKey: verifiedCardId,
       });
+
+  @override
+  Future<void> stageOpenId(String openId, {EcardOpenIdChannel channel = EcardOpenIdChannel.wechat}) => _store.replaceAtomically({
+    _openIdKey: openId, _channelKey: channel.method, _orgIdKey: '2', _sessionKey: null,
+    _verifiedIdSerialKey: null, _verifiedCardIdKey: null,
+  });
 
   @override
   Future<void> clearSessionCookie() =>
@@ -185,6 +198,7 @@ final class SecureSessionCredentialStore implements SessionCredentialStore {
   Future<void> clear() => _store.replaceAtomically({
         _sessionKey: null,
         _openIdKey: null,
+        _channelKey: null,
         _orgIdKey: null,
         _verifiedIdSerialKey: null,
         _verifiedCardIdKey: null,

@@ -570,7 +570,7 @@ final class _RefreshAndPollRepository implements PaymentCodeRepository {
   }
 
   @override
-  Future<PaymentCodePollResult> pollTransaction(String payCode) => poll.future;
+  Future<PaymentCodePollResult> pollTransaction(String payCode, {PaymentRequestContext? context}) => poll.future;
 }
 
 final class _PaymentRepository implements PaymentCodeRepository {
@@ -616,7 +616,7 @@ final class _PaymentRepository implements PaymentCodeRepository {
   }
 
   @override
-  Future<PaymentCodePollResult> pollTransaction(String payCode) {
+  Future<PaymentCodePollResult> pollTransaction(String payCode, {PaymentRequestContext? context}) {
     pollCalls += 1;
     return pollFuture ?? Future.value(nextPoll);
   }
@@ -652,7 +652,7 @@ final class _RestartDuringRefreshRepository implements PaymentCodeRepository {
   }
 
   @override
-  Future<PaymentCodePollResult> pollTransaction(String payCode) async =>
+  Future<PaymentCodePollResult> pollTransaction(String payCode, {PaymentRequestContext? context}) async =>
       const PaymentPending();
 }
 

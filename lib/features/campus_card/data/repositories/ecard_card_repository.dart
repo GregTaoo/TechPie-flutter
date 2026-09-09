@@ -36,9 +36,11 @@ final class EcardCardRepository implements CacheFirstCardRepository {
   @override
   Future<CampusCard?> refreshCard() async {
     final account = await _account();
+    await validateEcardResponse(account);
     final rawCard = account['cardinfo'];
     if (rawCard == null) {
-      await _clearCacheBestEffort();
+      await commitEcardResponse(account, _clearCacheBestEffort);
+      await validateEcardResponse(account);
       return null;
     }
     final card = requireObjectMap(rawCard, context: 'CARD_INFO');
@@ -49,7 +51,7 @@ final class EcardCardRepository implements CacheFirstCardRepository {
     final positionCode = card['pcode']?.toString().trim();
     final displayCardNumber = id;
     if (id.isEmpty) {
-      await _clearCacheBestEffort();
+      await commitEcardResponse(account, _clearCacheBestEffort);
       return null;
     }
     await _assertVerifiedIdSerial(id);
@@ -75,11 +77,20 @@ final class EcardCardRepository implements CacheFirstCardRepository {
       accountType: card['acctype']?.toString(),
     );
     try {
-      await _cache.write(result);
+      await commitEcardResponse(
+        account,
+        () => _cache.write(
+          result,
+          expectedSubjectId:
+              account is EcardResponseMap ? account.session.subjectId : null,
+          validateContext: () => validateEcardResponse(account),
+        ),
+      );
     } catch (_) {
       // A cache write failure must not hide verified server data.
     }
     await _assertVerifiedIdSerial(id);
+    await validateEcardResponse(account);
     return result;
   }
 
@@ -112,6 +123,7 @@ final class EcardCardRepository implements CacheFirstCardRepository {
         }
       }
       await _assertVerifiedIdSerial(id);
+      await validateEcardResponse(account);
       return UserProfile(
         displayName: card['username']?.toString() ??
             user['username']?.toString() ??

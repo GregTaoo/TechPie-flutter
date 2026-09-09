@@ -4,7 +4,8 @@ import '../models/scan_models.dart';
 abstract interface class PaymentCodeRepository {
   Future<PaymentCodeFrame> generateOnlineCode();
   Future<void> activateOnlineCode();
-  Future<PaymentCodePollResult> pollTransaction(String payCode);
+  Future<PaymentCodePollResult> pollTransaction(String payCode,
+      {PaymentRequestContext? context,});
 }
 
 abstract interface class ScanPaymentRepository {
@@ -12,5 +13,6 @@ abstract interface class ScanPaymentRepository {
     required String qrCode,
     required DateTime payTime,
     String? password,
+    PaymentRequestContext? context,
   });
 }

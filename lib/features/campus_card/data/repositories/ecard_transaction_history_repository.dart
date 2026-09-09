@@ -111,6 +111,7 @@ final class EcardTransactionHistoryRepository
         code: 'TRANSACTION_SUBJECT_CHANGED',
       );
     }
+    await validateEcardResponse(raw);
     if (raw is String && raw.contains('CORE10008')) {
       return const TransactionPage(items: [], hasMore: false);
     }

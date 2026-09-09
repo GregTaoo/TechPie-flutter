@@ -1,6 +1,4 @@
-import 'dart:convert';
 
-import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 
 import '../application/offline_payment_service.dart';
@@ -8,6 +6,7 @@ import '../core/config/app_environment.dart';
 import '../data/api/decrypted_http_trace.dart';
 import '../data/api/ecard_api_client.dart';
 import '../data/auth/ecard_openid_auth_port.dart';
+import '../data/auth/geekpie_ecard_session_issuer.dart';
 import '../data/crypto/sm2_offline_crypto.dart';
 import '../data/repositories/ecard_card_repository.dart';
 import '../data/repositories/ecard_offline_authorization_remote.dart';
@@ -27,6 +26,7 @@ AppRuntime buildRealRuntime(
   AppEnvironment environment, {
   SecureCredentialStore? secureCredentialStore,
   DecryptedHttpTraceInterceptor? httpTrace,
+  EcardSessionIssuer? sessionIssuer,
 }) {
   if (environment == AppEnvironment.demo) {
     throw ArgumentError('The real composition root cannot build demo');
@@ -36,7 +36,7 @@ AppRuntime buildRealRuntime(
   Future<String?> readSubjectId() async {
     final openId = await sessionStore.readOpenId();
     if (openId == null || openId.isEmpty) return null;
-    return sha256.convert(utf8.encode(openId)).toString();
+    return (await sessionStore.readOpenIdChannel()).subjectId(openId);
   }
 
   final cardCache = SecureCardCache(
@@ -70,6 +70,7 @@ AppRuntime buildRealRuntime(
   }
 
   final auth = EcardOpenIdAuthPort(
+    sessionIssuer: sessionIssuer,
     httpTrace: httpTrace,
     sessionStore: sessionStore,
     purgeAccountBoundCredentials: purgeAccountMaterial,
@@ -78,6 +79,8 @@ AppRuntime buildRealRuntime(
   final client = EcardApiClient(
     httpTrace: httpTrace,
     sessionReader: auth.readSession,
+    sessionGenerationReader: () => auth.generation,
+    commitInSession: auth.commitInSession,
     identityGuard: auth.verifyCurrentIdentity,
     onAuthenticationExpired: auth.handleAuthenticationFailure,
     onIdentityMismatch: auth.rejectCurrentOnlineSession,
@@ -96,16 +99,17 @@ AppRuntime buildRealRuntime(
     crypto: Sm2OfflineCrypto(),
     deviceCodeReader: sessionStore.readOpenId,
   );
+  final cards = EcardCardRepository(
+    client,
+    purgeLocalSecurityState: auth.signOut,
+    cache: cardCache,
+    verifiedIdSerialReader: sessionStore.readVerifiedIdSerial,
+  );
   return AppRuntime(
     environment: environment,
     capabilities: AppCapabilities.forEnvironment(environment),
     auth: auth,
-    cards: EcardCardRepository(
-      client,
-      purgeLocalSecurityState: auth.signOut,
-      cache: cardCache,
-      verifiedIdSerialReader: sessionStore.readVerifiedIdSerial,
-    ),
+    cards: cards,
     paymentCodes: EcardPaymentCodeRepository(client),
     scanPayments: EcardScanPaymentRepository(client),
     transactions: transactions,

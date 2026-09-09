@@ -63,6 +63,8 @@ final class EcardOfflineAuthorizationRemote
       );
     }
     return OfflineActivationResponse(
+      validateContext: () => validateEcardResponse(response),
+      commitInSession: (action) => commitEcardResponse(response, action),
       authorInfo: authorInfo.toUpperCase(),
       totalUses: _totalUses(data['offlineqrcodenum']),
       expiresOn: _parseDate(data['authordate']),
@@ -100,6 +102,8 @@ final class EcardOfflineAuthorizationRemote
       );
     }
     return OfflineActivationResponse(
+      validateContext: () => validateEcardResponse(response),
+      commitInSession: (action) => commitEcardResponse(response, action),
       authorInfo: authorInfo.toUpperCase(),
       totalUses: ukey.containsKey('offlineqrcodenum')
           ? _totalUses(ukey['offlineqrcodenum'])

@@ -50,6 +50,7 @@ final authControllerProvider =
 
 final class AuthController extends AsyncNotifier<AuthSnapshot> {
   Future<void>? _backgroundRestore;
+  int _authRevision = 0;
 
   @override
   Future<AuthSnapshot> build() async {
@@ -58,12 +59,20 @@ final class AuthController extends AsyncNotifier<AuthSnapshot> {
     final initial =
         await auth.restoreLocal().timeout(const Duration(seconds: 10));
     final subscription = auth.changes.listen((snapshot) {
-      if (snapshot.state == AuthState.signingIn) return;
+      _authRevision++;
+      if (snapshot.state == AuthState.signingIn) {
+        _invalidateAccountProviders();
+        return;
+      }
       final previous = state.valueOrNull;
       state = AsyncData(snapshot);
       if (previous != null &&
-          previous.session?.subjectId != snapshot.session?.subjectId) {
+          (previous.session?.subjectId != snapshot.session?.subjectId ||
+              previous.session?.generation != snapshot.session?.generation)) {
         _invalidateAccountProviders();
+      }
+      if (snapshot.state == AuthState.authenticated) {
+        unawaited(_startBackgroundRestore(auth));
       }
     });
     final connectivitySubscription = runtime.connectivity.changes.listen((
@@ -90,7 +99,7 @@ final class AuthController extends AsyncNotifier<AuthSnapshot> {
     final active = _backgroundRestore;
     if (active != null) return active;
     late final Future<void> operation;
-    operation = _refreshStoredSession(auth).whenComplete(() {
+    operation = Future<void>.microtask(() => _refreshStoredSession(auth)).whenComplete(() {
       if (identical(_backgroundRestore, operation)) _backgroundRestore = null;
     });
     _backgroundRestore = operation;
@@ -98,9 +107,10 @@ final class AuthController extends AsyncNotifier<AuthSnapshot> {
   }
 
   Future<void> _refreshStoredSession(AuthPort auth) async {
+    final revision = _authRevision;
     try {
       final refreshed = await auth.restore();
-      state = AsyncData(refreshed);
+      if (revision == _authRevision) state = AsyncData(refreshed);
     } catch (_) {
       // The locally verified identity and offline code remain available.
     }

@@ -1,4 +1,5 @@
 import '../money_fen.dart';
+import 'payment_models.dart';
 
 enum ScanSuccessKind { payment, attendance, openDevice, bindTray, unknown }
 
@@ -7,7 +8,8 @@ sealed class ScanPaymentResult {
 }
 
 final class ScanPasswordRequired extends ScanPaymentResult {
-  const ScanPasswordRequired({required this.serverQrCode});
+  const ScanPasswordRequired({required this.serverQrCode, this.context});
+  final PaymentRequestContext? context;
   final String serverQrCode;
 }
 
@@ -39,6 +41,7 @@ final class ScanFlowState {
   const ScanFlowState({
     required this.phase,
     this.pendingServerQrCode,
+    this.pendingContext,
     this.success,
     this.message,
   });
@@ -46,11 +49,13 @@ final class ScanFlowState {
   const ScanFlowState.idle()
       : phase = ScanFlowPhase.idle,
         pendingServerQrCode = null,
+        pendingContext = null,
         success = null,
         message = null;
 
   final ScanFlowPhase phase;
   final String? pendingServerQrCode;
+  final PaymentRequestContext? pendingContext;
   final ScanSucceeded? success;
   final String? message;
 }

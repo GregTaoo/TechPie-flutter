@@ -21,6 +21,7 @@ final class ScanPaymentController {
   ScanFlowState _state = const ScanFlowState.idle();
   bool _submitting = false;
   bool _disposed = false;
+  int _epoch = 0;
 
   ScanFlowState get state => _state;
   Stream<ScanFlowState> get states => _states.stream;
@@ -36,6 +37,7 @@ final class ScanPaymentController {
         ScanFlowState(
           phase: ScanFlowPhase.passwordRequired,
           pendingServerQrCode: _state.pendingServerQrCode,
+          pendingContext: _state.pendingContext,
           message: '请输入 6 位数字消费密码。',
         ),
       );
@@ -71,6 +73,7 @@ final class ScanPaymentController {
         ScanFlowState(
           phase: ScanFlowPhase.passwordRequired,
           pendingServerQrCode: _state.pendingServerQrCode,
+          pendingContext: _state.pendingContext,
           message: '请输入 6 位数字消费密码。',
         ),
       );
@@ -93,19 +96,24 @@ final class ScanPaymentController {
   Future<void> _submit(String qrCode, {required String? password}) async {
     if (_disposed || _submitting) return;
     _submitting = true;
+    final epoch = ++_epoch;
+    final context = password == null ? null : _state.pendingContext;
     _emit(const ScanFlowState(phase: ScanFlowPhase.submitting));
     try {
       final result = await _repository.submit(
         qrCode: qrCode,
         payTime: _clock.now(),
         password: password,
+        context: context,
       );
+      if (_disposed || epoch != _epoch) return;
       switch (result) {
-        case ScanPasswordRequired(:final serverQrCode):
+        case ScanPasswordRequired(:final serverQrCode, :final context):
           _emit(
             ScanFlowState(
               phase: ScanFlowPhase.passwordRequired,
               pendingServerQrCode: serverQrCode,
+              pendingContext: context,
             ),
           );
         case ScanSucceeded():
@@ -114,6 +122,7 @@ final class ScanPaymentController {
           _emit(ScanFlowState(phase: ScanFlowPhase.failed, message: message));
       }
     } on AppFailure catch (failure) {
+      if (_disposed || epoch != _epoch) return;
       _emit(
         ScanFlowState(
           phase: ScanFlowPhase.failed,
@@ -121,6 +130,7 @@ final class ScanPaymentController {
         ),
       );
     } catch (_) {
+      if (_disposed || epoch != _epoch) return;
       _emit(
         const ScanFlowState(
           phase: ScanFlowPhase.failed,
@@ -132,10 +142,14 @@ final class ScanPaymentController {
     }
   }
 
-  void reset() => _emit(const ScanFlowState.idle());
+  void reset() {
+    _epoch++;
+    _emit(const ScanFlowState.idle());
+  }
 
   Future<void> dispose() async {
     _disposed = true;
+    _epoch++;
     await _states.close();
   }
 
