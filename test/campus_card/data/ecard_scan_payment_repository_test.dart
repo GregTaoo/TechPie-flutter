@@ -4,8 +4,55 @@ import 'package:techpie/features/campus_card/domain/models/scan_models.dart';
 import 'package:techpie/features/campus_card/domain/money_fen.dart';
 
 import '../support/fake_ecard_transport.dart';
+import '../support/scan_password_challenge.dart';
 
 void main() {
+  test('recognizes inputPass with a nested server QR and no issuccess',
+      () async {
+    final transport = FakeEcardTransport()
+      ..enqueue('POST', '/scan/scanningResult', scanPasswordChallenge);
+    final result = await EcardScanPaymentRepository(transport)
+        .submit(qrCode: 'CLIENT-CODE', payTime: DateTime.utc(2026, 9, 9));
+    expect(result, isA<ScanPasswordRequired>());
+    expect(
+      (result as ScanPasswordRequired).serverQrCode,
+      'SYNTHETIC%20SERVER-QR',
+    );
+  });
+
+  test('inputPass without a retry QR cannot submit the original scan again',
+      () async {
+    final transport = FakeEcardTransport()
+      ..enqueue('POST', '/scan/scanningResult', {
+        ...scanPasswordChallenge,
+        'data': <String, Object?>{},
+      });
+    final result = await EcardScanPaymentRepository(transport)
+        .submit(qrCode: 'CLIENT-CODE', payTime: DateTime.utc(2026, 9, 9));
+    expect(result, isA<ScanFailed>());
+    expect((result as ScanFailed).code, 'SCAN_PASSWORD_QR_MISSING');
+  });
+
+  test('a failure destination after password submission is never success',
+      () async {
+    for (final status in [null, '1']) {
+      final transport = FakeEcardTransport()
+        ..enqueue('POST', '/scan/scanningResult', {
+          'success': true,
+          if (status != null) 'issuccess': status,
+          'data': <String, Object?>{},
+          'message': '二维码已使用请刷新重试',
+          'url': '/pages/common/fail/fail',
+        });
+      final result = await EcardScanPaymentRepository(transport).submit(
+        qrCode: 'SYNTHETIC%20SERVER-QR',
+        payTime: DateTime.utc(2026, 9, 9),
+        password: '111222',
+      );
+      expect(result, isA<ScanFailed>());
+    }
+  });
+
   test(
     'requires and preserves the server-returned QR for password retry',
     () async {

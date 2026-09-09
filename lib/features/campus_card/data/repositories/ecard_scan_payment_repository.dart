@@ -8,6 +8,11 @@ final class EcardScanPaymentRepository implements ScanPaymentRepository {
 
   final EcardTransport _client;
 
+  static const _successResultPaths = {
+    '/pages/common/success/success',
+    '/pages/common/paysuccess/paysuccess',
+  };
+
   @override
   Future<ScanPaymentResult> submit({
     required String qrCode,
@@ -25,9 +30,18 @@ final class EcardScanPaymentRepository implements ScanPaymentRepository {
       context: 'SCAN_PAYMENT',
     );
     final status = response['issuccess']?.toString();
-    if (status == '2004') {
-      final serverQrCode = response['qrcode']?.toString() ?? '';
-      if (serverQrCode.isEmpty) {
+    final data = response['data'] is Map
+        ? requireObjectMap(response['data'], context: 'SCAN_PAYMENT_DATA')
+        : const <String, Object?>{};
+    final resultUrl = response['url']?.toString().trim() ?? '';
+    final resultPath = Uri.tryParse(resultUrl)?.path;
+    if (status == '2004' ||
+        (apiSuccess(response) &&
+            !apiRejected(data) &&
+            resultPath == '/pages/common/inputPass/inputPass')) {
+      final serverQrCode =
+          (data['qrcode'] ?? response['qrcode'])?.toString() ?? '';
+      if (serverQrCode.trim().isEmpty) {
         return const ScanFailed(
           message: '服务未返回密码重试所需的付款码。',
           code: 'SCAN_PASSWORD_QR_MISSING',
@@ -35,9 +49,10 @@ final class EcardScanPaymentRepository implements ScanPaymentRepository {
       }
       return ScanPasswordRequired(serverQrCode: serverQrCode);
     }
-    final resultUrl = response['url']?.toString().trim() ?? '';
     if (apiSuccess(response) &&
-        (status == '1' || (password != null && resultUrl.isNotEmpty))) {
+        !apiRejected(data) &&
+        ((status == '1' && resultUrl.isEmpty) ||
+            _successResultPaths.contains(resultPath))) {
       final resultData = response['resultData'] is Map
           ? requireObjectMap(
               response['resultData'],

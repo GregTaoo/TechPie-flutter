@@ -10,12 +10,74 @@ import 'package:techpie/features/campus_card/app/app_runtime.dart';
 import 'package:techpie/features/campus_card/app/demo_runtime_factory.dart';
 import 'package:techpie/features/campus_card/core/config/scan_payment_preferences.dart';
 import 'package:techpie/features/campus_card/data/mock/in_memory_ports.dart';
+import 'package:techpie/features/campus_card/data/repositories/ecard_scan_payment_repository.dart';
 import 'package:techpie/features/campus_card/domain/models/scan_models.dart';
 import 'package:techpie/features/campus_card/domain/ports/payment_ports.dart';
 import 'package:techpie/features/campus_card/presentation/scanner/scan_result_content.dart';
 import 'package:techpie/features/campus_card/presentation/scanner/scanner_modal.dart';
+import 'package:techpie/features/campus_card/presentation/scanner/six_digit_password_panel.dart';
+
+import '../support/fake_ecard_transport.dart';
+import '../support/scan_password_challenge.dart';
 
 void main() {
+  testWidgets(
+      'captured limit challenge opens password panel and retries server QR',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final transport = FakeEcardTransport()
+      ..enqueue('POST', '/scan/scanningResult', scanPasswordChallenge)
+      ..enqueue('POST', '/scan/scanningResult', {
+        'success': true,
+        'url': '/pages/common/paysuccess/paysuccess',
+        'txamt': 880,
+      });
+    final scanner = InMemoryScannerPort();
+    final (base, runtime) = await _scannerRuntime(
+      scanner,
+      scanPayments: EcardScanPaymentRepository(transport),
+    );
+    addTearDown(base.dispose);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [appRuntimeProvider.overrideWithValue(runtime)],
+        child: MaterialApp(home: ScannerModal(onClose: () {})),
+      ),
+    );
+    await tester.pumpAndSettle();
+    scanner.emit('SYNTHETIC-CLIENT-QR');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('继续'));
+    await tester.pumpAndSettle();
+    expect(find.byType(SixDigitPasswordPanel), findsOneWidget);
+    expect(scanner.running, isFalse);
+    expect(transport.requests, hasLength(1));
+    for (final digit in ['1', '2', '3', '4', '5', '6']) {
+      await tester.tap(
+        find.descendant(
+          of: find.byType(SixDigitPasswordPanel),
+          matching: find.text(digit),
+        ),
+      );
+      await tester.pump();
+    }
+    await tester.pumpAndSettle();
+    expect(transport.requests, hasLength(2));
+    expect(transport.requests.last.data['qrcode'], 'SYNTHETIC SERVER-QR');
+    expect(transport.requests.last.data['password'], '123456');
+    expect(find.byType(SixDigitPasswordPanel), findsNothing);
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(ScannerModal)),
+    );
+    expect(
+      container.read(scanPaymentControllerProvider).phase,
+      ScanFlowPhase.succeeded,
+    );
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
+
   test('rebuilding scanner transitions does not retain status listeners', () {
     final animation = _CountingAnimation();
     for (var i = 0; i < 20; i++) {
