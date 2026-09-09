@@ -61,7 +61,7 @@ Future<void> _realMain(SharedPreferences prefs) async {
   final uniAuthService = UniAuthService();
   final authService = AuthService(storageService, httpClient, uniAuthService);
   final themeService = ThemeService(storageService);
-  final campusCardService = CampusCardService(debugLogger: debugLogger);
+  final campusCardService = CampusCardService(debugLogger: debugLogger, storage: storageService);
   final ecardWidgetService = EcardWidgetService();
   if (isIos() || isAndroid()) ecardWidgetService.initialize();
   final thirdPartyAuthService = ThirdPartyAuthService(
@@ -87,7 +87,8 @@ Future<void> _realMain(SharedPreferences prefs) async {
     scheduleService,
   );
   final syncService =
-      SyncService(authService, thirdPartyAuthService, storageService);
+      SyncService(authService, thirdPartyAuthService, storageService, ecard: campusCardService);
+  campusCardService.onBindingChanged = syncService.forcePush;
 
   authService.onLogout = () async {
     // Third-party bindings persist across logouts — they will be used by the

@@ -53,6 +53,10 @@ void main() {
     expect(auth.signInCalls, 1);
     expect(await service.readOpenId(), openId);
     expect(service.configured, isTrue);
+    await service.connect(openId, channel: EcardOpenIdChannel.alipay);
+    expect(await sessionStore.readOpenIdChannel(), EcardOpenIdChannel.alipay);
+    expect(service.openIdChannel, EcardOpenIdChannel.alipay);
+    expect((await service.readSyncBinding())!.channel, EcardOpenIdChannel.alipay);
   });
 }
 
@@ -81,7 +85,7 @@ final class _VerifyingAuthPort implements AuthPort, OpenIdAuthVerifier {
   @override
   Future<AuthSnapshot> signIn(AuthCredential credential) async {
     final openIdCredential = credential as OpenIdAuthCredential;
-    await verifyOpenId(openIdCredential.openId);
+    await verifyOpenId(openIdCredential.openId, channel: openIdCredential.channel);
     signInCalls += 1;
     await _sessionStore.writeSession(
       sessionCookie: 'JSESSIONID=synthetic',
@@ -89,6 +93,7 @@ final class _VerifyingAuthPort implements AuthPort, OpenIdAuthVerifier {
       orgId: '2',
       verifiedIdSerial: 'SYNTHETIC-STUDENT',
       verifiedCardId: 'SYNTHETIC-CARD',
+      channel: openIdCredential.channel,
     );
     final snapshot = _authenticated(openIdCredential.openId);
     _changes.add(snapshot);

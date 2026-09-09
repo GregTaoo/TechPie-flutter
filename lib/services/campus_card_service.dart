@@ -1,17 +1,25 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
 import '../features/campus_card/app/app_runtime.dart';
 import '../features/campus_card/app/real_runtime_factory.dart';
+import '../features/campus_card/core/async_mutex.dart';
 import '../features/campus_card/core/config/app_environment.dart';
 import '../features/campus_card/core/errors/core_error_catalog.dart';
+import '../features/campus_card/data/auth/ecard_openid_auth_port.dart';
+import '../features/campus_card/data/auth/geekpie_ecard_session_issuer.dart';
 import '../features/campus_card/data/storage/flutter_secure_credential_store.dart';
 import '../features/campus_card/domain/models/auth_models.dart';
 import '../features/campus_card/domain/ports/auth_port.dart';
 import '../features/campus_card/domain/ports/credential_store.dart';
+import '../models/ecard_sync_binding.dart';
+import 'api_base_url.dart';
 import 'campus_card_http_trace.dart';
 import 'debug_logger.dart';
+import 'storage_service.dart';
 
 typedef CampusCardRuntimeFactory = AppRuntime Function();
 
@@ -20,22 +28,29 @@ typedef CampusCardRuntimeFactory = AppRuntime Function();
 /// TechPie keeps this service alive for the process lifetime so camera,
 /// connectivity, and authentication adapters are not recreated for every
 /// page visit. Only presentation state is rebuilt when a route is opened.
-final class CampusCardService extends ChangeNotifier {
-  CampusCardService({DebugLogger? debugLogger})
+final class CampusCardService extends ChangeNotifier implements EcardSyncStore {
+  CampusCardService({DebugLogger? debugLogger, StorageService? storage})
       : this.withStore(
           FlutterSecureCredentialStore(),
           debugLogger: debugLogger,
+          storage: storage,
         );
 
   CampusCardService.withStore(
     SecureCredentialStore secureStore, {
     CampusCardRuntimeFactory? runtimeFactory,
     DebugLogger? debugLogger,
-  })  : _sessionStore = SecureSessionCredentialStore(secureStore),
+    StorageService? storage,
+  })  : _secureStore = secureStore,
+        _storage = storage,
+        _sessionStore = SecureSessionCredentialStore(secureStore),
         _runtime = runtimeFactory?.call() ??
             buildRealRuntime(
               AppEnvironment.production,
               secureCredentialStore: secureStore,
+              sessionIssuer: GeekPieEcardSessionIssuer(endpoint: () => Uri.parse(
+                '${storage == null ? prodApiBaseUrl : apiBaseUrl(storage)}/auth/third-party/ecard',
+              ),),
               httpTrace:
                   debugLogger == null ? null : campusCardHttpTrace(debugLogger),
             ) {
@@ -45,11 +60,82 @@ final class CampusCardService extends ChangeNotifier {
     });
   }
 
+  final SecureCredentialStore _secureStore;
+  final StorageService? _storage;
+  final _bindingMutex = AsyncMutex();
+  static const _bindingKey = 'geekpay.auth.sync.binding';
+  Future<void> Function()? onBindingChanged;
+
+  Future<String> _syncDeviceId() async {
+    if (_storage != null) return _storage.ensureDeviceId();
+    const key = 'geekpay.auth.sync.device';
+    final existing = await _secureStore.read(key);
+    if (existing != null) return existing;
+    final random = Random.secure();
+    final value = List.generate(16, (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0')).join();
+    await _secureStore.write(key, value);
+    return value;
+  }
+
+  @override
+  Future<EcardSyncBinding?> readSyncBinding() async {
+    final raw = await _secureStore.read(_bindingKey);
+    if (raw != null) {
+      try {
+        final binding = EcardSyncBinding.fromJson(jsonDecode(raw));
+        if (binding != null) return binding;
+      } on FormatException {
+        // Rebuild optional sync metadata from the authoritative local parameter.
+      }
+    }
+    final openId = await _sessionStore.readOpenId();
+    if (openId == null) return null;
+    // Migration does not make an old local binding newer than a remote edit.
+    final binding = EcardSyncBinding(openId: openId, channel: await _sessionStore.readOpenIdChannel(), updatedAt: DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
+      deviceId: await _syncDeviceId(),);
+    await _secureStore.write(_bindingKey, jsonEncode(binding.toJson()));
+    return binding;
+  }
+
+  Future<void> _recordBinding(String? openId) async {
+    final previous = await readSyncBinding();
+    var now = DateTime.now().toUtc();
+    if (previous != null && !now.isAfter(previous.updatedAt)) {
+      now = previous.updatedAt.add(const Duration(microseconds: 1));
+    }
+    final binding = EcardSyncBinding(openId: openId, channel: await _sessionStore.readOpenIdChannel(), updatedAt: now, deviceId: await _syncDeviceId());
+    await _secureStore.write(_bindingKey, jsonEncode(binding.toJson()));
+    // Sync failures do not undo a successful local account change.
+    try { await onBindingChanged?.call(); } catch (_) {}
+  }
+
+  @override
+  Future<void> applySyncBinding(EcardSyncBinding? binding) => _bindingMutex.protect(() async {
+    if (binding == null) return;
+    final local = await readSyncBinding();
+    final winner = binding.merge(local);
+    if (local != null && jsonEncode(local.toJson()) == jsonEncode(winner.toJson())) return;
+    final currentOpenId = await _sessionStore.readOpenId();
+    if (currentOpenId != winner.openId || await _sessionStore.readOpenIdChannel() != winner.channel) {
+      if (winner.openId == null) {
+        await _runtime.auth.signOut();
+      } else {
+        final auth = _runtime.auth;
+        if (auth is! EcardOpenIdAuthPort) throw StateError('eCard sync requires the real auth adapter');
+        await auth.importOpenId(winner.openId!, channel: winner.channel);
+      }
+    }
+    await _secureStore.write(_bindingKey, jsonEncode(winner.toJson()));
+    await refreshAccount();
+  });
+
   final SecureSessionCredentialStore _sessionStore;
   final AppRuntime _runtime;
 
   StreamSubscription<AuthSnapshot>? _authSubscription;
   String? _maskedOpenId;
+  EcardOpenIdChannel _channel = EcardOpenIdChannel.wechat;
+  EcardOpenIdChannel get openIdChannel => _channel;
   bool _busy = false;
   Object? _lastError;
 
@@ -62,15 +148,18 @@ final class CampusCardService extends ChangeNotifier {
   Future<void> refreshAccount() async {
     final openId = await _sessionStore.readOpenId();
     final masked = _maskOpenId(openId);
-    if (_maskedOpenId == masked) return;
+    final channel = await _sessionStore.readOpenIdChannel();
+    if (_maskedOpenId == masked && _channel == channel) return;
+    _channel = channel;
     _maskedOpenId = masked;
     notifyListeners();
   }
 
   Future<String?> readOpenId() => _sessionStore.readOpenId();
+  Future<EcardOpenIdChannel> readOpenIdChannel() => _sessionStore.readOpenIdChannel();
 
-  Future<void> verifyOpenId(String openId) async {
-    final credential = OpenIdAuthCredential(openId: openId.trim());
+  Future<void> verifyOpenId(String openId, {EcardOpenIdChannel channel = EcardOpenIdChannel.wechat}) async {
+    final credential = OpenIdAuthCredential(openId: openId.trim(), channel: channel);
     credential.validate();
     _setBusy(true);
     _lastError = null;
@@ -79,7 +168,7 @@ final class CampusCardService extends ChangeNotifier {
       if (auth is! OpenIdAuthVerifier) {
         throw StateError('The active eCard runtime cannot verify OPENID');
       }
-      await (auth as OpenIdAuthVerifier).verifyOpenId(credential.openId);
+      await (auth as OpenIdAuthVerifier).verifyOpenId(credential.openId, channel: credential.channel);
     } catch (error) {
       _lastError = error;
       rethrow;
@@ -88,14 +177,17 @@ final class CampusCardService extends ChangeNotifier {
     }
   }
 
-  Future<void> connect(String openId) async {
-    final credential = OpenIdAuthCredential(openId: openId.trim());
+  Future<void> connect(String openId, {EcardOpenIdChannel channel = EcardOpenIdChannel.wechat}) => _bindingMutex.protect(() => _connect(openId, channel));
+
+  Future<void> _connect(String openId, EcardOpenIdChannel channel) async {
+    final credential = OpenIdAuthCredential(openId: openId.trim(), channel: channel);
     credential.validate();
     _setBusy(true);
     _lastError = null;
     try {
       await _runtime.auth.signIn(credential);
       await refreshAccount();
+      await _recordBinding(credential.openId);
     } catch (error) {
       _lastError = error;
       rethrow;
@@ -104,12 +196,15 @@ final class CampusCardService extends ChangeNotifier {
     }
   }
 
-  Future<void> disconnect() async {
+  Future<void> disconnect() => _bindingMutex.protect(_disconnect);
+
+  Future<void> _disconnect() async {
     _setBusy(true);
     _lastError = null;
     try {
       await _runtime.auth.signOut();
       await refreshAccount();
+      await _recordBinding(null);
     } catch (error) {
       _lastError = error;
       rethrow;
