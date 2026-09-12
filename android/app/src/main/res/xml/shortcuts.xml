@@ -8,8 +8,8 @@
         android:shortcutLongLabel="@string/ecard_shortcut_open">
         <intent
             android:action="android.intent.action.VIEW"
-            android:targetPackage="com.example.techpie"
-            android:targetClass="com.example.techpie.MainActivity"
+            android:targetPackage="club.geekpie.techpie"
+            android:targetClass="club.geekpie.techpie.MainActivity"
             android:data="techpie://ecard/pay" />
     </shortcut>
 </shortcuts>

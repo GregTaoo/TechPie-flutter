@@ -1,4 +1,4 @@
-package com.example.techpie
+package club.geekpie.techpie
 
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager

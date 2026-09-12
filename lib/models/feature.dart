@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../features/campus_card/app/app_providers.dart';
 import '../pages/campus_card_page.dart';
+import '../pages/elrc_recordings_page.dart';
 import '../pages/oa_gym_page.dart';
 import '../widgets/adaptive_page_navigation.dart';
 
@@ -37,6 +38,16 @@ class Feature {
 }
 
 final featureEntries = <Feature>[
+  Feature(
+    id: 'elrc_recordings',
+    description: '课程录播',
+    mode: FeatureMode.native,
+    nativeEntry: (context) => pushAdaptivePage<void>(
+      context,
+      builder: (_) => const ElrcRecordingsPage(),
+    ),
+    icon: const Icon(Icons.video_library_outlined),
+  ),
   Feature(
     id: 'ecourse',
     description: 'E云课堂',
