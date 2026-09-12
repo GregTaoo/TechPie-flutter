@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,6 +11,53 @@ import 'package:techpie/features/campus_card/platform/system_ports.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  testWidgets('a missing native haptic reply cannot block navigation',
+      (tester) async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final pending = Completer<void>();
+    messenger.setMockMethodCallHandler(
+        SystemChannels.platform, (_) => pending.future,);
+    addTearDown(() {
+      messenger.setMockMethodCallHandler(SystemChannels.platform, null);
+      pending.complete();
+    });
+    var completed = false;
+    final feedback = SystemFeedbackPort()
+        .play(FeedbackEvent.selection)
+        .then((_) => completed = true);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(completed, isTrue);
+    await feedback;
+  });
+
+  for (final platform
+      in TargetPlatform.values.where((value) => value.name == 'ohos')) {
+    test(
+        'OHOS reports real connectivity and does not treat channel failures as online',
+        () async {
+      debugDefaultTargetPlatformOverride = platform;
+      const channel = MethodChannel('techpie/campus_card');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      addTearDown(() {
+        debugDefaultTargetPlatformOverride = null;
+        messenger.setMockMethodCallHandler(channel, null);
+      });
+      var online = false;
+      messenger.setMockMethodCallHandler(channel, (_) async => online);
+      final port = SystemConnectivityPort();
+      expect(await port.isOnline(), isFalse);
+      online = true;
+      expect(await port.isOnline(), isTrue);
+      messenger.setMockMethodCallHandler(channel, (_) async {
+        throw PlatformException(code: 'NETWORK_STATE_FAILED');
+      });
+      expect(await port.isOnline(), isFalse);
+    });
+  }
 
   for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
     test('$platform schedules success sound and vibration in one native call',

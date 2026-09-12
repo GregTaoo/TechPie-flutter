@@ -1,5 +1,8 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
@@ -7,9 +10,9 @@ import '../../core/async_mutex.dart';
 import '../../core/errors/app_failure.dart';
 import '../../domain/ports/platform_ports.dart';
 
-/// iOS/Android scanner adapter. Presentation may use [controller] only to
-/// attach the plugin-owned camera preview; all operations remain behind
-/// [ScannerPort]. A future OHOS adapter replaces this class as a unit.
+/// Shared scanner controller for iOS, Android and the OHOS platform adapter.
+/// Presentation uses [controller] only to attach the plugin-owned camera
+/// preview; all scanning operations remain behind [ScannerPort].
 final class MobileScannerSession implements ScannerPort {
   MobileScannerSession({
     MobileScannerController? controller,
@@ -54,6 +57,10 @@ final class MobileScannerSession implements ScannerPort {
     if (_running) return;
     try {
       await controller.start();
+      // mobile_scanner records startup failures in its value without throwing.
+      // Do not mark a failed camera as running or suppress the next retry.
+      final error = controller.value.error;
+      if (error != null) throw error;
       _running = true;
     } on MobileScannerException catch (error) {
       throw AppFailure(
@@ -92,9 +99,12 @@ final class MobileScannerSession implements ScannerPort {
   @override
   Future<String?> scanImage() async {
     _ensureActive();
-    final image = await _imagePicker.pickImage(source: ImageSource.gallery);
-    if (image == null) return null;
-    final capture = await controller.analyzeImage(image.path);
+    final path = defaultTargetPlatform.name == 'ohos'
+        ? await const MethodChannel('techpie/campus_card')
+            .invokeMethod<String>('pickImage')
+        : (await _imagePicker.pickImage(source: ImageSource.gallery))?.path;
+    if (path == null) return null;
+    final capture = await controller.analyzeImage(path);
     return _firstValue(capture);
   }
 

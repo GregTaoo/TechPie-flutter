@@ -11,6 +11,10 @@
     {
       "name": "EntryAbility_label",
       "value": "TechPie"
+    },
+    {
+      "name": "campus_card_camera_reason",
+      "value": "用于扫描校园卡付款二维码"
     }
   ]
 }

@@ -35,6 +35,13 @@
     ],
     "requestPermissions": [
       {"name" :  "ohos.permission.INTERNET"},
+      {"name": "ohos.permission.GET_NETWORK_INFO"},
+      {"name": "ohos.permission.VIBRATE"},
+      {
+        "name": "ohos.permission.CAMERA",
+        "reason": "$string:campus_card_camera_reason",
+        "usedScene": {"abilities": ["EntryAbility"], "when": "inuse"}
+      },
     ]
   }
 }

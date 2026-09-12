@@ -42,7 +42,9 @@ final class SystemFeedbackPort implements FeedbackPort {
           'event': event.name,
           'sound': options.sound,
           'vibration': options.vibration,
-        });
+        }).timeout(const Duration(milliseconds: 300));
+        return;
+      } on TimeoutException {
         return;
       } on MissingPluginException {
         // Unsupported hosts retain the existing system vibration fallback.
@@ -54,26 +56,38 @@ final class SystemFeedbackPort implements FeedbackPort {
     try {
       switch (event) {
         case FeedbackEvent.selection:
-          await HapticFeedback.selectionClick();
+          await HapticFeedback.selectionClick()
+              .timeout(const Duration(milliseconds: 300));
         case FeedbackEvent.lightImpact:
-          await HapticFeedback.lightImpact();
+          await HapticFeedback.lightImpact()
+              .timeout(const Duration(milliseconds: 300));
         case FeedbackEvent.mediumImpact:
-          await HapticFeedback.mediumImpact();
+          await HapticFeedback.mediumImpact()
+              .timeout(const Duration(milliseconds: 300));
         case FeedbackEvent.warning:
         case FeedbackEvent.networkDisconnected:
-          await HapticFeedback.mediumImpact();
+          await HapticFeedback.mediumImpact()
+              .timeout(const Duration(milliseconds: 300));
           await Future<void>.delayed(const Duration(milliseconds: 90));
-          await HapticFeedback.mediumImpact();
+          await HapticFeedback.mediumImpact()
+              .timeout(const Duration(milliseconds: 300));
         case FeedbackEvent.success:
         case FeedbackEvent.paymentSuccess:
-          await HapticFeedback.heavyImpact();
+          await HapticFeedback.heavyImpact()
+              .timeout(const Duration(milliseconds: 300));
           await Future<void>.delayed(const Duration(milliseconds: 85));
-          await HapticFeedback.mediumImpact();
+          await HapticFeedback.mediumImpact()
+              .timeout(const Duration(milliseconds: 300));
         case FeedbackEvent.error:
-          await HapticFeedback.heavyImpact();
+          await HapticFeedback.heavyImpact()
+              .timeout(const Duration(milliseconds: 300));
           await Future<void>.delayed(const Duration(milliseconds: 70));
-          await HapticFeedback.heavyImpact();
+          await HapticFeedback.heavyImpact()
+              .timeout(const Duration(milliseconds: 300));
       }
+    } on TimeoutException {
+      // Some OHOS engines omit the reply when vibration fails. Feedback must
+      // not hold navigation or a confirmed payment in a pending state.
     } on MissingPluginException {
       // Optional system feedback is unavailable on this host.
     } on PlatformException {
@@ -122,6 +136,10 @@ final class SystemConnectivityPort implements ConnectivityPort {
 
   final Connectivity _connectivity;
 
+  bool get _isOhos => !kIsWeb && defaultTargetPlatform.name == 'ohos';
+  static const _ohosMethod = MethodChannel('techpie/campus_card');
+  static const _ohosEvents = EventChannel('techpie/campus_card/connectivity');
+
   bool get _pluginSupported =>
       kIsWeb ||
       defaultTargetPlatform == TargetPlatform.android ||
@@ -132,6 +150,15 @@ final class SystemConnectivityPort implements ConnectivityPort {
 
   @override
   Future<bool> isOnline() async {
+    if (_isOhos) {
+      try {
+        return await _ohosMethod.invokeMethod<bool>('isOnline') ?? false;
+      } on PlatformException {
+        return false;
+      } on MissingPluginException {
+        return false;
+      }
+    }
     if (!_pluginSupported) return true;
     try {
       return _hasNetwork(await _connectivity.checkConnectivity());
@@ -144,8 +171,23 @@ final class SystemConnectivityPort implements ConnectivityPort {
 
   @override
   Stream<bool> get changes {
+    if (_isOhos) {
+      return _ohosConnectivityChanges().distinct();
+    }
     if (!_pluginSupported) return Stream<bool>.value(true);
     return _connectivityChanges();
+  }
+
+  Stream<bool> _ohosConnectivityChanges() async* {
+    try {
+      await for (final event in _ohosEvents.receiveBroadcastStream()) {
+        yield event == true;
+      }
+    } on PlatformException {
+      yield false;
+    } on MissingPluginException {
+      yield false;
+    }
   }
 
   Stream<bool> _connectivityChanges() async* {
