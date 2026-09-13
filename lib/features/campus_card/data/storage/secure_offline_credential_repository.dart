@@ -133,6 +133,14 @@ final class SecureOfflineCredentialRepository
             code: 'OFFLINE_CREDENTIAL_MISSING',
           );
         }
+        if (authorization.publicKeyCompressed !=
+            bundle.authorization.publicKeyCompressed) {
+          throw const AppFailure(
+            FailureKind.cancelled,
+            '离线付款授权已更新，请重试。',
+            code: 'OFFLINE_CREDENTIAL_CHANGED',
+          );
+        }
         if (authorization.used < bundle.authorization.used && !resetUsage) {
           throw const AppFailure(
             FailureKind.protocol,

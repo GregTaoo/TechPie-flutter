@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:clock/clock.dart';
 
+import '../core/async_mutex.dart';
 import '../core/errors/app_failure.dart';
 import '../data/api/qr_payload_codec.dart';
 import '../data/crypto/sm2_offline_crypto.dart';
@@ -38,6 +39,8 @@ final class OfflinePaymentService {
   final Duration _transientRetryDelay;
   final Map<String, Future<OfflineAuthorization>> _activations = {};
   final Map<String, Future<OfflineAuthorization>> _renewals = {};
+  final _credentialChanges = AsyncMutex();
+  int _removalGeneration = 0;
   final _changes = StreamController<void>.broadcast();
   Stream<void> get changes => _changes.stream;
 
@@ -130,6 +133,7 @@ final class OfflinePaymentService {
   }
 
   Future<OfflineAuthorization> _activate(String cardId) async {
+    final generation = _removalGeneration;
     final deviceCode = await _requireDeviceCode();
     final keyPair = _crypto.generateKeyPair();
     final request = OfflineActivationRequest(
@@ -154,10 +158,19 @@ final class OfflinePaymentService {
       expiresOn: response.expiresOn,
     );
     await response.validateContext?.call();
-    Future<void> install() => _credentials.install(
-      authorization: authorization,
-      privateKeyHex: keyPair.privateKeyHex,
-    );
+    Future<void> install() => _credentialChanges.protect(() async {
+      if (generation != _removalGeneration) {
+        throw const AppFailure(
+          FailureKind.cancelled,
+          '离线付款授权已移除，请重新开通。',
+          code: 'OFFLINE_ACTIVATION_CANCELLED',
+        );
+      }
+      await _credentials.install(
+        authorization: authorization,
+        privateKeyHex: keyPair.privateKeyHex,
+      );
+    });
     await (response.commitInSession?.call(install) ?? install());
     await response.validateContext?.call();
     if (!_changes.isClosed) _changes.add(null);
@@ -263,6 +276,28 @@ final class OfflinePaymentService {
       cardId,
       deviceCode: deviceCode,
     );
+    final current = await _credentials.read(cardId, deviceCode: deviceCode);
+    if (current == null ||
+        view.authorization?.publicKeyCompressed != reserved.publicKeyCompressed ||
+        current.publicKeyCompressed != reserved.publicKeyCompressed ||
+        current.authorInfo != reserved.authorInfo ||
+        current.updatedAt != reserved.updatedAt ||
+        await _credentials.readPrivateKey(cardId, deviceCode: deviceCode) !=
+            privateKey ||
+        await _deviceCodeReader() != deviceCode) {
+      throw const AppFailure(
+        FailureKind.cancelled,
+        '离线付款授权已更新，请重试。',
+        code: 'OFFLINE_CREDENTIAL_CHANGED',
+      );
+    }
+    if (_isExpired(reserved.expiresOn)) {
+      throw const AppFailure(
+        FailureKind.offlineAuthorizationExpired,
+        '离线付款授权已过期，请联网续期。',
+        code: 'OFFLINE_AUTHORIZATION_EXPIRED',
+      );
+    }
     final generatedAt = _clock.now().toUtc();
     final hex = _crypto.buildOfflineQrHex(
       authorInfo: reserved.authorInfo,
@@ -279,14 +314,18 @@ final class OfflinePaymentService {
   }
 
   Future<void> removeFromThisDevice(String cardId) async {
+    _removalGeneration++;
     final deviceCode = await _requireDeviceCode();
-    await _credentials.read(cardId, deviceCode: deviceCode);
-    await _credentials.remove(cardId);
+    await _credentialChanges.protect(() async {
+      await _credentials.read(cardId, deviceCode: deviceCode);
+      await _credentials.remove(cardId);
+    });
     if (!_changes.isClosed) _changes.add(null);
   }
 
   Future<void> removeAllFromThisDevice() async {
-    await _credentials.removeAll();
+    _removalGeneration++;
+    await _credentialChanges.protect(_credentials.removeAll);
     if (!_changes.isClosed) _changes.add(null);
   }
 
