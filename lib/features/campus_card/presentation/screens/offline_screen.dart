@@ -147,6 +147,7 @@ final class _AuthorizationBody extends ConsumerWidget {
                             .read(appRuntimeProvider)
                             .feedback
                             .play(FeedbackEvent.selection);
+                        if (!context.mounted) return;
                         await ref
                             .read(offlineAuthorizationProvider(cardId).notifier)
                             .renew();
@@ -199,7 +200,7 @@ final class _AuthorizationBody extends ConsumerWidget {
         ],
       ),
     );
-    if (accepted == true) {
+    if (accepted == true && context.mounted) {
       await ref
           .read(offlineAuthorizationProvider(cardId).notifier)
           .removeFromDevice();
@@ -214,6 +215,7 @@ final class _AuthorizationBody extends ConsumerWidget {
     try {
       await action();
     } catch (error) {
+      if (!context.mounted) return;
       await ref.read(appRuntimeProvider).feedback.play(FeedbackEvent.error);
       if (!context.mounted) return;
       await showAdaptiveDialog<void>(

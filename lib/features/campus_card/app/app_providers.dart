@@ -51,13 +51,17 @@ final authControllerProvider =
 final class AuthController extends AsyncNotifier<AuthSnapshot> {
   Future<void>? _backgroundRestore;
   int _authRevision = 0;
+  int _buildGeneration = 0;
 
   @override
   Future<AuthSnapshot> build() async {
+    final generation = ++_buildGeneration;
+    ref.onDispose(() => _buildGeneration++);
     final runtime = ref.watch(appRuntimeProvider);
     final auth = runtime.auth;
     final initial =
         await auth.restoreLocal().timeout(const Duration(seconds: 10));
+    if (generation != _buildGeneration) return initial;
     final subscription = auth.changes.listen((snapshot) {
       _authRevision++;
       if (snapshot.state == AuthState.signingIn) {
@@ -69,7 +73,10 @@ final class AuthController extends AsyncNotifier<AuthSnapshot> {
       if (previous != null &&
           (previous.session?.subjectId != snapshot.session?.subjectId ||
               previous.session?.generation != snapshot.session?.generation)) {
-        _invalidateAccountProviders();
+        _invalidateAccountProviders(
+          resetOfflineMode:
+              previous.session?.subjectId != snapshot.session?.subjectId,
+        );
       }
       if (snapshot.state == AuthState.authenticated) {
         unawaited(_startBackgroundRestore(auth));
@@ -87,7 +94,11 @@ final class AuthController extends AsyncNotifier<AuthSnapshot> {
       unawaited(connectivitySubscription.cancel());
     });
     if (initial.state == AuthState.authenticated) {
-      Future<void>.delayed(Duration.zero, () => _startBackgroundRestore(auth));
+      Future<void>.delayed(Duration.zero, () {
+        if (generation == _buildGeneration) {
+          unawaited(_startBackgroundRestore(auth));
+        }
+      });
     }
     return initial;
   }
@@ -108,9 +119,12 @@ final class AuthController extends AsyncNotifier<AuthSnapshot> {
 
   Future<void> _refreshStoredSession(AuthPort auth) async {
     final revision = _authRevision;
+    final generation = _buildGeneration;
     try {
       final refreshed = await auth.restore();
-      if (revision == _authRevision) state = AsyncData(refreshed);
+      if (revision == _authRevision && generation == _buildGeneration) {
+        state = AsyncData(refreshed);
+      }
     } catch (_) {
       // The locally verified identity and offline code remain available.
     }
@@ -141,13 +155,13 @@ final class AuthController extends AsyncNotifier<AuthSnapshot> {
     _throwAsyncError(result);
   }
 
-  void _invalidateAccountProviders() {
+  void _invalidateAccountProviders({bool resetOfflineMode = true}) {
     ref.invalidate(cardControllerProvider);
     ref.invalidate(profileControllerProvider);
     ref.invalidate(transactionDetailProvider);
     ref.invalidate(transactionFeedProvider);
     ref.invalidate(offlineAuthorizationProvider);
-    ref.invalidate(manualOfflineModeProvider);
+    if (resetOfflineMode) ref.invalidate(manualOfflineModeProvider);
     ref.invalidate(paymentCodeControllerProvider);
     ref.invalidate(scanPaymentControllerProvider);
     ref.invalidate(spendingPasswordInitializationProvider);
@@ -438,13 +452,19 @@ final class OfflineAuthorizationController
     extends FamilyAsyncNotifier<OfflineAuthorizationView, String> {
   static const _automaticRetryDelay = Duration(minutes: 15);
   Timer? _renewalTimer;
+  int _generation = 0;
 
   @override
   Future<OfflineAuthorizationView> build(String arg) async {
+    final generation = ++_generation;
     final cardId = arg;
-    ref.onDispose(() => _renewalTimer?.cancel());
+    ref.onDispose(() {
+      _generation++;
+      _renewalTimer?.cancel();
+    });
     final service = ref.watch(appRuntimeProvider).offlinePayments;
     var view = await service.status(cardId);
+    if (generation != _generation) return view;
     if (_shouldRenewAutomatically(view)) {
       try {
         await service.renew(cardId, force: true);
@@ -454,29 +474,32 @@ final class OfflineAuthorizationController
         // local authorization with an error screen.
       }
     }
-    _scheduleAutomaticRenewal(view);
+    if (generation == _generation) _scheduleAutomaticRenewal(view);
     return view;
   }
 
   Future<OfflineQrCode> generate() async {
-    final code =
-        await ref.read(appRuntimeProvider).offlinePayments.generate(arg);
-    state = AsyncData(
-      await ref.read(appRuntimeProvider).offlinePayments.status(arg),
-    );
+    final generation = _generation;
+    final service = ref.read(appRuntimeProvider).offlinePayments;
+    final code = await service.generate(arg);
+    final view = await service.status(arg);
+    if (generation == _generation) state = AsyncData(view);
     return code;
   }
 
   Future<void> activate() async {
+    final generation = _generation;
+    final service = ref.read(appRuntimeProvider).offlinePayments;
     final previous = state.valueOrNull ??
         const OfflineAuthorizationView(
           state: OfflineAuthorizationState.missingCredential,
         );
     state = const AsyncLoading();
     final result = await AsyncValue.guard(() async {
-      await ref.read(appRuntimeProvider).offlinePayments.activate(cardId: arg);
-      return ref.read(appRuntimeProvider).offlinePayments.status(arg);
+      await service.activate(cardId: arg);
+      return service.status(arg);
     });
+    if (generation != _generation) return;
     if (result.hasError) {
       state = AsyncData(previous);
       _throwAsyncError(result);
@@ -487,15 +510,15 @@ final class OfflineAuthorizationController
   }
 
   Future<void> renew({bool force = true}) async {
+    final generation = _generation;
+    final service = ref.read(appRuntimeProvider).offlinePayments;
     final previous = state.valueOrNull;
     state = const AsyncLoading();
     final result = await AsyncValue.guard(() async {
-      await ref
-          .read(appRuntimeProvider)
-          .offlinePayments
-          .renew(arg, force: force);
-      return ref.read(appRuntimeProvider).offlinePayments.status(arg);
+      await service.renew(arg, force: force);
+      return service.status(arg);
     });
+    if (generation != _generation) return;
     if (result.hasError) {
       state = previous == null ? result : AsyncData(previous);
       _throwAsyncError(result);
@@ -506,18 +529,23 @@ final class OfflineAuthorizationController
   }
 
   Future<void> maintain({bool force = true}) async {
+    final generation = _generation;
     final service = ref.read(appRuntimeProvider).offlinePayments;
     try {
       await service.renew(arg, force: force);
       final view = await service.status(arg);
+      if (generation != _generation) return;
       state = AsyncData(view);
       _scheduleAutomaticRenewal(view);
     } catch (_) {
+      if (generation != _generation) return;
       try {
         final view = await service.status(arg);
+        if (generation != _generation) return;
         state = AsyncData(view);
         _scheduleAutomaticRenewal(view, retrySoon: true);
       } catch (_) {
+        if (generation != _generation) return;
         _renewalTimer?.cancel();
         _renewalTimer = Timer(
           _automaticRetryDelay,
@@ -528,14 +556,14 @@ final class OfflineAuthorizationController
   }
 
   Future<void> removeFromDevice() async {
+    final generation = ++_generation;
+    final service = ref.read(appRuntimeProvider).offlinePayments;
+    final banner = ref.read(offlineAuthorizationBannerDismissedProvider.notifier);
     _renewalTimer?.cancel();
-    await ref
-        .read(appRuntimeProvider)
-        .offlinePayments
-        .removeFromThisDevice(arg);
-    await ref
-        .read(offlineAuthorizationBannerDismissedProvider.notifier)
-        .reset();
+    await service.removeFromThisDevice(arg);
+    if (generation != _generation) return;
+    await banner.reset();
+    if (generation != _generation) return;
     state = const AsyncData(
       OfflineAuthorizationView(
         state: OfflineAuthorizationState.missingCredential,
@@ -580,9 +608,11 @@ final paymentCodeControllerProvider =
 final class PaymentCodeNotifier
     extends AutoDisposeNotifier<PaymentCodeViewState> {
   late PaymentCodeExperienceController _controller;
+  int _generation = 0;
 
   @override
   PaymentCodeViewState build() {
+    _generation++;
     final controller =
         ref.watch(appRuntimeProvider).createPaymentCodeController();
     final subscription = controller.states.listen((value) => state = value);
@@ -595,6 +625,7 @@ final class PaymentCodeNotifier
       fireImmediately: true,
     );
     ref.onDispose(() {
+      _generation++;
       unawaited(subscription.cancel());
       unawaited(controller.dispose());
     });
@@ -616,9 +647,11 @@ final class PaymentCodeNotifier
   void markDisconnected() => _controller.markDisconnected();
 
   Future<void> _guardPaymentAction(Future<void> Function() action) async {
+    final generation = _generation;
     try {
       await action();
     } catch (_) {
+      if (generation != _generation) return;
       state = state.copyWith(
         phase: PaymentCodePhase.failed,
         message: '付款码加载失败，请重试。',
@@ -673,21 +706,27 @@ final spendingLimitsControllerProvider =
 
 final class SpendingLimitsController
     extends AutoDisposeAsyncNotifier<SpendingLimits> {
+  int _generation = 0;
+
   @override
-  Future<SpendingLimits> build() =>
-      ref.watch(appRuntimeProvider).securitySettings.readLimits();
+  Future<SpendingLimits> build() {
+    _generation++;
+    ref.onDispose(() => _generation++);
+    return ref.watch(appRuntimeProvider).securitySettings.readLimits();
+  }
 
   Future<void> saveCardLimits(SpendingLimits limits) async {
     final previous = state.valueOrNull;
     if (previous == null) return;
+    final generation = _generation;
+    final service = ref.read(appRuntimeProvider).securitySettings;
     state = const AsyncLoading();
     final result = await AsyncValue.guard(() async {
-      await ref
-          .read(appRuntimeProvider)
-          .securitySettings
-          .updateCardLimits(limits);
-      return ref.read(appRuntimeProvider).securitySettings.readLimits();
+      await service.updateCardLimits(limits);
+      if (generation != _generation) return previous;
+      return service.readLimits();
     });
+    if (generation != _generation) return;
     if (result.hasError) {
       state = AsyncData(previous);
       _throwAsyncError(result);
@@ -701,14 +740,15 @@ final class SpendingLimitsController
   }) async {
     final previous = state.valueOrNull;
     if (previous == null) return;
+    final generation = _generation;
+    final service = ref.read(appRuntimeProvider).securitySettings;
     state = const AsyncLoading();
     final result = await AsyncValue.guard(() async {
-      await ref
-          .read(appRuntimeProvider)
-          .securitySettings
-          .updateQrLimits(limits, transactionPassword: transactionPassword);
-      return ref.read(appRuntimeProvider).securitySettings.readLimits();
+      await service.updateQrLimits(limits, transactionPassword: transactionPassword);
+      if (generation != _generation) return previous;
+      return service.readLimits();
     });
+    if (generation != _generation) return;
     if (result.hasError) {
       state = AsyncData(previous);
       _throwAsyncError(result);

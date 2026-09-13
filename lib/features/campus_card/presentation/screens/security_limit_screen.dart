@@ -31,7 +31,7 @@ class _SecurityLimitScreenState extends ConsumerState<SecurityLimitScreen> {
       perDay: current.cardPerDay,
       needsPassword: false,
     );
-    if (edit == null) return;
+    if (edit == null || !mounted) return;
     try {
       await ref.read(spendingLimitsControllerProvider.notifier).saveCardLimits(
             current.copyWith(
@@ -52,7 +52,7 @@ class _SecurityLimitScreenState extends ConsumerState<SecurityLimitScreen> {
       perDay: current.qrPerDay,
       needsPassword: true,
     );
-    if (edit == null) return;
+    if (edit == null || !mounted) return;
     try {
       await ref.read(spendingLimitsControllerProvider.notifier).saveQrLimits(
             current.copyWith(

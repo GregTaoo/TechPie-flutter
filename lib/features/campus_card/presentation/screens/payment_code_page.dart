@@ -159,6 +159,7 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
 
   Future<void> _setOfflineMode(CampusCard card, bool enabled) async {
     await ref.read(appRuntimeProvider).feedback.play(FeedbackEvent.selection);
+    if (!mounted) return;
     ref.read(manualOfflineModeProvider.notifier).setEnabled(enabled);
     if (!enabled) {
       setState(() {
@@ -169,7 +170,9 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
       return;
     }
     if (_active) await _paymentCodes.enter(online: false);
+    if (!mounted) return;
     await _generateOffline(card, switching: true);
+    if (!mounted) return;
     if (_offlinePayload == null) {
       ref.read(manualOfflineModeProvider.notifier).setEnabled(false);
       if (_active) await _paymentCodes.restart();
@@ -272,6 +275,20 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
       ),
     );
     final payment = ref.read(paymentCodeControllerProvider);
+    // A same-account session renewal replaces the controller without changing
+    // this page's visibility. Start the replacement after the build completes.
+    if (_active && payment.phase == PaymentCodePhase.idle) {
+      final revision = _activityRevision;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted &&
+            _active &&
+            revision == _activityRevision &&
+            ref.read(paymentCodeControllerProvider).phase ==
+                PaymentCodePhase.idle) {
+          unawaited(_applyActivity(revision));
+        }
+      });
+    }
     final transactions = ref.watch(transactionFeedProvider(_allTransactions));
     final l10n = context.l10n;
     final hostExit = ref.watch(geekPayHostExitProvider);
@@ -285,12 +302,18 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
       offlineAuthorizationBannerDismissedProvider,
     );
     final authorizationState = offlineAuthorization?.valueOrNull?.state;
+    final canGenerateOffline =
+        authorizationState == OfflineAuthorizationState.active ||
+            authorizationState == OfflineAuthorizationState.renewalDue;
     final showOfflineAuthorizationBanner = card != null &&
         bannerDismissed.valueOrNull == false &&
         (authorizationState == OfflineAuthorizationState.missingCredential ||
             authorizationState == OfflineAuthorizationState.unavailable);
 
     ref.listen(paymentCodeControllerProvider, (previous, next) {
+      if (next.phase == PaymentCodePhase.initializing && _offlineError != null) {
+        setState(() => _offlineError = null);
+      }
       if (card == null) {
         return;
       }
@@ -307,7 +330,8 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
           (next.phase == PaymentCodePhase.failed &&
               next.connectionState != PaymentConnectionState.online);
       if (shouldFallback) {
-        if (!_offline && !_offlineBusy) {
+        if (_active && canGenerateOffline &&
+            !_offline && !_offlineBusy && _offlineError == null) {
           unawaited(_generateOffline(card, switching: true));
         }
         _scheduleOnlineRetry();
@@ -317,11 +341,16 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
     final onlineFailed = payment.phase == PaymentCodePhase.switchingOffline ||
         (payment.phase == PaymentCodePhase.failed &&
             payment.connectionState != PaymentConnectionState.online);
+    if (onlineFailed && _onlineRetryTimer?.isActive != true) {
+      _scheduleOnlineRetry();
+    }
     if (_active &&
         card != null &&
+        canGenerateOffline &&
         (manualOffline || onlineFailed) &&
         !_offline &&
-        !_offlineBusy) {
+        !_offlineBusy &&
+        _offlineError == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && _active) {
           unawaited(_generateOffline(card, switching: true));

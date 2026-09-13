@@ -61,14 +61,17 @@ class _BindCardScreenState extends ConsumerState<BindCardScreen> {
               phoneNumber: _phone.text,
             ),
           );
+      if (!mounted) return;
       _password.clear();
       await ref.read(appRuntimeProvider).feedback.play(FeedbackEvent.success);
       if (mounted) context.go(GpRoutes.pay);
     } catch (error) {
       if (mounted) setState(() => _error = GpStateView.safeUiError(error));
     } finally {
-      _password.clear();
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        _password.clear();
+        setState(() => _loading = false);
+      }
     }
   }
 

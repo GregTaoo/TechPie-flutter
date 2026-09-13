@@ -45,6 +45,7 @@ class _SecurityPasswordScreenState
     ].every((controller) => RegExp(r'^\d{6}$').hasMatch(controller.text));
     if (!valid || _next.text != _confirm.text) {
       await _showMessage(context.l10n.t('enterPassword'));
+      if (!mounted) return;
       await ref.read(appRuntimeProvider).feedback.play(FeedbackEvent.error);
       return;
     }
@@ -55,6 +56,7 @@ class _SecurityPasswordScreenState
             oldPassword: _old.text,
             newPassword: _next.text,
           );
+      if (!mounted) return;
       await ref.read(appRuntimeProvider).feedback.play(FeedbackEvent.success);
       if (!mounted) return;
       await _showMessage(context.l10n.t('passwordChanged'));
@@ -62,10 +64,12 @@ class _SecurityPasswordScreenState
     } catch (error) {
       if (mounted) await _showMessage(GpStateView.safeUiError(error));
     } finally {
-      _old.clear();
-      _next.clear();
-      _confirm.clear();
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        _old.clear();
+        _next.clear();
+        _confirm.clear();
+        setState(() => _loading = false);
+      }
     }
   }
 

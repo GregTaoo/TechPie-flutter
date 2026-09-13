@@ -110,8 +110,9 @@ class _CardManageScreenState extends ConsumerState<CardManageScreen>
   Future<void> _pickRange() async {
     if (defaultTargetPlatform == TargetPlatform.iOS) {
       final selection = await _showCupertinoRangePicker();
-      if (selection == null) return;
+      if (selection == null || !mounted) return;
       await ref.read(appRuntimeProvider).feedback.play(FeedbackEvent.selection);
+      if (!mounted) return;
       setState(() => _range = selection.clear ? null : selection.range);
       return;
     }
@@ -132,8 +133,9 @@ class _CardManageScreenState extends ConsumerState<CardManageScreen>
         child: child!,
       ),
     );
-    if (selected == null) return;
+    if (selected == null || !mounted) return;
     await ref.read(appRuntimeProvider).feedback.play(FeedbackEvent.selection);
+    if (!mounted) return;
     setState(() {
       _range = selected.start == _clearDateRangeSentinel.start &&
               selected.end == _clearDateRangeSentinel.end
