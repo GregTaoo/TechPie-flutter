@@ -61,13 +61,24 @@ void main() {
   test(
     'debug scan exercises password and success presentation states',
     () async {
-      final controller = ScanPaymentController(repository: _ScanRepository());
+      final paidAt = DateTime.utc(2026, 9, 13, 14, 40, 31);
+      final repository = _ScanRepository();
+      final controller = ScanPaymentController(repository: repository, clock: Clock.fixed(paidAt));
+      addTearDown(controller.dispose);
 
       await controller.debugSubmitCode('ANY-QR-CODE');
       expect(controller.state.phase, ScanFlowPhase.passwordRequired);
 
       await controller.debugSubmitPassword('123456');
       expect(controller.state.phase, ScanFlowPhase.succeeded);
+      final receipt = controller.state.success!;
+      expect(receipt.paidAt, paidAt);
+      expect(receipt.authorizationCode, 'DEMO-A1B2');
+      expect(receipt.transactionId, 'DEBUG-SCAN-${paidAt.millisecondsSinceEpoch}');
+      expect(receipt.terminalCode, 'DEMO-0305');
+      expect(receipt.transactionCode, '1829');
+      expect(receipt.balance, const MoneyFen(9119));
+      expect(repository.requests, isEmpty);
       expect(controller.state.success!.amount, const MoneyFen(880));
     },
   );

@@ -79,15 +79,21 @@ final class ScanPaymentController {
       );
       return;
     }
+    final paidAt = _clock.now().toUtc();
     _emit(
-      const ScanFlowState(
+      ScanFlowState(
         phase: ScanFlowPhase.succeeded,
         success: ScanSucceeded(
           kind: ScanSuccessKind.payment,
-          amount: MoneyFen(880),
+          amount: const MoneyFen(880),
           fee: MoneyFen.zero,
-          balance: MoneyFen(9119),
+          balance: const MoneyFen(9119),
           message: '调试模式：模拟扫码支付成功',
+          paidAt: paidAt,
+          authorizationCode: 'DEMO-A1B2',
+          transactionId: 'DEBUG-SCAN-${paidAt.millisecondsSinceEpoch}',
+          terminalCode: 'DEMO-0305',
+          transactionCode: '1829',
         ),
       ),
     );
