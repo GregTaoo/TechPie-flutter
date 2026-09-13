@@ -213,6 +213,7 @@ final class CardController extends AsyncNotifier<CampusCard?> {
     } else {
       card = await repository.currentCard();
     }
+    if (generation != _generation) return state.valueOrNull;
     if (card == null) return null;
     if (generation == _generation) {
       unawaited(_maintainOfflineAuthorization(runtime, card));
@@ -292,7 +293,8 @@ final class CardController extends AsyncNotifier<CampusCard?> {
   }
 
   Future<void> refresh() async {
-    final generation = _generation;
+    // A post-payment refresh supersedes older startup/balance requests.
+    final generation = ++_generation;
     final previous = state.valueOrNull;
     final runtime = ref.read(appRuntimeProvider);
     final repository = runtime.cards;
@@ -673,13 +675,37 @@ final class ScanPaymentNotifier extends AutoDisposeNotifier<ScanFlowState> {
   ScanFlowState build() {
     final controller =
         ref.watch(appRuntimeProvider).createScanPaymentController();
-    final subscription = controller.states.listen((value) => state = value);
+    final subscription = controller.states.listen((value) {
+      final completed = value.phase == ScanFlowPhase.succeeded &&
+          state.phase != ScanFlowPhase.succeeded &&
+          value.success?.kind == ScanSuccessKind.payment;
+      state = value;
+      if (completed && !(debugModeFeaturesAvailable && ref.read(debugModeProvider))) {
+        unawaited(_refreshAccountAfterPayment());
+      }
+    });
     _controller = controller;
     ref.onDispose(() {
       unawaited(subscription.cancel());
       unawaited(controller.dispose());
     });
     return controller.state;
+  }
+
+  Future<void> _refreshAccountAfterPayment() async {
+    // Start while success is displayed; closing the scanner does not cancel
+    // account refreshes or turn a confirmed payment into a failure.
+    final cardRefresh = ref.read(cardControllerProvider.notifier).refresh();
+    ref.invalidate(profileControllerProvider);
+    ref.invalidate(transactionDetailProvider);
+    ref.invalidate(transactionFeedProvider);
+    final historyRefresh = ref.read(
+      transactionFeedProvider((begin: null, end: null)).future,
+    );
+    await Future.wait<void>([
+      cardRefresh.then<void>((_) {}, onError: (Object _) {}),
+      historyRefresh.then<void>((_) {}, onError: (Object _) {}),
+    ]);
   }
 
   Future<void> submitCode(String code) =>
