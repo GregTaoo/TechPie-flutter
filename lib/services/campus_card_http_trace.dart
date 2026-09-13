@@ -11,7 +11,9 @@ DecryptedHttpTraceInterceptor campusCardHttpTrace(DebugLogger logger) =>
       onRecord: (record) {
         final isRequest = record['event'] == 'request';
         final fingerprint = record['qrcodeFingerprint'];
-        final raw = record['payload'];
+        final raw = record['path'] == '/offlineCode/openVirtualcard'
+            ? _redactOnlineCode(record['payload'])
+            : record['payload'];
         // Scan payments log a length/digest pair so both phases can be
         // compared without writing the code itself.
         final payload = fingerprint == null || raw is! Map
@@ -31,3 +33,13 @@ DecryptedHttpTraceInterceptor campusCardHttpTrace(DebugLogger logger) =>
         );
       },
     );
+
+Object? _redactOnlineCode(Object? payload) {
+  if (payload is! Map || payload['data'] is! Map) return payload;
+  final data = payload['data'] as Map;
+  if (!data.containsKey('code')) return payload;
+  return <Object?, Object?>{
+    ...payload,
+    'data': <Object?, Object?>{...data, 'code': data['code'] == null ? null : '***'},
+  };
+}

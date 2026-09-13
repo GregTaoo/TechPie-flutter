@@ -9,6 +9,22 @@ import 'package:techpie/services/campus_card_http_trace.dart';
 import 'package:techpie/services/debug_logger.dart';
 
 void main() {
+  test('online code aliases are redacted without modifying the response', () async {
+    final logger = DebugLogger()..enabled = true;
+    final dio = Dio(BaseOptions(baseUrl: 'https://ecard.test'));
+    addTearDown(() => dio.close(force: true));
+    final receipt = {'success': true, 'data': {'code': 'secret-online-code', 'qrcode': 'secret-qr', 'cardbal': '65.48'}};
+    dio.interceptors.add(campusCardHttpTrace(logger));
+    dio.interceptors.add(InterceptorsWrapper(onRequest: (options, handler) {
+      handler.resolve(Response(requestOptions: options, data: receipt, statusCode: 200), true);
+    },),);
+    final response = await dio.post<Object?>('/offlineCode/openVirtualcard');
+    expect((response.data as Map)['data'], receipt['data']);
+    final logged = logger.entries.last.responseBody!;
+    expect(logged, isNot(contains('secret-')));
+    expect(jsonDecode(logged)['data']['cardbal'], '65.48');
+  });
+
   test('shared debug switch records card requests, responses and failures',
       () async {
     final logger = DebugLogger();
