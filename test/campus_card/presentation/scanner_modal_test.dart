@@ -20,6 +20,7 @@ import 'package:techpie/features/campus_card/presentation/scanner/six_digit_pass
 
 import '../support/fake_ecard_transport.dart';
 import '../support/scan_password_challenge.dart';
+import '../support/scan_payment_receipt.dart';
 
 void main() {
   testWidgets(
@@ -28,11 +29,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     final transport = FakeEcardTransport()
       ..enqueue('POST', '/scan/scanningResult', scanPasswordChallenge)
-      ..enqueue('POST', '/scan/scanningResult', {
-        'success': true,
-        'url': '/pages/common/paysuccess/paysuccess',
-        'txamt': 880,
-      });
+      ..enqueue('POST', '/scan/scanningResult', scanPaymentReceipt);
     final scanner = InMemoryScannerPort();
     final (base, runtime) = await _scannerRuntime(
       scanner,
@@ -67,6 +64,9 @@ void main() {
     expect(transport.requests.last.data['qrcode'], 'SYNTHETIC%20SERVER-QR');
     expect(transport.requests.last.data['password'], '123456');
     expect(find.byType(SixDigitPasswordPanel), findsNothing);
+    expect(find.text('¥6.17'), findsOneWidget);
+    expect(find.text('授权码 A1B2'), findsOneWidget);
+    expect(find.text('CORE10008'), findsNothing);
     final container = ProviderScope.containerOf(
       tester.element(find.byType(ScannerModal)),
     );

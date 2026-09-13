@@ -67,7 +67,7 @@ final class EcardScanPaymentRepository implements ScanPaymentRepository {
               context: 'SCAN_RESULT_DATA',
             )
           : const <String, Object?>{};
-      final type = (resultData['type'] ?? response['type'])?.toString() ?? '';
+      final type = (resultData['type'] ?? data['type'] ?? response['type'])?.toString() ?? '';
       return ScanSucceeded(
         kind: switch (type) {
           '' => ScanSuccessKind.payment,
@@ -76,16 +76,60 @@ final class EcardScanPaymentRepository implements ScanPaymentRepository {
           'bindTray' => ScanSuccessKind.bindTray,
           _ => ScanSuccessKind.unknown,
         },
-        amount: _optionalFen(response['txamt'], 'txamt'),
+        // The captured nested receipt uses yuan; legacy top-level fields use fen.
+        amount: data.containsKey('txamt')
+            ? _optionalYuan(data['txamt'], 'txamt')
+            : _optionalFen(response['txamt'], 'txamt'),
         fee: _optionalFen(response['managefee'], 'managefee'),
         balance: _optionalFen(response['balance'], 'balance'),
-        message: response['message']?.toString(),
+        message: _successMessage(response['message']),
+        paidAt: _paymentTime(data['paytime'] ?? response['paytime']),
+        authorizationCode: _text(data['authcode'] ?? response['authcode']),
+        transactionId: _text(data['journo'] ?? response['journo']),
+        terminalCode: _text(data['poscode'] ?? response['poscode']),
+        transactionCode: _text(data['txcode'] ?? response['txcode']),
       );
     }
     return ScanFailed(
       message: apiMessage(response, fallback: '扫码消费失败。'),
       code: status,
     );
+  }
+
+  String? _text(Object? value) {
+    final text = value?.toString().trim();
+    return text == null || text.isEmpty ? null : text;
+  }
+
+  String? _successMessage(Object? value) {
+    final text = _text(value);
+    // A protocol status identifier is not a receipt description.
+    return text != null && RegExp(r'^CORE\d+$').hasMatch(text) ? null : text;
+  }
+
+  MoneyFen? _optionalYuan(Object? value, String field) {
+    if (value == null || value.toString().trim().isEmpty) return null;
+    try {
+      final amount = MoneyFen.fromApiYuan(value, field: field);
+      return amount.isNegative ? null : amount;
+    } on FormatException {
+      // A missing/invalid optional receipt field cannot undo confirmed payment.
+      return null;
+    }
+  }
+
+  DateTime? _paymentTime(Object? value) {
+    final text = _text(value);
+    if (text == null || !RegExp(r'^\d{14}$').hasMatch(text)) return null;
+    final parts = [int.parse(text.substring(0, 4)),
+      for (var i = 4; i < 14; i += 2) int.parse(text.substring(i, i + 2)),];
+    final local = DateTime.utc(parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]);
+    if (local.year != parts[0] || local.month != parts[1] || local.day != parts[2] ||
+        local.hour != parts[3] || local.minute != parts[4] || local.second != parts[5]) {
+      return null;
+    }
+    // eCard's compact timestamp is campus wall time (UTC+08:00).
+    return local.subtract(const Duration(hours: 8));
   }
 
   MoneyFen? _optionalFen(Object? value, String field) =>

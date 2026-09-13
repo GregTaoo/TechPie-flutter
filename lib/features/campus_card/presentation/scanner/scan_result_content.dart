@@ -120,11 +120,11 @@ final class ScanResultContent extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             formatMoneyFen(success.amount!.value),
-            style: TextStyle(
+            style: const TextStyle(
               color: GpTokens.campusRed,
               fontSize: 44,
               fontWeight: FontWeight.w500,
-              fontFeatures: const [FontFeature.tabularFigures()],
+              fontFeatures: [FontFeature.tabularFigures()],
             ),
           ),
         ],
@@ -143,6 +143,21 @@ final class ScanResultContent extends StatelessWidget {
             style: TextStyle(color: context.gpColors.textSecondary),
           ),
         ],
+        for (final detail in <String, String?>{
+          'paymentTime': success.paidAt == null ? null : context.l10n.fullDateTime(success.paidAt!),
+          'authorizationCode': success.authorizationCode,
+          'transactionId': success.transactionId,
+          'terminalCode': success.terminalCode,
+          'transactionCode': success.transactionCode,
+        }.entries)
+          if (detail.value != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              '${context.l10n.t(detail.key)} ${detail.value}',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: context.gpColors.textSecondary),
+            ),
+          ],
         if (success.balance != null) ...[
           const SizedBox(height: 8),
           Text(

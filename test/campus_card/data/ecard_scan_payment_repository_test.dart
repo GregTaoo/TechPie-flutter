@@ -5,8 +5,31 @@ import 'package:techpie/features/campus_card/domain/money_fen.dart';
 
 import '../support/fake_ecard_transport.dart';
 import '../support/scan_password_challenge.dart';
+import '../support/scan_payment_receipt.dart';
 
 void main() {
+  test('captured nested receipt uses yuan and exposes payment metadata', () async {
+    final transport = FakeEcardTransport()..enqueue('POST', '/scan/scanningResult', scanPaymentReceipt);
+    final result = await EcardScanPaymentRepository(transport).submit(qrCode: 'TEST', payTime: DateTime.utc(2026), password: '123456') as ScanSucceeded;
+    expect(result.amount, const MoneyFen(617));
+    expect(result.paidAt, DateTime.utc(2026, 9, 13, 14, 40, 31));
+    expect(result.authorizationCode, 'A1B2');
+    expect(result.transactionId, '0305_20260913224014_A1B2');
+    expect(result.terminalCode, '0305');
+    expect(result.transactionCode, '1829');
+    expect(result.message, isNull);
+    expect(result.balance, isNull);
+  });
+
+  test('invalid optional receipt fields never convert confirmed success to failure', () async {
+    final transport = FakeEcardTransport()..enqueue('POST', '/scan/scanningResult', {
+      ...scanPaymentReceipt, 'data': {'txamt': 'bad', 'paytime': '20260230224031'},
+    });
+    final result = await EcardScanPaymentRepository(transport).submit(qrCode: 'TEST', payTime: DateTime.utc(2026)) as ScanSucceeded;
+    expect(result.amount, isNull);
+    expect(result.paidAt, isNull);
+  });
+
   test('recognizes inputPass with a nested server QR and no issuccess',
       () async {
     final transport = FakeEcardTransport()

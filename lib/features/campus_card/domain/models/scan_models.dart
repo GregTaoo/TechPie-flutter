@@ -20,6 +20,11 @@ final class ScanSucceeded extends ScanPaymentResult {
     this.fee,
     this.balance,
     this.message,
+    this.paidAt,
+    this.authorizationCode,
+    this.transactionId,
+    this.terminalCode,
+    this.transactionCode,
   });
 
   final ScanSuccessKind kind;
@@ -27,6 +32,11 @@ final class ScanSucceeded extends ScanPaymentResult {
   final MoneyFen? fee;
   final MoneyFen? balance;
   final String? message;
+  final DateTime? paidAt;
+  final String? authorizationCode;
+  final String? transactionId;
+  final String? terminalCode;
+  final String? transactionCode;
 }
 
 final class ScanFailed extends ScanPaymentResult {
