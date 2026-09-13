@@ -10,13 +10,22 @@ DecryptedHttpTraceInterceptor campusCardHttpTrace(DebugLogger logger) =>
       enabled: () => logger.enabled,
       onRecord: (record) {
         final isRequest = record['event'] == 'request';
-        final payload = jsonEncode(record['payload']);
+        final fingerprint = record['qrcodeFingerprint'];
+        final raw = record['payload'];
+        // Scan payments log a length/digest pair so both phases can be
+        // compared without writing the code itself.
+        final payload = fingerprint == null || raw is! Map
+            ? raw
+            : <String, Object?>{
+                ...raw.cast<String, Object?>(),
+                'qrcodeFingerprint': fingerprint,
+              };
         logger.log(
           method: record['method']! as String,
           url: record['url']! as String,
           statusCode: record['statusCode'] as int?,
-          requestBody: isRequest ? payload : null,
-          responseBody: isRequest ? null : payload,
+          requestBody: isRequest ? jsonEncode(payload) : null,
+          responseBody: isRequest ? null : jsonEncode(payload),
           error: record['dioExceptionType'] as String?,
           tag: 'Campus Card',
         );

@@ -64,7 +64,7 @@ void main() {
     }
     await tester.pumpAndSettle();
     expect(transport.requests, hasLength(2));
-    expect(transport.requests.last.data['qrcode'], 'SYNTHETIC SERVER-QR');
+    expect(transport.requests.last.data['qrcode'], 'SYNTHETIC%20SERVER-QR');
     expect(transport.requests.last.data['password'], '123456');
     expect(find.byType(SixDigitPasswordPanel), findsNothing);
     final container = ProviderScope.containerOf(

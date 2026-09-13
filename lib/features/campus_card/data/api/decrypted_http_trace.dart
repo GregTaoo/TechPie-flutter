@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
@@ -48,6 +49,7 @@ final class DecryptedHttpTraceInterceptor extends Interceptor {
     final requestId = ++_nextRequestId;
     options.extra[_requestIdKey] = requestId;
     options.extra[_startedAtKey] = DateTime.now().microsecondsSinceEpoch;
+    final decodedRequest = _decodeRequest(options);
     _write({
       'event': 'request',
       'requestId': requestId,
@@ -58,7 +60,9 @@ final class DecryptedHttpTraceInterceptor extends Interceptor {
       'port': options.uri.hasPort ? options.uri.port : null,
       'path': options.uri.path,
       'headers': options.headers,
-      'payload': _decodeRequest(options),
+      'payload': decodedRequest,
+      if (_scanCodeFingerprint(options.uri.path, decodedRequest) case final fp?)
+        'qrcodeFingerprint': fp,
     });
     handler.next(options);
   }
@@ -73,6 +77,7 @@ final class DecryptedHttpTraceInterceptor extends Interceptor {
       handler.next(response);
       return;
     }
+    final decodedResponse = _decodeResponse(response.data);
     _write({
       'event': 'response',
       'requestId': options.extra[_requestIdKey],
@@ -82,7 +87,10 @@ final class DecryptedHttpTraceInterceptor extends Interceptor {
       'statusCode': response.statusCode,
       'durationMicros': _durationMicros(options),
       'headers': response.headers.map,
-      'payload': _decodeResponse(response.data),
+      'payload': decodedResponse,
+      if (_scanCodeFingerprint(options.uri.path, decodedResponse)
+          case final fp?)
+        'qrcodeFingerprint': fp,
     });
     handler.next(response);
   }
@@ -132,6 +140,26 @@ final class DecryptedHttpTraceInterceptor extends Interceptor {
       };
     }
     return {'query': query, 'body': body};
+  }
+
+  /// Length and digest for comparing scan codes in redacted Debug Logs.
+  Object? _scanCodeFingerprint(String path, Object? decoded) {
+    if (path != '/scan/scanningResult') return null;
+    final code = _findScanCode(decoded);
+    if (code == null || code.isEmpty) return null;
+    final digest = sha256.convert(utf8.encode(code)).toString();
+    return {'length': code.length, 'sha256_12': digest.substring(0, 12)};
+  }
+
+  String? _findScanCode(Object? node) {
+    if (node is! Map) return null;
+    final code = node['qrcode'];
+    if (code is String && code.isNotEmpty) return code;
+    for (final key in const ['decryptedDatajson', 'data', 'body', 'query']) {
+      final nested = _findScanCode(node[key]);
+      if (nested != null) return nested;
+    }
+    return null;
   }
 
   Object? _decodeEnvelope(String envelope) {

@@ -71,7 +71,9 @@ void main() {
     },
   );
 
-  test('password retry decodes the QR and accepts URL success', () async {
+  test('password retry resubmits the challenge string byte-for-byte', () async {
+    // Synthetic code with escapes that must survive the password retry.
+    const challengeQr = '.s:p010_SYNTHETIC%2B%2F%3D%3D';
     final transport = FakeEcardTransport()
       ..enqueue('POST', '/scan/scanningResult', {
         'success': true,
@@ -81,13 +83,13 @@ void main() {
       });
 
     final result = await EcardScanPaymentRepository(transport).submit(
-      qrCode: 'SYNTHETIC%20QR',
+      qrCode: challengeQr,
       payTime: DateTime.utc(2026, 9, 2),
       password: '111222',
     );
 
     expect(result, isA<ScanSucceeded>());
-    expect(transport.requests.single.data['qrcode'], 'SYNTHETIC QR');
+    expect(transport.requests.single.data['qrcode'], challengeQr);
     expect(transport.requests.single.data['password'], '111222');
   });
 

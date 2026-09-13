@@ -323,8 +323,9 @@ final class EcardApiClient implements EcardTransport {
               final code =
                   (nested['qrcode'] ?? decoded['qrcode'])?.toString() ?? '';
               if (code.isNotEmpty) {
-                _challenge =
-                    _CodeLease(Uri.decodeFull(code), session, identity);
+                // Kept verbatim: the retry submits this exact string, and the
+                // lease guard compares it against the outgoing payload.
+                _challenge = _CodeLease(code, session, identity);
               }
             }
           }

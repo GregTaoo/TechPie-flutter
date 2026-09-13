@@ -21,9 +21,10 @@ final class EcardScanPaymentRepository implements ScanPaymentRepository {
     String? password,
     PaymentRequestContext? context,
   }) async {
-    final outboundQrCode = password == null ? qrCode : Uri.decodeFull(qrCode);
+    // Preserve the server-returned challenge, including percent escapes, so
+    // password retries match the code held by the payment context.
     final payload = <String, Object?>{
-      'qrcode': outboundQrCode,
+      'qrcode': qrCode,
       'paytime': payTime.toUtc().millisecondsSinceEpoch,
     };
     if (password != null) payload['password'] = password;
