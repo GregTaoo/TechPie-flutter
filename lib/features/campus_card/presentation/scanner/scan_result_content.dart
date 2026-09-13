@@ -109,7 +109,11 @@ final class ScanResultContent extends StatelessWidget {
         const SizedBox(height: 22),
         Text(
           title,
-          style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700),
+          style: TextStyle(
+            color: success.kind == ScanSuccessKind.payment ? GpTokens.campusRed : null,
+            fontSize: 26,
+            fontWeight: FontWeight.w700,
+          ),
         ),
         if (success.kind == ScanSuccessKind.payment &&
             success.amount != null) ...[
@@ -117,7 +121,7 @@ final class ScanResultContent extends StatelessWidget {
           Text(
             formatMoneyFen(success.amount!.value),
             style: TextStyle(
-              color: context.gpColors.action,
+              color: GpTokens.campusRed,
               fontSize: 44,
               fontWeight: FontWeight.w500,
               fontFeatures: const [FontFeature.tabularFigures()],

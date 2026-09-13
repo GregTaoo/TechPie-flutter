@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:techpie/features/campus_card/presentation/theme/tokens.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:techpie/features/campus_card/domain/models/scan_models.dart';
 import 'package:techpie/features/campus_card/domain/money_fen.dart';
@@ -30,6 +31,8 @@ void main() {
 
       expect(find.text('支付成功'), findsOneWidget);
       expect(find.text('¥42.50'), findsOneWidget);
+      expect(tester.widget<Text>(find.text('支付成功')).style!.color, GpTokens.campusRed);
+      expect(tester.widget<Text>(find.text('¥42.50')).style!.color, GpTokens.campusRed);
       expect(find.text('含管理费 ¥0.50'), findsOneWidget);
       expect(find.text('交易后余额 ¥1,234.56'), findsOneWidget);
       // Merchant/location must not be rendered (they are not provided).
