@@ -86,6 +86,8 @@ AppRuntime buildRealRuntime(
   final client = EcardApiClient(
     httpTrace: httpTrace,
     sessionReader: auth.readSession,
+    sessionPreparer: auth.prepareSession,
+    onSessionActivity: auth.recordSessionActivity,
     sessionGenerationReader: () => auth.generation,
     commitInSession: auth.commitInSession,
     identityGuard: auth.verifyCurrentIdentity,

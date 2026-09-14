@@ -10,6 +10,7 @@ import 'package:techpie/features/campus_card/app/demo_runtime_factory.dart';
 import 'package:techpie/features/campus_card/data/mock/in_memory_ports.dart';
 import 'package:techpie/features/campus_card/domain/models/auth_models.dart';
 import 'package:techpie/features/campus_card/domain/models/payment_models.dart';
+import 'package:techpie/features/campus_card/domain/models/scan_models.dart';
 import 'package:techpie/features/campus_card/domain/ports/auth_port.dart';
 import 'package:techpie/features/campus_card/domain/ports/payment_ports.dart';
 import 'package:techpie/features/campus_card/domain/ports/platform_ports.dart'
@@ -17,6 +18,35 @@ import 'package:techpie/features/campus_card/domain/ports/platform_ports.dart'
 import 'package:techpie/features/campus_card/presentation/app/app.dart';
 
 void main() {
+  test('same-account recovery keeps a submitting scan pending instead of restarting it', () async {
+    SharedPreferences.setMockInitialValues({});
+    final base = await buildDemoRuntime();
+    addTearDown(base.dispose);
+    final auth = _RestoredAuthPort();
+    addTearDown(auth.dispose);
+    final scan = _PendingScan();
+    final runtime = AppRuntime(environment: base.environment, capabilities: base.capabilities,
+      auth: auth, cards: base.cards, paymentCodes: base.paymentCodes, scanPayments: scan,
+      transactions: base.transactions, securitySettings: base.securitySettings,
+      offlinePayments: base.offlinePayments, brightness: base.brightness,
+      connectivity: base.connectivity, lifecycle: base.lifecycle, feedback: base.feedback,);
+    final container = ProviderContainer(overrides: [appRuntimeProvider.overrideWithValue(runtime)]);
+    addTearDown(container.dispose);
+    await container.read(authControllerProvider.future);
+    await pumpEventQueue();
+    final sub = container.listen(scanPaymentControllerProvider, (_, __) {});
+    addTearDown(sub.close);
+    final pending = container.read(scanPaymentControllerProvider.notifier).submitCode('SYNTHETIC');
+    auth._changes.add(const AuthSnapshot(state: AuthState.authenticated,
+      session: AuthSession(subjectId: 'restored-test-subject', orgId: '2', generation: 1),),);
+    await pumpEventQueue();
+    expect(container.read(scanPaymentControllerProvider).phase, ScanFlowPhase.submitting);
+    scan.pending.complete(const ScanFailed(message: 'Verify transaction history before retrying'));
+    await pending;
+    expect(container.read(scanPaymentControllerProvider).phase, ScanFlowPhase.failed);
+    expect(scan.calls, 1);
+  });
+
   testWidgets(
       'leaving during local restoration creates no late auth subscriptions',
       (tester) async {
@@ -503,4 +533,14 @@ final class _FirstPendingPayment implements PaymentCodeRepository {
     PaymentRequestContext? context,
   }) =>
       delegate.pollTransaction(code, context: context);
+}
+
+class _PendingScan implements ScanPaymentRepository {
+  final pending = Completer<ScanPaymentResult>();
+  int calls = 0;
+  @override
+  Future<ScanPaymentResult> submit({required String qrCode, required DateTime payTime, String? password, PaymentRequestContext? context}) {
+    calls++;
+    return pending.future;
+  }
 }

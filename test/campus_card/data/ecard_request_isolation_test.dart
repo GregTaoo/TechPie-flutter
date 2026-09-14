@@ -114,7 +114,7 @@ void main() {
     rig.adapter.otherIdentity = true;
     await expectLater(
         rig.codes.generateOnlineCode(), throwsA(isA<AppFailure>()),);
-    expect(rig.adapter.paths, [_quota]);
+    expect(rig.adapter.paths, [_quota, '/api/auth/third-party/ecard']);
     expect(await rig.store.readVerifiedIdSerial(), 'STUDENT-A');
     expect(await rig.store.readVerifiedCardId(), 'CARD-A');
     expect(await rig.store.readSessionCookie(), isNull);

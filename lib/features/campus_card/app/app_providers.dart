@@ -163,7 +163,10 @@ final class AuthController extends AsyncNotifier<AuthSnapshot> {
     ref.invalidate(offlineAuthorizationProvider);
     if (resetOfflineMode) ref.invalidate(manualOfflineModeProvider);
     ref.invalidate(paymentCodeControllerProvider);
-    ref.invalidate(scanPaymentControllerProvider);
+    // A same-account cookie replacement must not reset an in-flight scan to
+    // idle: that would restart the camera and could submit the code again.
+    // Existing challenge contexts still fail the API client's generation check.
+    if (resetOfflineMode) ref.invalidate(scanPaymentControllerProvider);
     ref.invalidate(spendingPasswordInitializationProvider);
     ref.invalidate(spendingLimitsControllerProvider);
   }

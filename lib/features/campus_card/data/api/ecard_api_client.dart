@@ -98,6 +98,8 @@ final class EcardApiClient implements EcardTransport {
     DecryptedHttpTraceInterceptor? httpTrace,
     EcardCipher? cipher,
     required EcardSessionReader sessionReader,
+    EcardSessionReader? sessionPreparer,
+    Future<void> Function(EcardSession)? onSessionActivity,
     required EcardIdentityGuard identityGuard,
     int Function()? sessionGenerationReader,
     EcardSessionCommit? commitInSession,
@@ -106,6 +108,8 @@ final class EcardApiClient implements EcardTransport {
     String baseUrl = 'https://ecard.shanghaitech.edu.cn',
   })  : _cipher = cipher ?? EcardCipher(),
         _sessionReader = sessionReader,
+        _sessionPreparer = sessionPreparer,
+        _onSessionActivity = onSessionActivity,
         _identityGuard = identityGuard,
         _sessionGenerationReader = sessionGenerationReader,
         _commitInSession = commitInSession,
@@ -132,6 +136,8 @@ final class EcardApiClient implements EcardTransport {
   final Dio _dio;
   final EcardCipher _cipher;
   final EcardSessionReader _sessionReader;
+  final EcardSessionReader? _sessionPreparer;
+  final Future<void> Function(EcardSession)? _onSessionActivity;
   final EcardIdentityGuard _identityGuard;
   final int Function()? _sessionGenerationReader;
   final EcardSessionCommit? _commitInSession;
@@ -213,8 +219,8 @@ final class EcardApiClient implements EcardTransport {
     data = Map<String, Object?>.unmodifiable(data);
     // Capture before queueing. Queued A requests must never run as account B.
     final invocationGeneration = _sessionGenerationReader?.call();
-    final queuedSession = await _sessionReader();
-    if (invocationGeneration != null &&
+    final queuedSession = await (_sessionPreparer?.call() ?? _sessionReader());
+    if (_sessionPreparer == null && invocationGeneration != null &&
         queuedSession?.generation != invocationGeneration) {
       throw _identityFailure('AUTH_SESSION_SUBJECT_CHANGED');
     }
@@ -257,7 +263,19 @@ final class EcardApiClient implements EcardTransport {
             : readsQuota && session.identity != null
                 ? session.identity!
                 : await _identityGuard();
-        await _assertSession(session);
+        var verifiedSession = await _sessionReader();
+        if (verifiedSession == null && _sessionPreparer != null) {
+          verifiedSession = await _sessionPreparer.call();
+        }
+        if (verifiedSession == null || !_sameAccount(session, verifiedSession)) {
+          throw _identityFailure('AUTH_SESSION_SUBJECT_CHANGED');
+        }
+        if (!session.sameSession(verifiedSession)) {
+          if (lease != null) throw _identityFailure('AUTH_PAYMENT_CONTEXT_EXPIRED');
+          // No business request has been sent yet. A verified replacement for
+          // the same account can be used without replaying any payment.
+          session = verifiedSession;
+        }
         if (identity.subjectId != session.subjectId ||
             session.identity != null && identity != session.identity) {
           throw _identityFailure('AUTH_SESSION_SUBJECT_CHANGED');
@@ -266,6 +284,9 @@ final class EcardApiClient implements EcardTransport {
             _requestData(data, session, includeOpenId: includeOpenId);
         _validateRequestIdentity(path, request, identity);
         try {
+          // A request about to be sent is activity, including a slow payment.
+          // Pure session/cache reads do not extend the inactivity deadline.
+          await _onSessionActivity?.call(session);
           final response = await _dio.request<Object?>(
             path,
             data: method == 'POST'
@@ -300,7 +321,15 @@ final class EcardApiClient implements EcardTransport {
               }
             }
           } on AppFailure {
+            _code = null;
+            _challenge = null;
             await _onIdentityMismatch();
+            final recovered = await _sessionReader();
+            if (attempt == 0 && _replayableReads.contains(endpoint) &&
+                recovered != null && _sameAccount(session, recovered)) {
+              session = recovered;
+              continue;
+            }
             rethrow;
           }
           await _assertSession(session);
@@ -369,6 +398,11 @@ final class EcardApiClient implements EcardTransport {
       throw _identityFailure('AUTH_RECOVERY_FAILED');
     });
   }
+
+  bool _sameAccount(EcardSession before, EcardSession after) =>
+      before.subjectId == after.subjectId && before.openId == after.openId &&
+      before.channel == after.channel && before.orgId == after.orgId &&
+      before.identity == after.identity;
 
   Map<String, Object?> _requestData(
     Map<String, Object?> data,
@@ -445,7 +479,13 @@ final class EcardApiClient implements EcardTransport {
 
   AppFailure _identityFailure(String code) => AppFailure(
         FailureKind.authenticationExpired,
-        '服务端身份校验不一致，已丢弃本次响应。请稍后重新登录。',
+        switch (code) {
+          'AUTH_PAYMENT_CONTEXT_EXPIRED' => '付款码对应的会话已更新，请重新获取付款码或重新扫码。',
+          'AUTH_SESSION_SUBJECT_CHANGED' => '校园卡会话已变化，本次请求已停止，请重试。',
+          'AUTH_VERIFIED_SESSION_MISSING' => '校园卡会话暂未就绪，请联网重试。',
+          'AUTH_REQUEST_IDENTITY_MISMATCH' => '请求账户与当前校园卡账户不一致，已停止请求。',
+          _ => '服务端返回的身份与已验证账户不一致，已丢弃本次响应。',
+        },
         code: code,
       );
 
