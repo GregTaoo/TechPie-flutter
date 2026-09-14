@@ -14,6 +14,27 @@ import 'package:techpie/features/campus_card/domain/ports/platform_ports.dart';
 import '../support/fake_ecard_transport.dart';
 
 void main() {
+  test('expired polling context regenerates once before surfacing failure', () {
+    fakeAsync((async) {
+      final repository = _PaymentRepository();
+      repository.pollFailure = const AppFailure(FailureKind.authenticationExpired, 'expired',
+          code: 'AUTH_PAYMENT_CONTEXT_EXPIRED',);
+      final controller = PaymentCodeController(repository: repository);
+      unawaited(controller.start());
+      async.flushMicrotasks();
+      async.elapse(const Duration(seconds: 3));
+      async.flushMicrotasks();
+      expect(repository.generateCalls, 2);
+      expect(controller.state.phase, PaymentCodePhase.displaying);
+      async.elapse(const Duration(seconds: 3));
+      async.flushMicrotasks();
+      expect(repository.generateCalls, 2);
+      expect(controller.state.phase, PaymentCodePhase.switchingOffline);
+      unawaited(controller.dispose());
+      async.flushMicrotasks();
+    });
+  });
+
   test('shows success for three seconds and then obtains a new code', () {
     fakeAsync((async) {
       final repository = _PaymentRepository();
@@ -583,6 +604,7 @@ final class _PaymentRepository implements PaymentCodeRepository {
 
   bool activationRequired;
   final Future<PaymentCodePollResult>? pollFuture;
+  AppFailure? pollFailure;
   final AppFailure? generationFailure;
   PaymentCodePollResult nextPoll;
   int generateCalls = 0;
@@ -618,6 +640,7 @@ final class _PaymentRepository implements PaymentCodeRepository {
   @override
   Future<PaymentCodePollResult> pollTransaction(String payCode, {PaymentRequestContext? context}) {
     pollCalls += 1;
+    if (pollFailure != null) return Future.error(pollFailure!);
     return pollFuture ?? Future.value(nextPoll);
   }
 }

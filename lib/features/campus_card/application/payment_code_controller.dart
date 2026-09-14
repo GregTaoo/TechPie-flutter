@@ -28,13 +28,15 @@ final class PaymentCodeController {
   int? _refreshEpochInFlight;
   bool _pollInFlight = false;
   int _epoch = 0;
+  bool _retriedSession = false;
   bool _disposed = false;
 
   PaymentCodeViewState get state => _state;
   Stream<PaymentCodeViewState> get states => _states.stream;
 
-  Future<void> start() async {
+  Future<void> start({bool resetSessionRetry = true}) async {
     _ensureActive();
+    if (resetSessionRetry) _retriedSession = false;
     final epoch = ++_epoch;
     _cancelTimers();
     _emit(
@@ -124,8 +126,10 @@ final class PaymentCodeController {
     _pollInFlight = true;
     _emit(_state.copyWith(phase: PaymentCodePhase.polling));
     try {
-      final result = await _repository.pollTransaction(frame.payCode, context: frame.requestContext);
+      final result = await _repository.pollTransaction(frame.payCode,
+          context: frame.requestContext,);
       if (!_isCurrent(epoch) || _state.generation != generation) return;
+      _retriedSession = false;
       switch (result) {
         case PaymentPending():
           _emit(_state.copyWith(phase: PaymentCodePhase.displaying));
@@ -148,6 +152,11 @@ final class PaymentCodeController {
       }
     } on AppFailure catch (failure) {
       if (_isCurrent(epoch) && _state.generation == generation) {
+        if (failure.isRecoverableSessionFailure && !_retriedSession) {
+          _retriedSession = true;
+          await start(resetSessionRetry: false);
+          return;
+        }
         _cancelTimers();
         _emit(
           _state.copyWith(

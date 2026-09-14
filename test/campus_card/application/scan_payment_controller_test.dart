@@ -1,13 +1,32 @@
 import 'dart:async';
+
 import 'package:clock/clock.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:techpie/features/campus_card/application/scan_payment_controller.dart';
+import 'package:techpie/features/campus_card/core/errors/app_failure.dart';
 import 'package:techpie/features/campus_card/domain/models/payment_models.dart';
 import 'package:techpie/features/campus_card/domain/models/scan_models.dart';
 import 'package:techpie/features/campus_card/domain/money_fen.dart';
 import 'package:techpie/features/campus_card/domain/ports/payment_ports.dart';
 
 void main() {
+  for (final notSent in [true, false]) {
+    test('expired scan context only rebuilds when not sent: $notSent', () async {
+      final repository = _ExpiredScanRepository(notSent);
+      final controller = ScanPaymentController(repository: repository);
+      addTearDown(controller.dispose);
+      await controller.submitCode('RAW%2F+SCAN');
+      await controller.submitPassword('123456');
+      expect(repository.requests.length, notSent ? 3 : 2);
+      expect(controller.state.phase, notSent
+          ? ScanFlowPhase.passwordRequired : ScanFlowPhase.failed,);
+      if (notSent) {
+        expect(repository.requests.last, ('RAW%2F+SCAN', null));
+        expect(controller.state.pendingServerQrCode, 'FRESH');
+      }
+    });
+  }
+
   test(
       'reset discards an in-flight success instead of reviving a cancelled scan',
       () async {
@@ -116,4 +135,20 @@ final class _PendingScanRepository implements ScanPaymentRepository {
     PaymentRequestContext? context,
   }) =>
       pending.future;
+}
+
+final class _ExpiredScanRepository implements ScanPaymentRepository {
+  _ExpiredScanRepository(this.notSent);
+  final bool notSent;
+  final List<(String, String?)> requests = [];
+  @override
+  Future<ScanPaymentResult> submit({required String qrCode,
+    required DateTime payTime, String? password, PaymentRequestContext? context,}) async {
+    requests.add((qrCode, password));
+    if (password != null) {
+      throw AppFailure(FailureKind.authenticationExpired, 'expired',
+        code: 'AUTH_PAYMENT_CONTEXT_EXPIRED', requestNotSent: notSent,);
+    }
+    return ScanPasswordRequired(serverQrCode: requests.length == 1 ? 'OLD' : 'FRESH');
+  }
 }
