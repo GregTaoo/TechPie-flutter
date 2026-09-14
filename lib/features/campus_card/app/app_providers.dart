@@ -465,18 +465,16 @@ final class OfflineAuthorizationController
       _renewalTimer?.cancel();
     });
     final service = ref.watch(appRuntimeProvider).offlinePayments;
-    var view = await service.status(cardId);
+    final view = await service.status(cardId);
     if (generation != _generation) return view;
+    _scheduleAutomaticRenewal(view);
     if (_shouldRenewAutomatically(view)) {
-      try {
-        await service.renew(cardId, force: true);
-        view = await service.status(cardId);
-      } catch (_) {
-        // Automatic maintenance is best effort and must not replace a usable
-        // local authorization with an error screen.
-      }
+      // Publish the local grant before attempting network maintenance. A valid
+      // renewal-due grant remains usable while the server is slow/unavailable.
+      Future<void>.delayed(Duration.zero, () {
+        if (generation == _generation) unawaited(maintain(force: true));
+      });
     }
-    if (generation == _generation) _scheduleAutomaticRenewal(view);
     return view;
   }
 

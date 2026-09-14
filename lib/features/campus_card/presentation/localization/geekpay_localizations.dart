@@ -174,7 +174,7 @@ final class GeekPayLocalizations {
       'onlineStatus': '在线状态',
       'requestLatency': '当前延迟',
       'manualOfflineActive': '手动离线模式会保持到 App 进程退出。',
-      'automaticOfflineMode': '网络异常时自动使用离线码，恢复后自动返回在线码。',
+      'automaticOfflineMode': '在线码加载期间或网络异常时，先显示可用的离线码；在线码就绪后自动切换。',
       'activationRequired': '需要先开通付款码',
       'activate': '立即开通',
       'paymentSucceeded': '支付成功',
@@ -411,7 +411,7 @@ final class GeekPayLocalizations {
       'manualOfflineActive':
           'Manual offline mode remains active until the app process exits.',
       'automaticOfflineMode':
-          'Offline code is selected automatically on failure and disabled after recovery.',
+          'A valid offline code appears while the online code loads or the network is unavailable. The online code replaces it when ready.',
       'activationRequired': 'Payment code setup is required',
       'activate': 'Set Up Now',
       'paymentSucceeded': 'Payment Complete',
@@ -640,7 +640,7 @@ final class GeekPayLocalizations {
       'onlineStatus': 'オンライン状態',
       'requestLatency': '現在の遅延',
       'manualOfflineActive': '手動オフラインモードは App を終了するまで維持されます。',
-      'automaticOfflineMode': '異常時は自動でオフラインコードに切り替え、復旧後はオンラインに戻ります。',
+      'automaticOfflineMode': 'オンラインコードの読み込み中や通信エラー時は、利用可能なオフラインコードを表示します。オンラインコードの準備ができ次第、自動で切り替わります。',
       'activationRequired': '支払いコードの設定が必要です',
       'activate': '今すぐ設定',
       'paymentSucceeded': '支払い完了',
