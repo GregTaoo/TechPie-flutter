@@ -121,7 +121,7 @@ AppRuntime buildRealRuntime(
     capabilities: AppCapabilities.forEnvironment(environment),
     auth: auth,
     cards: cards,
-    paymentCodes: EcardPaymentCodeRepository(client),
+    paymentCodes: EcardPaymentCodeRepository(client, onBalance: cards.acceptCodeBalance),
     scanPayments: EcardScanPaymentRepository(client),
     transactions: transactions,
     securitySettings: EcardSecuritySettingsRepository(client),

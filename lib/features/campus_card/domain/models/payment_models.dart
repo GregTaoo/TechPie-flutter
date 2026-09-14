@@ -26,8 +26,12 @@ final class PaymentCodeFrame {
     required this.offlineAllowed,
     required this.generatedAt,
     this.requestContext,
+    this.balance,
+    this.balanceChanged = false,
   });
 
+  final MoneyFen? balance;
+  final bool balanceChanged;
   final PaymentRequestContext? requestContext;
   final String payCode;
   final String rawQrCode;

@@ -164,6 +164,7 @@ final class EcardApiClient implements EcardTransport {
           Map<String, Object?> data, PaymentRequestContext? context,) =>
       _execute('POST', '/scan/scanningResult', data, permission: context);
 
+  int _responseSequence = 0;
   _CodeLease? _code;
   _CodeLease? _challenge;
 
@@ -354,6 +355,7 @@ final class EcardApiClient implements EcardTransport {
         // Pure session/cache reads do not extend the inactivity deadline.
         await _onSessionActivity?.call(session);
         scope.sent = true;
+        final responseOrder = ++_responseSequence;
         final response = await _dio.request<Object?>(
           path,
           data: method == 'POST'
@@ -430,6 +432,7 @@ final class EcardApiClient implements EcardTransport {
                   ? _challenge
                   : null,
           _commitInSession,
+          responseOrder,
         );
       } on DioException catch (error) {
         // Never expire or recover B due to a late failure from A.
@@ -663,8 +666,10 @@ final class EcardResponseMap extends MapBase<String, Object?> {
     this.session,
     this.validateContext,
     this.requestContext,
-    this.commitInSession,
-  );
+    this.commitInSession, [
+    this.responseOrder = 0,
+  ]);
+  final int responseOrder;
   final EcardSessionCommit? commitInSession;
   final PaymentRequestContext? requestContext;
   final Map<String, Object?> _values;
@@ -688,24 +693,26 @@ Object? _bindResponse(
   Future<void> Function() validate, [
   PaymentRequestContext? context,
   EcardSessionCommit? commit,
+  int responseOrder = 0,
 ]) {
   if (value is Map) {
     return EcardResponseMap(
       value.map(
         (key, item) => MapEntry(
           key.toString(),
-          _bindResponse(item, session, validate, context, commit),
+          _bindResponse(item, session, validate, context, commit, responseOrder),
         ),
       ),
       session,
       validate,
       context,
       commit,
+      responseOrder,
     );
   }
   if (value is List) {
     return value
-        .map((item) => _bindResponse(item, session, validate, context, commit))
+        .map((item) => _bindResponse(item, session, validate, context, commit, responseOrder))
         .toList();
   }
   return value;

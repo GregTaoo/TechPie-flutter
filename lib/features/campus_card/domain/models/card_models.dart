@@ -59,6 +59,15 @@ final class CampusCard {
   final String? accountType;
   final bool detailsAvailable;
   final DateTime? updatedAt;
+  CampusCard withBalance(MoneyFen value) => CampusCard(
+    id: id, maskedNumber: maskedNumber, ownerName: ownerName, balance: value,
+    status: status, positionName: positionName, positionCode: positionCode,
+    offlineCodeAllowed: offlineCodeAllowed, schoolName: schoolName,
+    departmentName: departmentName, validUntil: validUntil,
+    lastTransactionAt: lastTransactionAt, accountType: accountType,
+    detailsAvailable: detailsAvailable, updatedAt: updatedAt,
+  );
+
 }
 
 final class CampusPositionProfile {

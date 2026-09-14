@@ -177,12 +177,22 @@ final cardControllerProvider =
 
 final class CardController extends AsyncNotifier<CampusCard?> {
   int _generation = 0;
+  int _snapshotRevision = 0;
 
   @override
   Future<CampusCard?> build() {
     final generation = ++_generation;
     ref.onDispose(() => _generation++);
-    return _loadCard(ref.watch(appRuntimeProvider), generation);
+    final runtime = ref.watch(appRuntimeProvider);
+    final cards = runtime.cards;
+    if (cards is CardSnapshotSource) {
+      final subscription = (cards as CardSnapshotSource).snapshots.listen((card) {
+        _snapshotRevision++;
+        state = AsyncData(card);
+      });
+      ref.onDispose(() => unawaited(subscription.cancel()));
+    }
+    return _loadCard(runtime, generation);
   }
 
   Future<CampusCard?> _loadCard(
@@ -190,6 +200,7 @@ final class CardController extends AsyncNotifier<CampusCard?> {
     int generation,
   ) async {
     final repository = runtime.cards;
+    final snapshotRevision = _snapshotRevision;
     final CampusCard? card;
     if (repository is CacheFirstCardRepository) {
       final cached = await repository.readCachedCard();
@@ -217,20 +228,20 @@ final class CardController extends AsyncNotifier<CampusCard?> {
       card = await repository.currentCard();
     }
     if (generation != _generation) return state.valueOrNull;
-    if (card == null) return null;
-    if (generation == _generation) {
-      unawaited(_maintainOfflineAuthorization(runtime, card));
-    }
-    return card;
+    final latest = snapshotRevision == _snapshotRevision ? card : state.valueOrNull;
+    if (latest == null) return null;
+    unawaited(_maintainOfflineAuthorization(runtime, latest));
+    return latest;
   }
 
   Future<void> _refreshCachedCard(
     CacheFirstCardRepository repository,
     int generation,
   ) async {
+    final snapshotRevision = _snapshotRevision;
     try {
       final refreshed = await repository.refreshCard();
-      if (generation == _generation && refreshed != null) {
+      if (generation == _generation && snapshotRevision == _snapshotRevision && refreshed != null) {
         state = AsyncData(refreshed);
       }
     } catch (_) {
@@ -299,6 +310,7 @@ final class CardController extends AsyncNotifier<CampusCard?> {
     // A post-payment refresh supersedes older startup/balance requests.
     final generation = ++_generation;
     final previous = state.valueOrNull;
+    final snapshotRevision = _snapshotRevision;
     final runtime = ref.read(appRuntimeProvider);
     final repository = runtime.cards;
     final result = await AsyncValue.guard(
@@ -308,10 +320,10 @@ final class CardController extends AsyncNotifier<CampusCard?> {
     );
     if (generation != _generation) return;
     if (result.hasError && previous != null) {
-      state = AsyncData(previous);
+      if (snapshotRevision == _snapshotRevision) state = AsyncData(previous);
       _throwAsyncError(result);
     }
-    state = result;
+    if (snapshotRevision == _snapshotRevision) state = result;
     _throwAsyncError(result);
   }
 }
