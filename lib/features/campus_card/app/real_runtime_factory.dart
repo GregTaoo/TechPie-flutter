@@ -87,6 +87,8 @@ AppRuntime buildRealRuntime(
     httpTrace: httpTrace,
     sessionReader: auth.readSession,
     sessionPreparer: auth.prepareSession,
+    requestIdentityReader: auth.readRequestIdentity,
+    accountRevisionReader: () => auth.accountRevision,
     onSessionActivity: auth.recordSessionActivity,
     sessionGenerationReader: () => auth.generation,
     commitInSession: auth.commitInSession,

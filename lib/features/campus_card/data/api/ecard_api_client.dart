@@ -99,6 +99,8 @@ final class EcardApiClient implements EcardTransport {
     EcardCipher? cipher,
     required EcardSessionReader sessionReader,
     EcardSessionReader? sessionPreparer,
+    Future<EcardVerifiedIdentity?> Function()? requestIdentityReader,
+    int Function()? accountRevisionReader,
     Future<void> Function(EcardSession)? onSessionActivity,
     required EcardIdentityGuard identityGuard,
     int Function()? sessionGenerationReader,
@@ -109,6 +111,8 @@ final class EcardApiClient implements EcardTransport {
   })  : _cipher = cipher ?? EcardCipher(),
         _sessionReader = sessionReader,
         _sessionPreparer = sessionPreparer,
+        _requestIdentityReader = requestIdentityReader,
+        _accountRevisionReader = accountRevisionReader,
         _onSessionActivity = onSessionActivity,
         _identityGuard = identityGuard,
         _sessionGenerationReader = sessionGenerationReader,
@@ -137,6 +141,8 @@ final class EcardApiClient implements EcardTransport {
   final EcardCipher _cipher;
   final EcardSessionReader _sessionReader;
   final EcardSessionReader? _sessionPreparer;
+  final Future<EcardVerifiedIdentity?> Function()? _requestIdentityReader;
+  final int Function()? _accountRevisionReader;
   final Future<void> Function(EcardSession)? _onSessionActivity;
   final EcardIdentityGuard _identityGuard;
   final int Function()? _sessionGenerationReader;
@@ -216,17 +222,77 @@ final class EcardApiClient implements EcardTransport {
     bool bytes = false,
     PaymentRequestContext? permission,
   }) async {
+    final frozenData = Map<String, Object?>.unmodifiable(data);
+    final accountRevision = _accountRevisionReader?.call();
+    final scope = _RequestScope(_requestIdentityReader == null
+        ? null
+        : await _requestIdentityReader.call(),);
+    final endpoint = Uri.parse(path).path;
+    final readOrGenerate = _replayableReads.contains(endpoint) ||
+        endpoint == '/offlineCode/openVirtualcard';
+    for (var attempt = 0; attempt < 2; attempt++) {
+      scope.sent = false;
+      try {
+        if (accountRevision != _accountRevisionReader?.call()) {
+          throw _identityFailure('AUTH_REQUEST_ACCOUNT_CHANGED');
+        }
+        return await _executeOnce(method, path, frozenData,
+            scope: scope,
+            includeOpenId: includeOpenId,
+            plain: plain,
+            bytes: bytes,
+            permission: permission,);
+      } on AppFailure catch (failure) {
+        if (accountRevision != _accountRevisionReader?.call()) {
+          throw _identityFailure('AUTH_REQUEST_ACCOUNT_CHANGED');
+        }
+        final canRetry = attempt == 0 &&
+            failure.isRecoverableSessionFailure &&
+            failure.code != 'AUTH_PAYMENT_CONTEXT_EXPIRED' &&
+            (failure.code != 'AUTH_SESSION_SUBJECT_CHANGED' ||
+                accountRevision != null) &&
+            accountRevision == _accountRevisionReader?.call() &&
+            endpoint != '/virtualcard/queryOrderStatus' &&
+            (readOrGenerate || !scope.sent) &&
+            (scope.owner != null || scope.identity != null);
+        if (canRetry) continue;
+        throw AppFailure(failure.kind, failure.safeMessage,
+            code: failure.code,
+            retryable: failure.retryable,
+            cause: failure.cause,
+            requestNotSent: !scope.sent,);
+      }
+    }
+    throw _identityFailure('AUTH_RECOVERY_FAILED');
+  }
+
+  Future<Object?> _executeOnce(
+    String method,
+    String path,
+    Map<String, Object?> data, {
+    required _RequestScope scope,
+    bool includeOpenId = true,
+    bool plain = false,
+    bool bytes = false,
+    PaymentRequestContext? permission,
+  }) async {
     data = Map<String, Object?>.unmodifiable(data);
     // Capture before queueing. Queued A requests must never run as account B.
     final invocationGeneration = _sessionGenerationReader?.call();
     final queuedSession = await (_sessionPreparer?.call() ?? _sessionReader());
-    if (_sessionPreparer == null && invocationGeneration != null &&
+    if (_sessionPreparer == null &&
+        invocationGeneration != null &&
         queuedSession?.generation != invocationGeneration) {
       throw _identityFailure('AUTH_SESSION_SUBJECT_CHANGED');
     }
     if (queuedSession == null) {
       throw _identityFailure('AUTH_VERIFIED_SESSION_MISSING');
     }
+    if ((scope.owner != null && !_sameAccount(scope.owner!, queuedSession)) ||
+        (scope.identity != null && queuedSession.identity != scope.identity)) {
+      throw _identityFailure('AUTH_REQUEST_ACCOUNT_CHANGED');
+    }
+    scope.owner ??= queuedSession;
     final endpoint = Uri.parse(path).path;
     final polling = endpoint == '/virtualcard/queryOrderStatus';
     final generating = endpoint == '/offlineCode/openVirtualcard';
@@ -256,152 +322,134 @@ final class EcardApiClient implements EcardTransport {
       if (generating) _code = null;
       if (scanning) _challenge = null;
       var session = queuedSession;
-      for (var attempt = 0; attempt < 2; attempt++) {
-        final readsQuota = endpoint == '/virtualcard/openQrcodeQuotaModify';
-        final identity = polling
-            ? lease!.identity
-            : readsQuota && session.identity != null
-                ? session.identity!
-                : await _identityGuard();
-        var verifiedSession = await _sessionReader();
-        if (verifiedSession == null && _sessionPreparer != null) {
-          verifiedSession = await _sessionPreparer.call();
-        }
-        if (verifiedSession == null || !_sameAccount(session, verifiedSession)) {
-          throw _identityFailure('AUTH_SESSION_SUBJECT_CHANGED');
-        }
-        if (!session.sameSession(verifiedSession)) {
-          if (lease != null) throw _identityFailure('AUTH_PAYMENT_CONTEXT_EXPIRED');
-          // No business request has been sent yet. A verified replacement for
-          // the same account can be used without replaying any payment.
-          session = verifiedSession;
-        }
-        if (identity.subjectId != session.subjectId ||
-            session.identity != null && identity != session.identity) {
-          throw _identityFailure('AUTH_SESSION_SUBJECT_CHANGED');
-        }
-        final request =
-            _requestData(data, session, includeOpenId: includeOpenId);
-        _validateRequestIdentity(path, request, identity);
-        try {
-          // A request about to be sent is activity, including a slow payment.
-          // Pure session/cache reads do not extend the inactivity deadline.
-          await _onSessionActivity?.call(session);
-          final response = await _dio.request<Object?>(
-            path,
-            data: method == 'POST'
-                ? {'datajson': _cipher.encodeRequest(request)}
-                : null,
-            queryParameters: method != 'POST' && !bytes
-                ? plain
-                    ? request
-                    : {'datajson': _cipher.encodeRequest(request)}
-                : null,
-            options: Options(
-              method: method,
-              responseType: bytes ? ResponseType.bytes : ResponseType.json,
-              headers: {
-                'cookie': session.sessionCookie,
-                'orgid': session.orgId,
-              },
-            ),
-          );
-          await _assertSession(session);
-          if (bytes) return response.data;
-          final decoded = _decode(response.data);
-          try {
-            _validateIdentityFields(decoded, identity);
-            if (readsQuota) {
-              final map = requireObjectMap(decoded, context: 'IDENTITY_QUOTA');
-              final fields = map['data'] is Map ? map['data'] as Map : map;
-              if (apiRejected(map) ||
-                  fields['idserial']?.toString() != identity.idSerial ||
-                  fields['cardid']?.toString() != identity.cardId) {
-                throw _identityFailure('AUTH_IDENTITY_MISMATCH');
-              }
-            }
-          } on AppFailure {
-            _code = null;
-            _challenge = null;
-            await _onIdentityMismatch();
-            final recovered = await _sessionReader();
-            if (attempt == 0 && _replayableReads.contains(endpoint) &&
-                recovered != null && _sameAccount(session, recovered)) {
-              session = recovered;
-              continue;
-            }
-            rethrow;
-          }
-          await _assertSession(session);
-          if (polling && !identical(_code, lease)) {
-            throw _identityFailure('AUTH_PAYMENT_CONTEXT_EXPIRED');
-          }
-          if (decoded is Map &&
-              apiSuccess(requireObjectMap(decoded, context: 'RESPONSE'))) {
-            if (generating && decoded['data'] is Map) {
-              final code = (decoded['data'] as Map)['code']?.toString() ?? '';
-              if (code.isNotEmpty) _code = _CodeLease(code, session, identity);
-            }
-            if (scanning &&
-                (decoded['issuccess']?.toString() == '2004' ||
-                    Uri.tryParse(decoded['url']?.toString() ?? '')?.path ==
-                        '/pages/common/inputPass/inputPass')) {
-              final nested = decoded['data'] is Map
-                  ? decoded['data'] as Map
-                  : const <String, Object?>{};
-              final code =
-                  (nested['qrcode'] ?? decoded['qrcode'])?.toString() ?? '';
-              if (code.isNotEmpty) {
-                // Kept verbatim: the retry submits this exact string, and the
-                // lease guard compares it against the outgoing payload.
-                _challenge = _CodeLease(code, session, identity);
-              }
-            }
-          }
-          final responseSession = session;
-          return _bindResponse(
-            decoded,
-            responseSession,
-            () => _assertSession(responseSession),
-            generating
-                ? _code
-                : scanning
-                    ? _challenge
-                    : null,
-            _commitInSession,
-          );
-        } on DioException catch (error) {
-          // Never expire or recover B due to a late failure from A.
-          await _assertSession(session);
-          final status = error.response?.statusCode;
-          if (status == 401 || status == 403) {
-            _code = null;
-            _challenge = null;
-            await _onAuthenticationExpired(status!);
-            final recovered = await _sessionReader();
-            if (attempt == 0 &&
-                status == 401 &&
-                _replayableReads.contains(endpoint) &&
-                recovered != null &&
-                recovered.subjectId == session.subjectId &&
-                recovered.openId == session.openId &&
-                recovered.channel == session.channel &&
-                recovered.orgId == session.orgId &&
-                recovered.identity == session.identity) {
-              session = recovered;
-              continue;
-            }
-          }
-          throw await _mapDioFailure(error, notifyAuthentication: false);
-        }
+      final readsQuota = endpoint == '/virtualcard/openQrcodeQuotaModify';
+      final identity = polling
+          ? lease!.identity
+          : readsQuota && session.identity != null
+              ? session.identity!
+              : await _identityGuard();
+      var verifiedSession = await _sessionReader();
+      if (verifiedSession == null && _sessionPreparer != null) {
+        verifiedSession = await _sessionPreparer.call();
       }
-      throw _identityFailure('AUTH_RECOVERY_FAILED');
+      if (verifiedSession == null || !_sameAccount(session, verifiedSession)) {
+        throw _identityFailure('AUTH_SESSION_SUBJECT_CHANGED');
+      }
+      if (!session.sameSession(verifiedSession)) {
+        if (lease != null) {
+          throw _identityFailure('AUTH_PAYMENT_CONTEXT_EXPIRED');
+        }
+        // No business request has been sent yet. A verified replacement for
+        // the same account can be used without replaying any payment.
+        session = verifiedSession;
+      }
+      if (identity.subjectId != session.subjectId ||
+          session.identity != null && identity != session.identity) {
+        throw _identityFailure('AUTH_SESSION_SUBJECT_CHANGED');
+      }
+      final request = _requestData(data, session, includeOpenId: includeOpenId);
+      _validateRequestIdentity(path, request, identity);
+      try {
+        // A request about to be sent is activity, including a slow payment.
+        // Pure session/cache reads do not extend the inactivity deadline.
+        await _onSessionActivity?.call(session);
+        scope.sent = true;
+        final response = await _dio.request<Object?>(
+          path,
+          data: method == 'POST'
+              ? {'datajson': _cipher.encodeRequest(request)}
+              : null,
+          queryParameters: method != 'POST' && !bytes
+              ? plain
+                  ? request
+                  : {'datajson': _cipher.encodeRequest(request)}
+              : null,
+          options: Options(
+            method: method,
+            responseType: bytes ? ResponseType.bytes : ResponseType.json,
+            headers: {
+              'cookie': session.sessionCookie,
+              'orgid': session.orgId,
+            },
+          ),
+        );
+        await _assertSession(session);
+        if (bytes) return response.data;
+        final decoded = _decode(response.data);
+        try {
+          _validateIdentityFields(decoded, identity);
+          if (readsQuota) {
+            final map = requireObjectMap(decoded, context: 'IDENTITY_QUOTA');
+            final fields = map['data'] is Map ? map['data'] as Map : map;
+            if (apiRejected(map) ||
+                fields['idserial']?.toString() != identity.idSerial ||
+                fields['cardid']?.toString() != identity.cardId) {
+              throw _identityFailure('AUTH_IDENTITY_MISMATCH');
+            }
+          }
+        } on AppFailure {
+          _code = null;
+          _challenge = null;
+          await _onIdentityMismatch();
+          rethrow;
+        }
+        await _assertSession(session);
+        if (polling && !identical(_code, lease)) {
+          throw _identityFailure('AUTH_PAYMENT_CONTEXT_EXPIRED');
+        }
+        if (decoded is Map &&
+            apiSuccess(requireObjectMap(decoded, context: 'RESPONSE'))) {
+          if (generating && decoded['data'] is Map) {
+            final code = (decoded['data'] as Map)['code']?.toString() ?? '';
+            if (code.isNotEmpty) _code = _CodeLease(code, session, identity);
+          }
+          if (scanning &&
+              (decoded['issuccess']?.toString() == '2004' ||
+                  Uri.tryParse(decoded['url']?.toString() ?? '')?.path ==
+                      '/pages/common/inputPass/inputPass')) {
+            final nested = decoded['data'] is Map
+                ? decoded['data'] as Map
+                : const <String, Object?>{};
+            final code =
+                (nested['qrcode'] ?? decoded['qrcode'])?.toString() ?? '';
+            if (code.isNotEmpty) {
+              // Kept verbatim: the retry submits this exact string, and the
+              // lease guard compares it against the outgoing payload.
+              _challenge = _CodeLease(code, session, identity);
+            }
+          }
+        }
+        final responseSession = session;
+        return _bindResponse(
+          decoded,
+          responseSession,
+          () => _assertSession(responseSession),
+          generating
+              ? _code
+              : scanning
+                  ? _challenge
+                  : null,
+          _commitInSession,
+        );
+      } on DioException catch (error) {
+        // Never expire or recover B due to a late failure from A.
+        await _assertSession(session);
+        final status = error.response?.statusCode;
+        if (status == 401 || status == 403) {
+          _code = null;
+          _challenge = null;
+          await _onAuthenticationExpired(status!);
+        }
+        throw await _mapDioFailure(error, notifyAuthentication: false);
+      }
     });
   }
 
   bool _sameAccount(EcardSession before, EcardSession after) =>
-      before.subjectId == after.subjectId && before.openId == after.openId &&
-      before.channel == after.channel && before.orgId == after.orgId &&
+      before.subjectId == after.subjectId &&
+      before.openId == after.openId &&
+      before.channel == after.channel &&
+      before.orgId == after.orgId &&
       before.identity == after.identity;
 
   Map<String, Object?> _requestData(
@@ -481,6 +529,7 @@ final class EcardApiClient implements EcardTransport {
         FailureKind.authenticationExpired,
         switch (code) {
           'AUTH_PAYMENT_CONTEXT_EXPIRED' => '付款码对应的会话已更新，请重新获取付款码或重新扫码。',
+          'AUTH_REQUEST_ACCOUNT_CHANGED' => '校园卡账户已变化，本次操作已取消。',
           'AUTH_SESSION_SUBJECT_CHANGED' => '校园卡会话已变化，本次请求已停止，请重试。',
           'AUTH_VERIFIED_SESSION_MISSING' => '校园卡会话暂未就绪，请联网重试。',
           'AUTH_REQUEST_IDENTITY_MISMATCH' => '请求账户与当前校园卡账户不一致，已停止请求。',
@@ -531,6 +580,13 @@ final class EcardApiClient implements EcardTransport {
         ),
     };
   }
+}
+
+final class _RequestScope {
+  _RequestScope(this.identity);
+  final EcardVerifiedIdentity? identity;
+  EcardSession? owner;
+  bool sent = false;
 }
 
 Map<String, Object?> requireObjectMap(
@@ -602,8 +658,13 @@ final class _CodeLease implements PaymentRequestContext {
 
 /// Carries local provenance through repository parsing, never over the network.
 final class EcardResponseMap extends MapBase<String, Object?> {
-  EcardResponseMap(this._values, this.session, this.validateContext,
-      this.requestContext, this.commitInSession,);
+  EcardResponseMap(
+    this._values,
+    this.session,
+    this.validateContext,
+    this.requestContext,
+    this.commitInSession,
+  );
   final EcardSessionCommit? commitInSession;
   final PaymentRequestContext? requestContext;
   final Map<String, Object?> _values;
@@ -631,8 +692,10 @@ Object? _bindResponse(
   if (value is Map) {
     return EcardResponseMap(
       value.map(
-        (key, item) => MapEntry(key.toString(),
-            _bindResponse(item, session, validate, context, commit),),
+        (key, item) => MapEntry(
+          key.toString(),
+          _bindResponse(item, session, validate, context, commit),
+        ),
       ),
       session,
       validate,
@@ -653,7 +716,9 @@ Future<void> validateEcardResponse(Object? response) async {
 }
 
 Future<void> commitEcardResponse(
-    Object? response, Future<void> Function() action,) async {
+  Object? response,
+  Future<void> Function() action,
+) async {
   if (response is EcardResponseMap && response.commitInSession != null) {
     await response.commitInSession!(response.session, action);
   } else {

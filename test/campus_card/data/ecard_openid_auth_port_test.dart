@@ -18,6 +18,26 @@ void main() {
   const idSerial = 'DEMO-STUDENT-0001';
   const cardId = 'DEMO-CARD-0001';
 
+  test('login retries inconsistent identity before exposing an error', () async {
+    final adapter = _QueueAdapter([
+      _Reply.issued('JSESSIONID=bad', idSerial, cardId),
+      _Reply.encrypted(_quota(idSerial, 'DIFFERENT-CARD')),
+      _Reply.issued('JSESSIONID=good', idSerial, cardId),
+      _Reply.encrypted(_quota(idSerial, cardId)),
+    ]);
+    final store = SecureSessionCredentialStore(InMemorySecureCredentialStore());
+    final auth = EcardOpenIdAuthPort(dio: _dio(adapter), sessionIssuer: _issuer(adapter),
+      sessionStore: store, purgeAccountBoundCredentials: () async {},);
+    addTearDown(auth.dispose);
+    final states = <AuthState>[];
+    final subscription = auth.changes.listen((event) => states.add(event.state));
+    addTearDown(subscription.cancel);
+    await auth.signIn(const OpenIdAuthCredential(openId: openId));
+    expect(await store.readSessionCookie(), 'JSESSIONID=good');
+    expect(states, [AuthState.signingIn, AuthState.authenticated]);
+    expect(adapter.requests, hasLength(4));
+  });
+
   test('changing only the channel replaces the account and recovery keeps Alipay', () async {
     final adapter = _QueueAdapter([
       _Reply.issued('JSESSIONID=alipay-one', idSerial, cardId),
@@ -163,6 +183,8 @@ void main() {
 
   test('clears session when the issuer and quota endpoints disagree', () async {
     final adapter = _QueueAdapter([
+      _Reply.issued('JSESSIONID=synthetic-session; Path=/', idSerial, cardId),
+      _Reply.encrypted(_quota(idSerial, 'DIFFERENT-CARD')),
       _Reply.issued('JSESSIONID=synthetic-session; Path=/', idSerial, cardId),
       _Reply.encrypted(_quota(idSerial, 'DIFFERENT-CARD')),
     ]);
@@ -432,6 +454,8 @@ void main() {
       verifiedCardId: previousCardId,
     );
     final adapter = _QueueAdapter([
+      _Reply.issued('JSESSIONID=candidate-session; Path=/', idSerial, cardId),
+      _Reply.encrypted(_quota('OTHER-STUDENT', 'OTHER-CARD')),
       _Reply.issued('JSESSIONID=candidate-session; Path=/', idSerial, cardId),
       _Reply.encrypted(_quota('OTHER-STUDENT', 'OTHER-CARD')),
     ]);

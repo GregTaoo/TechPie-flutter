@@ -71,7 +71,9 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
   final AsyncMutex _sessionMutex = AsyncMutex();
   int _generation = 0;
   int _accountRevision = 0;
+  int _accountOperations = 0;
   int get generation => _generation;
+  int get accountRevision => _accountRevision;
   String? _verifiedSessionCookie;
   Future<void>? _sessionRecovery;
   Future<AuthSnapshot>? _sessionRefresh;
@@ -88,6 +90,23 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
   Future<EcardSession?> readSession() => Zone.current[_commitZone] == true
       ? _readSession()
       : _sessionMutex.protect(_readSession);
+
+  Future<EcardVerifiedIdentity?> readRequestIdentity() {
+    final revision = _accountRevision;
+    // The authenticated event may start new requests before signIn returns.
+    // At that point its verified cookie has already been committed.
+    if (_accountOperations != 0 && _verifiedSessionCookie == null) {
+      return Future.error(const AppFailure(FailureKind.cancelled,
+          '校园卡账户正在变化，本次操作已取消。', code: 'AUTH_REQUEST_ACCOUNT_CHANGED',),);
+    }
+    return _sessionMutex.protect(() async {
+      if (revision != _accountRevision) {
+        throw const AppFailure(FailureKind.cancelled, '校园卡账户已变化，本次操作已取消。',
+            code: 'AUTH_REQUEST_ACCOUNT_CHANGED',);
+      }
+      return readCachedIdentity();
+    });
+  }
 
   /// Called once at request entry; never used by response/provenance checks.
   Future<EcardSession?> prepareSession() {
@@ -293,7 +312,9 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
     _accountRevision++;
     _generation++;
     _verifiedSessionCookie = null;
-    return _sessionMutex.protect(() => _signIn(credential));
+    _accountOperations++;
+    return _sessionMutex.protect(() => _signIn(credential))
+        .whenComplete(() => _accountOperations--);
   }
 
   Future<AuthSnapshot> _signIn(AuthCredential credential) async {
@@ -311,7 +332,7 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
     final previousOpenId = await _sessionStore.readOpenId();
     final previousChannel = await _sessionStore.readOpenIdChannel();
     try {
-      final verified = await _authenticate(credential);
+      final verified = await _authenticateForUser(credential);
       if (previousOpenId != null && (previousOpenId != openId || previousChannel != credential.channel)) {
         // Validate the replacement first. A typo must not destroy the current
         // account or its usable offline authorization.
@@ -357,7 +378,7 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
   Future<void> verifyOpenId(String openId, {EcardOpenIdChannel channel = EcardOpenIdChannel.wechat}) => _sessionMutex.protect(() async {
         final credential = OpenIdAuthCredential(openId: openId.trim(), channel: channel);
         credential.validate();
-        await _authenticate(credential);
+        await _authenticateForUser(credential);
       });
 
   Future<_VerifiedEcardSession> _replaceStoredSession(String openId) async {
@@ -385,6 +406,31 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
     _scheduleExpiry(_clock.now());
     _emit(await _authenticated(openId, verified.orgId));
     return verified;
+  }
+
+  Future<_VerifiedEcardSession> _authenticateForUser(
+      OpenIdAuthCredential credential,) async {
+    final revision = _accountRevision;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        final session = await _authenticate(credential);
+        if (revision != _accountRevision) {
+          throw const AppFailure(FailureKind.cancelled, '校园卡账户已变化，本次操作已取消。',
+              code: 'AUTH_REQUEST_ACCOUNT_CHANGED',);
+        }
+        return session;
+      } on AppFailure catch (failure) {
+        if (attempt == 0 &&
+            revision == _accountRevision &&
+            failure.isRecoverableSessionFailure &&
+            failure.code != 'AUTH_SESSION_SUBJECT_CHANGED' &&
+            failure.code != 'HTTP_401') {
+          continue;
+        }
+        rethrow;
+      }
+    }
+    throw StateError('Unreachable authentication retry state');
   }
 
   Future<_VerifiedEcardSession> _authenticate(
@@ -494,6 +540,7 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
     _accountRevision++;
     _generation++;
     _verifiedSessionCookie = null;
+    _accountOperations++;
     return _sessionMutex.protect(() async {
       final previous = await _sessionStore.readOpenId();
       final previousChannel = await _sessionStore.readOpenIdChannel();
@@ -501,7 +548,7 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
       await _sessionStore.stageOpenId(openId, channel: channel);
       _emit(await _authenticated(openId, '2', reason: previous != null &&
           (previous != openId || previousChannel != channel) ? AuthChangeReason.accountChanged : null,),);
-    });
+    }).whenComplete(() => _accountOperations--);
   }
 
   @override
@@ -509,7 +556,9 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
     _accountRevision++;
     _generation++;
     _verifiedSessionCookie = null;
-    return _sessionMutex.protect(_signOut);
+    _accountOperations++;
+    return _sessionMutex.protect(_signOut)
+        .whenComplete(() => _accountOperations--);
   }
 
   Future<void> _signOut() async {

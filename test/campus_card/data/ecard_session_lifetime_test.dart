@@ -19,6 +19,31 @@ const _quota = '/virtualcard/openQrcodeQuotaModify';
 const _read = '/myaccount/openMyAccountApp';
 
 void main() {
+  test('session replacement during a read retries with the new cookie', () async {
+    final h = await _Harness.create();
+    addTearDown(h.close);
+    var replaced = false;
+    h.adapter.beforeReply = (path) async {
+      if (path == _read && !replaced) {
+        replaced = true;
+        await h.auth.rejectCurrentOnlineSession();
+      }
+    };
+    await h.client.get(_read, {});
+    expect(h.adapter.paths.where((path) => path == _read), hasLength(2));
+    expect(h.adapter.issues, 1);
+    expect(h.adapter.cookies.last, 'JSESSIONID=new-1');
+  });
+
+  test('online code generation retries an inconsistent response', () async {
+    final h = await _Harness.create();
+    addTearDown(h.close);
+    h.adapter.wrongCodeOnce = true;
+    await h.client.post('/offlineCode/openVirtualcard', {});
+    expect(h.adapter.paths.where((path) => path == '/offlineCode/openVirtualcard'), hasLength(2));
+    expect(h.adapter.issues, 1);
+  });
+
   test('a late 401 joins recovery without invalidating its replacement', () async {
     final h = await _Harness.create();
     addTearDown(h.close);
@@ -178,7 +203,7 @@ void main() {
     await expectLater(h.client.get(_read, {}), throwsA(isA<AppFailure>()));
     expect(await h.store.readSessionCookie(), isNull);
     expect(await h.store.readVerifiedIdSerial(), 'STUDENT-A');
-    expect(h.adapter.issues, 1);
+    expect(h.adapter.issues, 2);
     expect(h.adapter.paths.contains(_read), isFalse);
   });
 
@@ -231,6 +256,8 @@ class _Harness {
           ..httpClientAdapter = h.adapter,
         sessionReader: () => h.auth.readSession(),
         sessionPreparer: () => h.auth.prepareSession(),
+        requestIdentityReader: () => h.auth.readRequestIdentity(),
+        accountRevisionReader: () => h.auth.accountRevision,
         sessionGenerationReader: () => h.auth.generation,
         onSessionActivity: (session) => h.auth.recordSessionActivity(session),
         identityGuard: () => h.auth.verifyCurrentIdentity(),
@@ -248,6 +275,8 @@ class _Harness {
 
 class _Adapter implements HttpClientAdapter {
   int issues = 0;
+  bool wrongCodeOnce = false;
+  Future<void> Function(String)? beforeReply;
   Completer<void>? issuerGate;
   final issuerStarted = Completer<void>();
   bool wrongQuotaOnce = false;
@@ -283,9 +312,11 @@ class _Adapter implements HttpClientAdapter {
     } else {
       final wrong = (path == _quota && wrongQuotaOnce) ||
           (path == _read && wrongReadOnce) ||
+          (path == '/offlineCode/openVirtualcard' && wrongCodeOnce) ||
           path == '/scan/scanningResult';
       if (path == _quota) wrongQuotaOnce = false;
       if (path == _read) wrongReadOnce = false;
+      if (path == '/offlineCode/openVirtualcard') wrongCodeOnce = false;
       body = {
         'success': true,
         'data': {
@@ -294,6 +325,7 @@ class _Adapter implements HttpClientAdapter {
         },
       };
     }
+    await beforeReply?.call(path);
     return ResponseBody.fromString(jsonEncode(body), 200, headers: {
       Headers.contentTypeHeader: ['application/json'],
     },);

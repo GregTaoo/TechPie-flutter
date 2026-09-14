@@ -24,7 +24,23 @@ const _scan = '/scan/scanningResult';
 
 void main() {
   for (final operation in ['signIn', 'verify', 'restoreMissingCookie', 'restoreImported', 'recover401']) {
-    test('session acquisition uses only the TechPie issuer: $operation', () async {
+    test('authenticated event can immediately request the newly committed account', () async {
+    final rig = await _Rig.create();
+    addTearDown(rig.close);
+    Future<Object?>? request;
+    final sub = rig.auth.changes.listen((event) {
+      if (event.state == AuthState.authenticated) {
+        request = rig.client.post('/myaccount/openMyAccountApp', const {});
+      }
+    });
+    addTearDown(sub.cancel);
+    await rig.auth.signIn(const OpenIdAuthCredential(openId: _subjectOpenId));
+    expect(request, isNotNull);
+    await request;
+    expect(rig.adapter.paths.where((path) => path == '/myaccount/openMyAccountApp'), hasLength(1));
+  });
+
+  test('session acquisition uses only the TechPie issuer: $operation', () async {
       final rig = await _Rig.create();
       addTearDown(rig.close);
       switch (operation) {
@@ -367,6 +383,8 @@ class _Rig {
     final client = EcardApiClient(
       dio: dio(),
       sessionReader: auth.readSession,
+      requestIdentityReader: auth.readRequestIdentity,
+      accountRevisionReader: () => auth.accountRevision,
       sessionGenerationReader: () => auth.generation,
       commitInSession: auth.commitInSession,
       identityGuard: auth.verifyCurrentIdentity,
