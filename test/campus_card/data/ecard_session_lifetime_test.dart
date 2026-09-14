@@ -19,6 +19,22 @@ const _quota = '/virtualcard/openQrcodeQuotaModify';
 const _read = '/myaccount/openMyAccountApp';
 
 void main() {
+  test('after 31 idle minutes local binding survives and one TechPie recovery restores the session', () async {
+    final h = await _Harness.create();
+    addTearDown(h.close);
+    final before = await h.auth.restoreLocal();
+    h.now = _start.add(const Duration(minutes: 31));
+    expect(await h.auth.readSession(), isNull);
+    final local = await h.auth.restoreLocal();
+    expect(local.state, AuthState.authenticated);
+    expect(local.session!.subjectId, before.session!.subjectId);
+    await Future.wait([h.auth.restore(), h.auth.restore()]);
+    expect(h.adapter.issues, 1);
+    expect((await h.auth.readSession())!.identity!.subjectId, before.session!.subjectId);
+    expect(await h.store.readOpenId(), 'SYNTHETIC_OPENID_ACCOUNT_A');
+    expect(h.purges, 0);
+  });
+
   test('session replacement during a read retries with the new cookie', () async {
     final h = await _Harness.create();
     addTearDown(h.close);

@@ -20,14 +20,17 @@ import 'package:techpie/features/campus_card/presentation/screens/security_passw
 import 'package:techpie/features/campus_card/presentation/screens/settings_screen.dart';
 import 'package:techpie/features/campus_card/presentation/screens/widget_setup_screen.dart';
 
+import '../screens/session_restore_screen.dart';
+
 final gpRouterProvider = Provider<GoRouter>((ref) {
   final entryLocation =
       ref.watch(campusCardEntryProvider) == CampusCardEntry.cardManagement
           ? '/card/manage'
           : GpRoutes.pay;
-  final refresh = _AuthRouterRefresh(
-    ref.watch(appRuntimeProvider).auth.changes,
-  );
+  final refresh = _AuthRouterRefresh();
+  ref.listen(authControllerProvider, (_, next) {
+    if (next.valueOrNull?.state != AuthState.signingIn) refresh.changed();
+  });
   ref.onDispose(refresh.dispose);
   final router = GoRouter(
     initialLocation: entryLocation,
@@ -39,10 +42,16 @@ final gpRouterProvider = Provider<GoRouter>((ref) {
       // Network verification continues in AuthController behind the target page.
       final auth = ref.read(authControllerProvider);
       String? destination(AuthSnapshot? snapshot) {
-        if (snapshot?.state != AuthState.authenticated) {
-          return location == GpRoutes.login ? null : GpRoutes.login;
+        final String? target;
+        if (snapshot?.state == AuthState.authenticated) {
+          target = location == GpRoutes.login || location == GpRoutes.sessionRestore ? entryLocation : null;
+        } else if (snapshot?.state == AuthState.signedOut || snapshot?.state == AuthState.unconfigured) {
+          target = GpRoutes.login;
+        } else {
+          // An expired session or unreadable credential is not a missing OpenID.
+          target = GpRoutes.sessionRestore;
         }
-        return location == GpRoutes.login ? entryLocation : null;
+        return target == location ? null : target;
       }
 
       if (auth.isLoading) {
@@ -51,9 +60,10 @@ final gpRouterProvider = Provider<GoRouter>((ref) {
               onError: (Object _, StackTrace __) => destination(null),
             );
       }
-      return destination(auth.valueOrNull);
+      return destination(auth.hasError ? null : auth.valueOrNull);
     },
     routes: [
+      GoRoute(path: GpRoutes.sessionRestore, pageBuilder: (context, state) => gpPlatformPage(context, state, const SessionRestoreScreen())),
       GoRoute(
         path: GpRoutes.widgetSetup,
         pageBuilder: (context, state) =>
@@ -168,22 +178,21 @@ Page<void> gpPageForPlatform(
 }
 
 final class _AuthRouterRefresh extends ChangeNotifier {
-  _AuthRouterRefresh(Stream<AuthSnapshot> changes) {
-    _subscription = changes.listen((snapshot) {
-      if (snapshot.state == AuthState.signingIn) return;
-      scheduleMicrotask(() {
-        if (!_disposed) notifyListeners();
-      });
+  bool _scheduled = false;
+  bool _disposed = false;
+
+  void changed() {
+    if (_scheduled || _disposed) return;
+    _scheduled = true;
+    scheduleMicrotask(() {
+      _scheduled = false;
+      if (!_disposed) notifyListeners();
     });
   }
-
-  late final StreamSubscription<AuthSnapshot> _subscription;
-  bool _disposed = false;
 
   @override
   void dispose() {
     _disposed = true;
-    unawaited(_subscription.cancel());
     super.dispose();
   }
 }

@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:techpie/features/campus_card/app/app_providers.dart';
 import 'package:techpie/features/campus_card/app/app_runtime.dart';
 import 'package:techpie/features/campus_card/app/demo_runtime_factory.dart';
+import 'package:techpie/features/campus_card/core/errors/app_failure.dart';
 import 'package:techpie/features/campus_card/data/mock/in_memory_ports.dart';
 import 'package:techpie/features/campus_card/domain/models/auth_models.dart';
 import 'package:techpie/features/campus_card/domain/models/payment_models.dart';
@@ -16,8 +17,103 @@ import 'package:techpie/features/campus_card/domain/ports/payment_ports.dart';
 import 'package:techpie/features/campus_card/domain/ports/platform_ports.dart'
     as ports;
 import 'package:techpie/features/campus_card/presentation/app/app.dart';
+import 'package:techpie/features/campus_card/presentation/screens/login_screen.dart';
 
 void main() {
+  for (final initiallyLocked in [false, true]) {
+    testWidgets('temporary secure storage failure recovers without connect guide (locked=$initiallyLocked)', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final base = await buildDemoRuntime();
+      addTearDown(base.dispose);
+      final auth = _RestoredAuthPort()..localFailures = initiallyLocked ? 100 : 1;
+      addTearDown(auth.dispose);
+      final lifecycle = base.lifecycle as InMemoryLifecyclePort;
+      if (initiallyLocked) lifecycle.setState(ports.AppLifecycleState.paused);
+      await tester.pumpWidget(ProviderScope(overrides: [appRuntimeProvider.overrideWithValue(_runtimeWithAuth(base, auth))], child: const CampusCardFeature()));
+      for (var i = 0; i < 40; i++) { await tester.pump(const Duration(milliseconds: 30)); }
+      expect(find.byType(LoginScreen), findsNothing);
+      if (initiallyLocked) {
+        expect(find.byKey(const Key('ecard-session-restore-page')), findsOneWidget);
+        expect(auth.localReads, 1);
+        auth.localFailures = 0;
+        lifecycle.setState(ports.AppLifecycleState.resumed);
+        for (var i = 0; i < 40; i++) { await tester.pump(const Duration(milliseconds: 30)); }
+      }
+      expect(find.byKey(const Key('payment-code-page')), findsOneWidget);
+      expect(auth.localReads, 2);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    });
+  }
+
+  testWidgets('persistent local storage failure retries only twice and offers recovery', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final base = await buildDemoRuntime();
+    addTearDown(base.dispose);
+    final auth = _RestoredAuthPort()..localFailures = 100;
+    addTearDown(auth.dispose);
+    await tester.pumpWidget(ProviderScope(overrides: [appRuntimeProvider.overrideWithValue(_runtimeWithAuth(base, auth))], child: const CampusCardFeature()));
+    for (var i = 0; i < 50; i++) { await tester.pump(const Duration(milliseconds: 30)); }
+    expect(auth.localReads, 3);
+    expect(find.byType(LoginScreen), findsNothing);
+    expect(find.byKey(const Key('ecard-session-restore-page')), findsOneWidget);
+    await tester.pump(const Duration(seconds: 20));
+    expect(auth.localReads, 3);
+    auth.localFailures = 0;
+    await tester.tap(find.text('重试'));
+    for (var i = 0; i < 40; i++) { await tester.pump(const Duration(milliseconds: 30)); }
+    expect(find.byKey(const Key('payment-code-page')), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
+
+  testWidgets('explicit disconnection remains on the guide after resume', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final base = await buildDemoRuntime();
+    addTearDown(base.dispose);
+    final auth = _RestoredAuthPort();
+    addTearDown(auth.dispose);
+    await tester.pumpWidget(ProviderScope(overrides: [appRuntimeProvider.overrideWithValue(_runtimeWithAuth(base, auth))], child: const CampusCardFeature()));
+    for (var i = 0; i < 30; i++) { await tester.pump(const Duration(milliseconds: 30)); }
+    auth.accountPresent = false;
+    auth._changes.add(const AuthSnapshot(state: AuthState.signedOut, reason: AuthChangeReason.userSignedOut));
+    final lifecycle = base.lifecycle as InMemoryLifecyclePort;
+    lifecycle.setState(ports.AppLifecycleState.paused);
+    await tester.pump(const Duration(minutes: 31));
+    lifecycle.setState(ports.AppLifecycleState.resumed);
+    for (var i = 0; i < 40; i++) { await tester.pump(const Duration(milliseconds: 30)); }
+    expect(find.byType(LoginScreen), findsOneWidget);
+    expect(find.byKey(const Key('payment-code-page')), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
+
+  testWidgets('foreground recovery leaves the guide without reopening even when restore emits no event', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final base = await buildDemoRuntime();
+    addTearDown(base.dispose);
+    final auth = _RestoredAuthPort();
+    addTearDown(auth.dispose);
+    final lifecycle = base.lifecycle as InMemoryLifecyclePort;
+    final runtime = AppRuntime(environment: base.environment, capabilities: base.capabilities,
+      auth: auth, cards: base.cards, paymentCodes: base.paymentCodes, scanPayments: base.scanPayments,
+      transactions: base.transactions, securitySettings: base.securitySettings,
+      offlinePayments: base.offlinePayments, brightness: base.brightness,
+      connectivity: base.connectivity, lifecycle: lifecycle, feedback: base.feedback,);
+    await tester.pumpWidget(ProviderScope(overrides: [appRuntimeProvider.overrideWithValue(runtime)], child: const CampusCardFeature()));
+    for (var i = 0; i < 30; i++) { await tester.pump(const Duration(milliseconds: 30)); }
+    expect(find.byKey(const Key('payment-code-page')), findsOneWidget);
+    lifecycle.setState(ports.AppLifecycleState.paused);
+    auth._changes.add(const AuthSnapshot(state: AuthState.expired));
+    await tester.pump(const Duration(minutes: 31));
+    for (var i = 0; i < 20; i++) { await tester.pump(const Duration(milliseconds: 30)); }
+    lifecycle.setState(ports.AppLifecycleState.resumed);
+    for (var i = 0; i < 40; i++) { await tester.pump(const Duration(milliseconds: 30)); }
+    expect(find.byKey(const Key('payment-code-page')), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
+
   test('same-account recovery keeps a submitting scan pending instead of restarting it', () async {
     SharedPreferences.setMockInitialValues({});
     final base = await buildDemoRuntime();
@@ -482,6 +578,9 @@ final class _RestoredAuthPort implements AuthPort {
   _RestoredAuthPort({this.localRestore});
 
   final Future<AuthSnapshot>? localRestore;
+  int localFailures = 0;
+  int localReads = 0;
+  bool accountPresent = true;
   final StreamController<AuthSnapshot> _changes =
       StreamController<AuthSnapshot>.broadcast(sync: true);
 
@@ -498,11 +597,16 @@ final class _RestoredAuthPort implements AuthPort {
   Stream<AuthSnapshot> get changes => _changes.stream;
 
   @override
-  Future<AuthSnapshot> restoreLocal() =>
-      localRestore ?? Future.value(_snapshot);
+  Future<AuthSnapshot> restoreLocal() async {
+    localReads++;
+    if (localFailures-- > 0) {
+      throw const AppFailure(FailureKind.unavailable, 'Protected data unavailable', code: 'SECURE_STORAGE_UNAVAILABLE', retryable: true);
+    }
+    return localRestore ?? (accountPresent ? _snapshot : const AuthSnapshot(state: AuthState.signedOut));
+  }
 
   @override
-  Future<AuthSnapshot> restore() async => _snapshot;
+  Future<AuthSnapshot> restore() async => accountPresent ? _snapshot : const AuthSnapshot(state: AuthState.signedOut);
 
   @override
   Future<AuthSnapshot> signIn(AuthCredential credential) async => _snapshot;
@@ -544,3 +648,11 @@ class _PendingScan implements ScanPaymentRepository {
     return pending.future;
   }
 }
+
+AppRuntime _runtimeWithAuth(AppRuntime base, AuthPort auth) => AppRuntime(
+  environment: base.environment, capabilities: base.capabilities,
+  auth: auth, cards: base.cards, paymentCodes: base.paymentCodes, scanPayments: base.scanPayments,
+  transactions: base.transactions, securitySettings: base.securitySettings,
+  offlinePayments: base.offlinePayments, brightness: base.brightness,
+  connectivity: base.connectivity, lifecycle: base.lifecycle, feedback: base.feedback,
+);
