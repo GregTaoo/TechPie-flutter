@@ -26,6 +26,7 @@ final class PaymentCodeController {
   Timer? _pollTimer;
   Timer? _successTimer;
   int? _refreshEpochInFlight;
+  Future<bool>? _activeRefresh;
   bool _pollInFlight = false;
   int _epoch = 0;
   bool _retriedSession = false;
@@ -73,7 +74,27 @@ final class PaymentCodeController {
     if (_isCurrent(epoch)) await start();
   }
 
-  Future<bool> _refresh(int epoch, {bool initial = false}) async {
+  Future<void> refresh() async {
+    _ensureActive();
+    final active = _activeRefresh;
+    if (active != null && _refreshEpochInFlight == _epoch) {
+      await active;
+    } else {
+      await start();
+    }
+  }
+
+  Future<bool> _refresh(int epoch, {bool initial = false}) {
+    if (_refreshEpochInFlight == epoch && _activeRefresh != null) return _activeRefresh!;
+    late final Future<bool> operation;
+    operation = _performRefresh(epoch, initial: initial).whenComplete(() {
+      if (identical(_activeRefresh, operation)) _activeRefresh = null;
+    });
+    _activeRefresh = operation;
+    return operation;
+  }
+
+  Future<bool> _performRefresh(int epoch, {bool initial = false}) async {
     if (!_isCurrent(epoch) || _refreshEpochInFlight == epoch) return false;
     _refreshEpochInFlight = epoch;
     if (!initial) {
@@ -324,6 +345,8 @@ final class PaymentCodeExperienceController {
     _maximizeBrightness = enabled;
     await _updateBrightness();
   }
+
+  Future<void> refresh() => _payment.refresh();
 
   Future<void> activateAndRestart() => _payment.activateAndRestart();
 

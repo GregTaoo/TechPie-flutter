@@ -250,28 +250,46 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
           (payment.phase == PaymentCodePhase.displaying ||
               payment.phase == PaymentCodePhase.polling));
 
-  Future<void> _refreshRecentTransactions() async {
-    ref.invalidate(transactionFeedProvider(_allTransactions));
-    await _loadRecentTransactions();
+  Future<void>? _pageRefresh;
+
+  Future<void> _refreshAll() {
+    final active = _pageRefresh;
+    if (active != null) return active;
+    late final Future<void> operation;
+    operation = _performPageRefresh().whenComplete(() {
+      if (identical(_pageRefresh, operation)) _pageRefresh = null;
+    });
+    _pageRefresh = operation;
+    return operation;
+  }
+
+  Future<void> _performPageRefresh() async {
+    final history = ref.read(accountHistoryRefreshProvider);
+    final cards = ref.read(cardControllerProvider.notifier);
+    final codes = ref.read(paymentCodeControllerProvider.notifier);
+    final before = ref.read(paymentCodeControllerProvider).frame;
+    history.hold();
+    try {
+      if (!ref.read(manualOfflineModeProvider)) {
+        await codes.refresh();
+      }
+      if (!mounted || history.isDisposed) return;
+      final after = ref.read(paymentCodeControllerProvider).frame;
+      if (identical(before, after) || after?.balance == null) {
+        try { await cards.refresh(); } catch (_) { /* Keep the last balance. */ }
+      }
+    } finally {
+      await history.releaseAndRefresh();
+    }
   }
 
   Future<void> _refreshAfterPayment() async {
-    // Refresh through the card controller so its identity checks and cached
-    // balance stay intact while the confirmed success animation is displayed.
     final cardRefresh = ref.read(cardControllerProvider.notifier).refresh();
-    ref.invalidate(transactionFeedProvider);
+    final historyRefresh = ref.read(accountHistoryRefreshProvider).refresh(fresh: true);
     await Future.wait<void>([
-      _loadRecentTransactions(),
+      historyRefresh,
       cardRefresh.then<void>((_) {}, onError: (Object _) {}),
     ]);
-  }
-
-  Future<void> _loadRecentTransactions() async {
-    try {
-      await ref.read(transactionFeedProvider(_allTransactions).future);
-    } catch (_) {
-      // The activity feed reports its own error without changing the outcome.
-    }
   }
 
   @override
@@ -438,7 +456,7 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
                   ),
                   slivers: [
                     EcardSliverRefreshControl(
-                      onRefresh: _refreshRecentTransactions,
+                      onRefresh: _refreshAll,
                     ),
                     SliverPadding(
                       padding: const EdgeInsets.fromLTRB(

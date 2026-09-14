@@ -24,11 +24,83 @@ import 'package:techpie/features/campus_card/domain/ports/platform_ports.dart'
     as ports;
 import 'package:techpie/features/campus_card/presentation/app/app.dart';
 import 'package:techpie/features/campus_card/presentation/app/providers.dart';
+import 'package:techpie/features/campus_card/presentation/widgets/apple_wallet_components.dart';
 
 import '../support/fake_ecard_transport.dart';
 import '../support/successful_payment_poll.dart';
 
 void main() {
+  testWidgets('a late account refresh failure cannot restore a balance superseded by code data', (tester) async {
+    final cards = _PaymentRefreshCards();
+    final rig = await _Rig.mount(tester, cards: cards);
+    cards.pending = Completer<CampusCard?>();
+    final request = rig.container.read(cardControllerProvider.notifier).refresh();
+    final rejected = expectLater(request, throwsStateError);
+    cards.snapshotsController.add(cards.card(1620));
+    await tester.pump();
+    cards.pending!.completeError(StateError('late account failure'));
+    await rejected;
+    await tester.pump();
+    expect(rig.container.read(cardControllerProvider).valueOrNull!.balance.value, 1620);
+    await rig.dispose(tester);
+    await cards.snapshotsController.close();
+  });
+
+  testWidgets('code balance refreshes visible card and ledger without a success animation', (tester) async {
+    final cards = _PaymentRefreshCards();
+    final transactions = _PaymentRefreshTransactions();
+    final rig = await _Rig.mount(tester, cards: cards, transactions: transactions);
+    final initialCards = cards.refreshCalls;
+    final initialHistory = transactions.calls;
+    rig.repository.codeBalance = const MoneyFen(1620);
+    rig.repository.codeBalanceChanged = true;
+    rig.repository.onGenerate = () => cards.snapshotsController.add(cards.card(1620));
+    await tester.pump(const Duration(seconds: 30));
+    await tester.pumpAndSettle();
+    expect(rig.container.read(cardControllerProvider).valueOrNull!.balance.value, 1620);
+    expect(cards.refreshCalls, initialCards);
+    expect(transactions.calls, initialHistory + 1);
+    expect(find.byKey(const ValueKey('success')), findsNothing);
+    rig.repository.codeBalanceChanged = false;
+    await tester.pump(const Duration(seconds: 30));
+    await tester.pumpAndSettle();
+    expect(transactions.calls, initialHistory + 2);
+    await tester.pump(const Duration(seconds: 30));
+    await tester.pumpAndSettle();
+    expect(transactions.calls, initialHistory + 2);
+    await rig.dispose(tester);
+    await cards.snapshotsController.close();
+  });
+
+  for (final hasBalance in [true, false]) {
+    testWidgets('pull refresh combines code, ledger and balance (code balance=$hasBalance)', (tester) async {
+      final cards = _PaymentRefreshCards();
+      final transactions = _PaymentRefreshTransactions();
+      final rig = await _Rig.mount(tester, cards: cards, transactions: transactions);
+      final initialCards = cards.refreshCalls;
+      final initialHistory = transactions.calls;
+      final initialCodes = rig.repository.generations;
+      if (hasBalance) {
+        rig.repository.codeBalance = const MoneyFen(1620);
+        rig.repository.codeBalanceChanged = true;
+        rig.repository.onGenerate = () => cards.snapshotsController.add(cards.card(1620));
+      }
+      transactions.showUpdated = true;
+      final refresh = tester.widget<EcardSliverRefreshControl>(find.byType(EcardSliverRefreshControl, skipOffstage: false)).onRefresh;
+      final first = refresh();
+      final duplicate = refresh();
+      await tester.pumpAndSettle();
+      await Future.wait([first, duplicate]);
+      expect(rig.repository.generations, initialCodes + 1);
+      expect(cards.refreshCalls, initialCards + (hasBalance ? 0 : 1));
+      expect(transactions.calls, initialHistory + 1);
+      if (hasBalance) expect(rig.container.read(cardControllerProvider).valueOrNull!.balance.value, 1620);
+      expect(find.byKey(const ValueKey('success')), findsNothing);
+      await rig.dispose(tester);
+      await cards.snapshotsController.close();
+    });
+  }
+
   testWidgets(
       'captured payment success animates and refreshes balance and activity together',
       (tester) async {
@@ -407,6 +479,9 @@ class _Rig {
 }
 
 class _Repository implements PaymentCodeRepository {
+  MoneyFen? codeBalance;
+  bool codeBalanceChanged = false;
+  void Function()? onGenerate;
   int polls = 0;
   int generations = 0;
   Future<PaymentCodePollResult>? pendingPoll;
@@ -415,7 +490,9 @@ class _Repository implements PaymentCodeRepository {
   @override
   Future<PaymentCodeFrame> generateOnlineCode() async {
     generations++;
+    onGenerate?.call();
     return PaymentCodeFrame(
+      balance: codeBalance, balanceChanged: codeBalanceChanged,
       payCode: 'test-$generations',
       rawQrCode: '5638-test',
       qrPayload: String.fromCharCodes(
@@ -433,7 +510,10 @@ class _Repository implements PaymentCodeRepository {
   }
 }
 
-final class _PaymentRefreshCards implements CacheFirstCardRepository {
+final class _PaymentRefreshCards implements CacheFirstCardRepository, CardSnapshotSource {
+  final snapshotsController = StreamController<CampusCard?>.broadcast();
+  @override
+  Stream<CampusCard?> get snapshots => snapshotsController.stream;
   int refreshCalls = 0;
   bool fail = false;
   Completer<CampusCard?>? pending;

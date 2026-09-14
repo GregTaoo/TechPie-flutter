@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../application/account_history_refresh.dart';
 import '../application/payment_code_controller.dart';
 import '../application/scan_payment_controller.dart';
 import '../core/config/debug_mode_controller.dart';
@@ -156,6 +157,7 @@ final class AuthController extends AsyncNotifier<AuthSnapshot> {
   }
 
   void _invalidateAccountProviders({bool resetOfflineMode = true}) {
+    ref.invalidate(accountHistoryRefreshProvider);
     ref.invalidate(cardControllerProvider);
     ref.invalidate(profileControllerProvider);
     ref.invalidate(transactionDetailProvider);
@@ -615,6 +617,21 @@ final class OfflineAuthorizationController
   }
 }
 
+final accountHistoryRefreshProvider = Provider<AccountHistoryRefresh>((ref) {
+  ref.watch(appRuntimeProvider);
+  final coordinator = AccountHistoryRefresh(loadHistory: () async {
+    const range = (begin: null, end: null);
+    final provider = transactionFeedProvider(range);
+    final exists = ref.exists(provider);
+    final previous = exists ? ref.read(provider).valueOrNull?.items.map((item) => item.id).toSet() : null;
+    ref.invalidate(transactionFeedProvider);
+    final page = await ref.read(provider.future);
+    return previous != null && page.items.any((item) => !previous.contains(item.id));
+  },);
+  ref.onDispose(coordinator.dispose);
+  return coordinator;
+});
+
 final paymentCodeControllerProvider =
     NotifierProvider.autoDispose<PaymentCodeNotifier, PaymentCodeViewState>(
   PaymentCodeNotifier.new,
@@ -630,7 +647,15 @@ final class PaymentCodeNotifier
     _generation++;
     final controller =
         ref.watch(appRuntimeProvider).createPaymentCodeController();
-    final subscription = controller.states.listen((value) => state = value);
+    final history = ref.read(accountHistoryRefreshProvider);
+    final subscription = controller.states.listen((value) {
+      final nextFrame = value.frame;
+      final generated = nextFrame != null && !identical(nextFrame, state.frame);
+      state = value;
+      if (generated) {
+        unawaited(history.codeGenerated(balanceChanged: nextFrame.balanceChanged));
+      }
+    });
     _controller = controller;
     ref.listen(
       maximizePaymentCodeBrightnessProvider,
@@ -650,6 +675,7 @@ final class PaymentCodeNotifier
   Future<void> enter({bool online = true}) =>
       _guardPaymentAction(() => _controller.enter(online: online));
   Future<void> restart() => _guardPaymentAction(_controller.restart);
+  Future<void> refresh() => _guardPaymentAction(_controller.refresh);
   Future<void> activateAndRestart() =>
       _guardPaymentAction(_controller.activateAndRestart);
   Future<void> leave() => _guardPaymentAction(_controller.leave);
@@ -711,10 +737,7 @@ final class ScanPaymentNotifier extends AutoDisposeNotifier<ScanFlowState> {
     final cardRefresh = ref.read(cardControllerProvider.notifier).refresh();
     ref.invalidate(profileControllerProvider);
     ref.invalidate(transactionDetailProvider);
-    ref.invalidate(transactionFeedProvider);
-    final historyRefresh = ref.read(
-      transactionFeedProvider((begin: null, end: null)).future,
-    );
+    final historyRefresh = ref.read(accountHistoryRefreshProvider).refresh(fresh: true);
     await Future.wait<void>([
       cardRefresh.then<void>((_) {}, onError: (Object _) {}),
       historyRefresh.then<void>((_) {}, onError: (Object _) {}),

@@ -14,6 +14,29 @@ import 'package:techpie/features/campus_card/domain/ports/platform_ports.dart';
 import '../support/fake_ecard_transport.dart';
 
 void main() {
+  test('manual refresh joins an automatic generation already in flight', () {
+    fakeAsync((async) {
+      final repository = _RefreshAndPollRepository();
+      final controller = PaymentCodeController(repository: repository);
+      unawaited(controller.start());
+      async.flushMicrotasks();
+      async.elapse(const Duration(seconds: 30));
+      async.flushMicrotasks();
+      expect(repository.generations, 2);
+      var completed = 0;
+      unawaited(controller.refresh().then((_) => completed++));
+      unawaited(controller.refresh().then((_) => completed++));
+      async.flushMicrotasks();
+      expect(repository.generations, 2);
+      repository.refresh.complete(_frame('fresh-code'));
+      async.flushMicrotasks();
+      expect(completed, 2);
+      expect(controller.state.frame!.payCode, 'fresh-code');
+      unawaited(controller.dispose());
+      async.flushMicrotasks();
+    });
+  });
+
   test('expired polling context regenerates once before surfacing failure', () {
     fakeAsync((async) {
       final repository = _PaymentRepository();
