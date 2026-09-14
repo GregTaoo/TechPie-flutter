@@ -629,10 +629,15 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
   }
 
   Future<void> _expireWithoutAutomaticRecovery() async {
-    await _sessionStore.clear();
-    _emit(
-      const AuthSnapshot(state: AuthState.expired, message: '登录状态已过期，请重新登录。'),
-    );
+    // A rejected online cookie is not a request to disconnect the saved account.
+    // Only explicit sign-out/unbinding may remove OpenID and identity pins.
+    await _clearSessionCookie();
+    final openId = await _sessionStore.readOpenId();
+    if (openId == null || openId.isEmpty) {
+      _emit(const AuthSnapshot(state: AuthState.signedOut));
+    } else {
+      _emit(await _authenticated(openId, await _sessionStore.readOrgId() ?? '2'));
+    }
   }
 
   bool _canRebindStoredOpenId(AppFailure failure) => const {

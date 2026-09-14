@@ -597,7 +597,7 @@ void main() {
   );
 
   test(
-    '403 clears the session without pretending recovery succeeded',
+    '403 deletes only the online cookie and preserves the configured account',
     () async {
       final store = SecureSessionCredentialStore(
         InMemorySecureCredentialStore(),
@@ -619,7 +619,11 @@ void main() {
       await auth.handleAuthenticationFailure(403);
 
       expect(await store.readSessionCookie(), isNull);
-      expect(await store.readOpenId(), isNull);
+      expect(await store.readOpenId(), openId);
+      expect(await store.readVerifiedIdSerial(), idSerial);
+      expect(await store.readVerifiedCardId(), cardId);
+      expect((await auth.restoreLocal()).state, AuthState.authenticated);
+      expect(await auth.readSession(), isNull);
       expect(cleanupCalls, 0);
     },
   );
