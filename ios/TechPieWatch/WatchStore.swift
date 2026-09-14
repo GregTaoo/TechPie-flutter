@@ -12,30 +12,45 @@ final class WatchStore: NSObject, ObservableObject, WCSessionDelegate {
   var requiresAuthorization: Bool { display.requiresAuthorization }
   var codeMessage: String? { display.message ?? message }
   private var targetID = ""
+  private var storageReady = false
   private let nonce = UUID().uuidString
   private var syncInFlight = false
   private let session = WCSession.default
 
   override init() {
     super.init()
-    do {
-      targetID = try WatchKeychain.identifier("watch.installation")
-      if let data = try WatchKeychain.read("watch.snapshot") {
-        let value = try JSONDecoder().decode(WatchSnapshot.self, from: data)
-        try value.validate()
-        guard value.targetID == targetID else { throw WatchFailure.invalidSnapshot }
-        snapshot = value
-        display.reconcile(previous: nil, incoming: value)
-      }
-    } catch { message = "请解锁手表后重新打开，或在手机重新同步" }
+    restoreStorage()
     if WCSession.isSupported() { session.delegate = self; session.activate() }
     #if DEBUG && targetEnvironment(simulator)
     if ProcessInfo.processInfo.arguments.contains("--watch-preview") { installPreview() }
     #endif
   }
 
+  @discardableResult
+  private func restoreStorage() -> Bool {
+    do {
+      let restoredID = try WatchKeychain.identifier("watch.installation")
+      targetID = restoredID
+      storageReady = true
+      var restoredSnapshot: WatchSnapshot?
+      if let data = try WatchKeychain.read("watch.snapshot") {
+        let value = try JSONDecoder().decode(WatchSnapshot.self, from: data)
+        try value.validate()
+        guard value.targetID == restoredID else { throw WatchFailure.invalidSnapshot }
+        restoredSnapshot = value
+      }
+      snapshot = restoredSnapshot
+      if let restoredSnapshot { display.reconcile(previous: nil, incoming: restoredSnapshot) }
+      message = nil
+      return true
+    } catch {
+      message = "请解锁手表后重试同步"
+      return storageReady
+    }
+  }
+
   func requestSync() {
-    guard !targetID.isEmpty, session.activationState == .activated, !syncInFlight else { return }
+    guard storageReady || restoreStorage(), !targetID.isEmpty, session.activationState == .activated, !syncInFlight else { return }
     let hello: [String: Any] = ["watchID": targetID, "nonce": nonce,
       "knownSourceID": snapshot?.sourceID ?? "", "knownRevision": snapshot?.revision ?? 0]
     if session.isReachable {
@@ -85,6 +100,7 @@ final class WatchStore: NSObject, ObservableObject, WCSessionDelegate {
   }
 
   private func receive(_ message: [String: Any]) -> [String: Any] {
+    guard storageReady || restoreStorage() else { return [:] }
     guard let data = message["snapshot"] as? Data, data.count < 32_768,
       let incoming = try? JSONDecoder().decode(WatchSnapshot.self, from: data) else { return [:] }
     do {

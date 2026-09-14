@@ -74,13 +74,14 @@ final class WatchSyncService extends ChangeNotifier {
     });
     _subscriptions.add(
       _runtime.auth.changes.listen((snapshot) {
-        _epoch++;
-        if (snapshot.state == AuthState.signedOut ||
-            snapshot.state == AuthState.unconfigured ||
-            snapshot.state == AuthState.expired) {
-          unawaited(disable());
+        if (snapshot.reason == AuthChangeReason.userSignedOut ||
+            snapshot.reason == AuthChangeReason.accountChanged) {
+          unawaited(disable(reason: snapshot.reason!.name));
         } else if (snapshot.state == AuthState.authenticated) {
           unawaited(synchronize());
+        } else if (snapshot.state != AuthState.signingIn && enabled) {
+          _notice('校园卡会话暂未就绪，已保留手表授权');
+          if (!_disposed) notifyListeners();
         }
       }),
     );
@@ -100,6 +101,9 @@ final class WatchSyncService extends ChangeNotifier {
       if (_disposed) return;
       final previousReceipt = status['acknowledged'];
       status = value ?? {};
+      if (!enabled && status['revocationReason'] == 'peerChanged') {
+        _notice('手表安装身份已变化，请重新开启手表授权', error: true);
+      }
       if (enabled &&
           isAcknowledged &&
           status['acknowledged'] != previousReceipt) {
@@ -118,12 +122,13 @@ final class WatchSyncService extends ChangeNotifier {
 
   Future<void> enable() => synchronize(enroll: true, refresh: true);
 
-  Future<void> disable() async {
+  Future<void> disable({String reason = 'userRevoked'}) async {
     _epoch++;
     try {
-      final value = await _channel.invokeMapMethod<String, dynamic>('disable');
+      final value = await _channel.invokeMapMethod<String, dynamic>('disable', {'reason': reason});
       if (_disposed) return;
       status = value ?? {};
+      _record('撤销手表授权：$reason');
       _notice('已取消授权，手表连接后会清除校园卡');
       notifyListeners();
     } on MissingPluginException {
@@ -157,9 +162,8 @@ final class WatchSyncService extends ChangeNotifier {
           if (!_disposed) notifyListeners();
           return;
         }
-        if (openID == null || verifiedID == null) {
-          if (!enroll) await disable();
-          _notice('请先连接校园卡账号', error: true);
+        if (openID == null) {
+          _notice(enabled ? '校园卡账号暂未就绪，已保留手表授权' : '请先连接校园卡账号', error: true);
           if (!_disposed) notifyListeners();
           return;
         }
@@ -168,8 +172,13 @@ final class WatchSyncService extends ChangeNotifier {
         if (!enroll &&
             status['subject'] != null &&
             status['subject'] != subject) {
-          await disable();
+          await disable(reason: 'accountChanged');
           _notice('校园卡账号已变更，请重新开启手表授权', error: true);
+          if (!_disposed) notifyListeners();
+          return;
+        }
+        if (verifiedID == null) {
+          _notice(enabled ? '正在等待校园卡身份恢复，已保留手表授权' : '请先在手机完成校园卡身份校验', error: true);
           if (!_disposed) notifyListeners();
           return;
         }
@@ -184,10 +193,9 @@ final class WatchSyncService extends ChangeNotifier {
           final card = repository is CacheFirstCardRepository
               ? (refresh
                   ? await repository.refreshCard()
-                  : await repository.readCachedCard())
+                  : await repository.readCachedCard() ?? await repository.refreshCard())
               : await repository.currentCard();
           if (card == null || card.id != verifiedID) {
-            if (!enroll) await disable();
             throw const AppFailure(
               FailureKind.credentialMissing,
               '请先在手机打开校园卡并更新卡片信息',
@@ -290,6 +298,9 @@ final class WatchSyncService extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _epoch++;
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+      _channel.setMethodCallHandler(null);
+    }
     for (final subscription in _subscriptions) {
       unawaited(subscription.cancel());
     }

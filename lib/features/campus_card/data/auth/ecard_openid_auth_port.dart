@@ -257,7 +257,9 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
         channel: credential.channel,
       );
       _verifiedSessionCookie = verified.cookie;
-      return _emit(await _authenticated(openId, verified.orgId));
+      return _emit(await _authenticated(openId, verified.orgId,
+        reason: previousOpenId != null && (previousOpenId != openId || previousChannel != credential.channel)
+            ? AuthChangeReason.accountChanged : null,));
     } catch (error) {
       final identityMismatch =
           error is AppFailure && _isIdentityMismatch(error);
@@ -398,9 +400,12 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
     _generation++;
     _verifiedSessionCookie = null;
     return _sessionMutex.protect(() async {
+      final previous = await _sessionStore.readOpenId();
+      final previousChannel = await _sessionStore.readOpenIdChannel();
       await _clearSessionAndAccountMaterial();
       await _sessionStore.stageOpenId(openId, channel: channel);
-      _emit(await _authenticated(openId, '2'));
+      _emit(await _authenticated(openId, '2', reason: previous != null &&
+          (previous != openId || previousChannel != channel) ? AuthChangeReason.accountChanged : null,));
     });
   }
 
@@ -413,7 +418,7 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
 
   Future<void> _signOut() async {
     await _clearSessionAndAccountMaterial();
-    _emit(const AuthSnapshot(state: AuthState.signedOut));
+    _emit(const AuthSnapshot(state: AuthState.signedOut, reason: AuthChangeReason.userSignedOut));
   }
 
   Future<void> dispose() async {
@@ -640,8 +645,9 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
     }
   }
 
-  Future<AuthSnapshot> _authenticated(String openId, String orgId) async => AuthSnapshot(
+  Future<AuthSnapshot> _authenticated(String openId, String orgId, {AuthChangeReason? reason}) async => AuthSnapshot(
         state: AuthState.authenticated,
+        reason: reason,
         session: AuthSession(
           subjectId: (await _sessionStore.readOpenIdChannel()).subjectId(openId),
           orgId: orgId,

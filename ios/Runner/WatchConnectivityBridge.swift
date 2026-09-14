@@ -13,6 +13,7 @@ final class WatchConnectivityBridge: NSObject, WCSessionDelegate {
     var acknowledged = 0
     var acknowledgedExpiry: Double?
     var grantStatus: String?
+    var revocationReason: String?
   }
   private let channel: FlutterMethodChannel
   private var state = State()
@@ -25,13 +26,24 @@ final class WatchConnectivityBridge: NSObject, WCSessionDelegate {
   init(registrar: FlutterPluginRegistrar) {
     channel = FlutterMethodChannel(name: "techpie/watch", binaryMessenger: registrar.messenger())
     super.init()
-    do {
-      sourceID = try WatchKeychain.identifier("phone.source")
-      if let data = try WatchKeychain.read("phone.state") { state = try JSONDecoder().decode(State.self, from: data) }
-      storageReady = true
-    } catch { storageReady = false }
+    restoreStorage()
     channel.setMethodCallHandler { [weak self] call, result in self?.handle(call, result: result) }
     if WCSession.isSupported() { session.delegate = self; session.activate() }
+  }
+
+  @discardableResult
+  private func restoreStorage() -> Bool {
+    do {
+      let restoredID = try WatchKeychain.identifier("phone.source")
+      let restoredState: State
+      if let data = try WatchKeychain.read("phone.state") {
+        restoredState = try JSONDecoder().decode(State.self, from: data)
+      } else { restoredState = State() }
+      sourceID = restoredID
+      state = restoredState
+      storageReady = true
+      return true
+    } catch { storageReady = false; return false }
   }
 
   private var pairing: String? { session.watchDirectoryURL?.lastPathComponent }
@@ -47,6 +59,7 @@ final class WatchConnectivityBridge: NSObject, WCSessionDelegate {
       "ready": storageReady && peer.canEnroll,
       "enabled": state.enabled,
       "revision": state.revision, "acknowledged": state.acknowledged]
+    if let reason = state.revocationReason { value["revocationReason"] = reason }
     if let expiry = state.acknowledgedExpiry { value["watchExpiresAt"] = expiry }
     if let data = state.pending, let snapshot = try? JSONDecoder().decode(WatchSnapshot.self, from: data),
       snapshot.enabled {
@@ -57,7 +70,7 @@ final class WatchConnectivityBridge: NSObject, WCSessionDelegate {
   }
 
   private func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-    guard storageReady, WCSession.isSupported() else {
+    guard WCSession.isSupported(), storageReady || restoreStorage() else {
       result(FlutterError(code: "WATCH_STORAGE_UNAVAILABLE", message: "无法访问手表同步存储", details: nil)); return
     }
     let previous = state
@@ -66,7 +79,9 @@ final class WatchConnectivityBridge: NSObject, WCSessionDelegate {
       switch call.method {
       case "status": result(status())
       case "disable":
-        try publishDisabled()
+        let requested = (call.arguments as? [String: Any])?["reason"] as? String ?? "userRevoked"
+        let reason = ["userRevoked", "userSignedOut", "accountChanged"].contains(requested) ? requested : "userRevoked"
+        try publishDisabled(reason: reason)
         result(status())
       case "publish":
         guard let input = call.arguments as? [String: Any] else { throw WatchFailure.invalidSnapshot }
@@ -80,7 +95,7 @@ final class WatchConnectivityBridge: NSObject, WCSessionDelegate {
           if let data = state.pending,
             let previous = try? JSONDecoder().decode(WatchSnapshot.self, from: data),
             previous.subject != input["subject"] as? String {
-            try publishDisabled(); result(status()); return
+            try publishDisabled(reason: "accountChanged"); result(status()); return
           }
         }
         guard let target = state.targetID else { throw WatchFailure.invalidSnapshot }
@@ -104,6 +119,7 @@ final class WatchConnectivityBridge: NSObject, WCSessionDelegate {
         }
         state.revision += 1
         state.enabled = true
+        state.revocationReason = nil
         state.pending = data
         let grantStatus = input["grantStatus"] as? String ?? "unknown"
         state.grantStatus = ["ready", "cardUnavailable", "missing", "limited", "missingExpiry", "expired", "changed"].contains(grantStatus) ? grantStatus : "unknown"
@@ -139,8 +155,9 @@ final class WatchConnectivityBridge: NSObject, WCSessionDelegate {
     }
   }
 
-  private func publishDisabled() throws {
+  private func publishDisabled(reason: String) throws {
     state.enabled = false
+    state.revocationReason = reason
     state.grantStatus = nil
     state.acknowledgedExpiry = nil
     guard let target = state.targetID else { state.pending = nil; try save(); return }
@@ -171,6 +188,7 @@ final class WatchConnectivityBridge: NSObject, WCSessionDelegate {
       // A new watch installation needs explicit enrollment on the phone.
       if state.enabled && state.targetID != target {
         state.enabled = false; state.pending = nil; state.acknowledgedExpiry = nil
+        state.revocationReason = "peerChanged"
         try? save()
       }
       // A watch can restart before committing its first enrollment. Update that
