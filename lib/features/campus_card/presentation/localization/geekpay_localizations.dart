@@ -171,6 +171,7 @@ final class GeekPayLocalizations {
       'networkDisconnected': '网络已断开',
       'networkApiError': '服务响应异常',
       'networkChecking': '正在检测',
+      'networkDegraded': '在线码响应较慢，已降级',
       'onlineStatus': '在线状态',
       'requestLatency': '当前延迟',
       'manualOfflineActive': '手动离线模式会保持到 App 进程退出。',
@@ -406,6 +407,7 @@ final class GeekPayLocalizations {
       'networkDisconnected': 'Disconnected',
       'networkApiError': 'Service response error',
       'networkChecking': 'Checking',
+      'networkDegraded': 'Online code delayed; degraded mode',
       'onlineStatus': 'Online Status',
       'requestLatency': 'Current Latency',
       'manualOfflineActive':
@@ -637,6 +639,7 @@ final class GeekPayLocalizations {
       'networkDisconnected': 'オフライン',
       'networkApiError': 'サービス応答異常',
       'networkChecking': '確認中',
+      'networkDegraded': 'オンラインコードの応答が遅いため縮退中',
       'onlineStatus': 'オンライン状態',
       'requestLatency': '現在の遅延',
       'manualOfflineActive': '手動オフラインモードは App を終了するまで維持されます。',

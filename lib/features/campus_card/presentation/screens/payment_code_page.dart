@@ -49,12 +49,55 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
   StreamSubscription<bool>? _connectivitySubscription;
   StreamSubscription<AppLifecycleState>? _lifecycleSubscription;
   Timer? _onlineRetryTimer;
+  Timer? _refreshWaitTimer;
+  bool _refreshWaiting = false;
+  bool _deferOfflineDuringRefresh = true;
+  bool _refreshWaitExpired = false;
+  PaymentCodeFrame? _refreshPreviousFrame;
+  int _refreshWaitRevision = 0;
+
   bool _scannerOpen = false;
   bool _visible = false;
   bool _foreground = false;
   bool _active = false;
   int _activityRevision = 0;
   late final ConfirmedDisconnectFeedback _disconnectFeedback;
+
+  bool get _allowAutomaticOffline =>
+      !_refreshWaiting || !_deferOfflineDuringRefresh || _refreshWaitExpired;
+
+  void _beginRefreshWait({bool deferOffline = true}) {
+    if (!mounted || !_active || _refreshWaiting) return;
+    final revision = ++_refreshWaitRevision;
+    _refreshWaitTimer?.cancel();
+    setState(() {
+      _refreshWaiting = true;
+      _deferOfflineDuringRefresh = deferOffline;
+      _refreshWaitExpired = false;
+      _refreshPreviousFrame = ref.read(paymentCodeControllerProvider).frame;
+      if (deferOffline) _offline = false;
+    });
+    _refreshWaitTimer = Timer(const Duration(milliseconds: 1500), () {
+      if (!mounted || !_active || revision != _refreshWaitRevision || !_refreshWaiting) return;
+      setState(() => _refreshWaitExpired = true);
+    });
+  }
+
+  void _endRefreshWait({bool rebuild = true}) {
+    _refreshWaitTimer?.cancel();
+    _refreshWaitTimer = null;
+    ++_refreshWaitRevision;
+    void clear() {
+      _refreshWaiting = false;
+      _refreshWaitExpired = false;
+      _refreshPreviousFrame = null;
+    }
+    if (rebuild && mounted) {
+      setState(clear);
+    } else {
+      clear();
+    }
+  }
 
   @override
   void initState() {
@@ -96,7 +139,10 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
     } else {
       setState(() => _active = next);
     }
-    if (!next) _onlineRetryTimer?.cancel();
+    if (!next) {
+      _onlineRetryTimer?.cancel();
+      _endRefreshWait(rebuild: false);
+    }
     final revision = ++_activityRevision;
     if (defer) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -119,6 +165,7 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
 
   @override
   void dispose() {
+    _endRefreshWait(rebuild: false);
     unawaited(_disconnectFeedback.dispose());
     unawaited(_lifecycleSubscription?.cancel());
     _onlineRetryTimer?.cancel();
@@ -153,12 +200,14 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
   Future<void> _refreshOnline() async {
     await ref.read(appRuntimeProvider).feedback.play(FeedbackEvent.selection);
     if (!mounted || !_active) return;
-    await ref.read(paymentCodeControllerProvider.notifier).restart();
+    _beginRefreshWait();
+    await ref.read(paymentCodeControllerProvider.notifier).refresh();
   }
 
   Future<void> _setOfflineMode(CampusCard card, bool enabled) async {
     await ref.read(appRuntimeProvider).feedback.play(FeedbackEvent.selection);
     if (!mounted) return;
+    _endRefreshWait();
     ref.read(manualOfflineModeProvider.notifier).setEnabled(enabled);
     if (!enabled) {
       setState(() {
@@ -183,7 +232,7 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
     bool automatic = false,
   }) async {
     if (_offlineBusy || !mounted || !_active) return;
-    if (automatic && _preferReadyOnlineCode()) return;
+    if (automatic && (!_allowAutomaticOffline || _preferReadyOnlineCode())) return;
     final revision = _activityRevision;
     final offlineService = ref.read(appRuntimeProvider).offlinePayments;
     setState(() {
@@ -204,7 +253,7 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
       final refreshed = await offlineService.status(card.id);
       if (!mounted || !_active || revision != _activityRevision) return;
       // Online generation may finish while local signing/storage is pending.
-      if (automatic && _preferReadyOnlineCode()) return;
+      if (automatic && (!_allowAutomaticOffline || _preferReadyOnlineCode())) return;
       setState(() {
         _offline = true;
         _offlinePayload = code.payload;
@@ -212,7 +261,7 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
       });
     } catch (error) {
       if (!mounted || !_active || revision != _activityRevision) return;
-      if (automatic && _preferReadyOnlineCode()) return;
+      if (automatic && (!_allowAutomaticOffline || _preferReadyOnlineCode())) return;
       final authorizationRequired = error.toString().contains(
             'OFFLINE_AUTH_REQUIRED',
           );
@@ -246,6 +295,7 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
   bool _onlineCodeReady(PaymentCodeViewState payment) =>
       payment.phase == PaymentCodePhase.succeeded ||
       (payment.frame != null &&
+          (!_refreshWaiting || !identical(payment.frame, _refreshPreviousFrame)) &&
           payment.connectionState == PaymentConnectionState.online &&
           (payment.phase == PaymentCodePhase.displaying ||
               payment.phase == PaymentCodePhase.polling));
@@ -271,6 +321,7 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
     history.hold();
     try {
       if (!ref.read(manualOfflineModeProvider)) {
+        _beginRefreshWait();
         await codes.refresh();
       }
       if (!mounted || history.isDisposed) return;
@@ -349,6 +400,24 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
             authorizationState == OfflineAuthorizationState.unavailable);
 
     ref.listen(paymentCodeControllerProvider, (previous, next) {
+      if (next.phase == PaymentCodePhase.initializing && !manualOffline) {
+        // Startup and recovery keep the existing offline-first behavior, but
+        // still report a delayed online response after the same threshold.
+        _beginRefreshWait(deferOffline: false);
+      }
+      if (next.phase == PaymentCodePhase.refreshing && previous?.frame != null &&
+          !_offline && !manualOffline) {
+        _beginRefreshWait();
+      }
+      if (_refreshWaiting && (next.phase == PaymentCodePhase.idle ||
+          next.phase == PaymentCodePhase.stopped ||
+          next.phase == PaymentCodePhase.activationRequired ||
+          next.phase == PaymentCodePhase.failed ||
+          next.phase == PaymentCodePhase.switchingOffline ||
+          next.phase == PaymentCodePhase.succeeded ||
+          next.frame != null && !identical(next.frame, _refreshPreviousFrame))) {
+        _endRefreshWait();
+      }
       if (next.phase == PaymentCodePhase.initializing && _offlineError != null) {
         setState(() => _offlineError = null);
       }
@@ -387,7 +456,8 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
     if (_active &&
         card != null &&
         canGenerateOffline &&
-        (manualOffline || onlineFailed || waitingForFirstOnlineCode) &&
+        (manualOffline || _allowAutomaticOffline &&
+            (onlineFailed || waitingForFirstOnlineCode || _refreshWaitExpired)) &&
         !_offline &&
         !_offlineBusy &&
         _offlineError == null) {
@@ -471,6 +541,8 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
                             _ExpandedPaymentPass(
                               card: card,
                               payment: payment,
+                              refreshLoading: _refreshWaiting && _deferOfflineDuringRefresh && (!_refreshWaitExpired || !_offline),
+                              refreshDegraded: _refreshWaiting && _refreshWaitExpired,
                               offline: _offline,
                               offlineBusy: _offlineBusy,
                               offlinePayload: _offlinePayload,
@@ -658,7 +730,9 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
     required bool manualOffline,
   }) async {
     final l10n = context.l10n;
-    final stateLabel = switch (payment.connectionState) {
+    final stateLabel = _refreshWaiting && _refreshWaitExpired &&
+        payment.connectionState != PaymentConnectionState.disconnected
+        ? l10n.t('networkDegraded') : switch (payment.connectionState) {
       PaymentConnectionState.online => l10n.t('networkOnline'),
       PaymentConnectionState.disconnected => l10n.t('networkDisconnected'),
       PaymentConnectionState.apiError => l10n.t('networkApiError'),
@@ -806,8 +880,12 @@ final class _ExpandedPaymentPass extends StatelessWidget {
     required this.onRefreshOnline,
     required this.onRefreshOffline,
     required this.onActivateOnline,
+    this.refreshLoading = false,
+    this.refreshDegraded = false,
   });
 
+  final bool refreshLoading;
+  final bool refreshDegraded;
   final CampusCard card;
   final PaymentCodeViewState payment;
   final bool offline;
@@ -827,15 +905,16 @@ final class _ExpandedPaymentPass extends StatelessWidget {
     final succeeded = !offline && payment.phase == PaymentCodePhase.succeeded;
     final result = payment.result;
     final payload = offline ? offlinePayload : payment.frame?.qrPayload;
-    final loading = offline
+    final loading = refreshLoading || (offline
         ? offlineBusy
         : payment.phase == PaymentCodePhase.initializing ||
             payment.phase == PaymentCodePhase.refreshing ||
-            payment.phase == PaymentCodePhase.stopped;
-    final showCodeMetadata = offline ||
+            payment.phase == PaymentCodePhase.stopped);
+    final showCodeMetadata = !refreshLoading && (offline ||
         payment.phase == PaymentCodePhase.displaying ||
         payment.phase == PaymentCodePhase.refreshing ||
-        payment.phase == PaymentCodePhase.polling;
+        payment.phase == PaymentCodePhase.polling);
+    final degraded = refreshDegraded && payment.connectionState != PaymentConnectionState.disconnected;
     final ownerName = card.detailsAvailable
         ? cardholderDisplayName(
             card.ownerName,
@@ -904,13 +983,13 @@ final class _ExpandedPaymentPass extends StatelessWidget {
                                     behavior: HitTestBehavior.opaque,
                                     child: SizedBox.square(
                                       dimension: statusSize,
-                                      child: payment.connectionState ==
+                                      child: !degraded && payment.connectionState ==
                                               PaymentConnectionState.unknown
                                           ? const CupertinoActivityIndicator(
                                               color: Colors.white,
                                             )
                                           : Image.asset(
-                                              switch (payment.connectionState) {
+                                              degraded ? GeekPayAssets.warningOnline : switch (payment.connectionState) {
                                                 PaymentConnectionState.online =>
                                                   GeekPayAssets.online,
                                                 PaymentConnectionState
