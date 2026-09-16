@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:techpie/services/auth_service.dart';
@@ -237,11 +238,11 @@ class _SettingsPageState extends State<SettingsPage> {
                     : 'Version $_appVersion',
               ),
             ),
-            const Divider(),
+            if (!kReleaseMode) const Divider(),
 
             // Developer section
-            _sectionHeader(theme, 'Developer'),
-            _AdaptiveSwitchTile(
+            if (!kReleaseMode) _sectionHeader(theme, 'Developer'),
+            if (!kReleaseMode) _AdaptiveSwitchTile(
               usesIosLiquidGlass: useIosChrome,
               secondary: const Icon(Icons.bug_report_outlined),
               title: 'Debug mode',
@@ -252,7 +253,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 unawaited(storage.setDebugMode(value));
               },
             ),
-            _AdaptiveSwitchTile(
+            if (!kReleaseMode) _AdaptiveSwitchTile(
               usesIosLiquidGlass: useIosChrome,
               secondary: const Icon(Icons.dns_outlined),
               title: 'Use localhost',
@@ -265,7 +266,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 setState(() {});
               },
             ),
-            if (logger.enabled)
+            if (!kReleaseMode && logger.enabled)
               ListTile(
                 leading: const Icon(Icons.list_alt),
                 title: const Text('View Logs'),
