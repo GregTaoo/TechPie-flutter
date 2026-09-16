@@ -125,8 +125,9 @@ class AuthService extends ChangeNotifier {
   // -- Logout --
 
   Future<void> logout() async {
-    await _storage.clearSession();
     _session = null;
+    notifyListeners();
+    await _storage.clearSession();
     if (onLogout != null) {
       try {
         await onLogout!();
