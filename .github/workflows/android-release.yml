@@ -12,7 +12,7 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
@@ -40,13 +40,14 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ ! "$REQUESTED_TAG" =~ ^android-v([0-9]+)\.([0-9]+)\.([0-9]+)\+([0-9]+)$ ]]; then
+          if [[ ! "$REQUESTED_TAG" =~ ^android-v([0-9]+)\.([0-9]+)\.([0-9]+)(-rc\.[0-9]+)?\+([0-9]+)$ ]]; then
             echo "::error::Invalid Android release tag: $REQUESTED_TAG"
-            echo "Expected format: android-vX.Y.Z+B"
+            echo "Expected format: android-vX.Y.Z+B or android-vX.Y.Z-rc.N+B"
             exit 1
           fi
           build_name="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
-          build_number="${BASH_REMATCH[4]}"
+          prerelease="${BASH_REMATCH[4]}"
+          build_number="${BASH_REMATCH[5]}"
 
           tag_sha="$(git rev-list -n 1 "$REQUESTED_TAG")"
           git fetch --no-tags origin master:refs/remotes/origin/master
@@ -59,6 +60,7 @@ jobs:
             echo "TAG_NAME=$REQUESTED_TAG"
             echo "BUILD_NAME=$build_name"
             echo "BUILD_NUMBER=$build_number"
+            echo "PRERELEASE=$([[ -n "$prerelease" ]] && echo true || echo false)"
           } >> "$GITHUB_ENV"
 
       - name: Set up Java
@@ -95,7 +97,7 @@ jobs:
           test -s "$keystore_path"
           echo "ANDROID_KEYSTORE_PATH=$keystore_path" >> "$GITHUB_ENV"
 
-      - name: Build signed ARM64 APK
+      - name: Build signed ARM64 and ARM32 APKs
         shell: bash
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -118,11 +120,11 @@ jobs:
             --release \
             --no-pub \
             --split-per-abi \
-            --target-platform android-arm64 \
+            --target-platform android-arm64,android-arm \
             --build-name "$BUILD_NAME" \
             --build-number "$BUILD_NUMBER"
 
-      - name: Verify signature and collect APK
+      - name: Verify signatures and collect APKs
         shell: bash
         env:
           EXPECTED_APPLICATION_ID: club.geekpie.techpie
@@ -136,24 +138,55 @@ jobs:
           test -x "$aapt"
           test -x "$apksigner"
 
-          apk=build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
-          apk_application_id="$("$aapt" dump badging "$apk" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")"
-          if [[ "$apk_application_id" != "$EXPECTED_APPLICATION_ID" ]]; then
-            echo "::error::APK application ID does not match the production application ID."
-            exit 1
-          fi
-          "$apksigner" verify --verbose --print-certs "$apk"
-          apk_cert="$("$apksigner" verify --print-certs "$apk" | sed -n 's/^.*certificate SHA-256 digest: //p' | sed -n '1p' | tr '[:upper:]' '[:lower:]')"
-          if [[ "$apk_cert" != "$EXPECTED_CERT_SHA256" ]]; then
-            echo "::error::APK signing certificate does not match the production certificate."
-            exit 1
-          fi
-          cp "$apk" "dist/TechPie-${TAG_NAME}-arm64.apk"
+          for architecture in arm64 arm32; do
+            abi=arm64-v8a
+            [[ "$architecture" == arm32 ]] && abi=armeabi-v7a
+            apk="build/app/outputs/flutter-apk/app-${abi}-release.apk"
+            badging="$("$aapt" dump badging "$apk")"
+            apk_application_id="$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" <<< "$badging")"
+            if [[ "$apk_application_id" != "$EXPECTED_APPLICATION_ID" ]]; then
+              echo "::error::APK application ID does not match the production application ID."
+              exit 1
+            fi
+            if [[ "$(sed -n 's/^native-code: //p' <<< "$badging")" != "'$abi'" ]]; then
+              echo "::error::APK must contain only $abi native libraries."
+              exit 1
+            fi
+            "$apksigner" verify --verbose --print-certs "$apk"
+            apk_cert="$("$apksigner" verify --print-certs "$apk" | sed -n 's/^.*certificate SHA-256 digest: //p' | sed -n '1p' | tr '[:upper:]' '[:lower:]')"
+            if [[ "$apk_cert" != "$EXPECTED_CERT_SHA256" ]]; then
+              echo "::error::APK signing certificate does not match the production certificate."
+              exit 1
+            fi
+            cp "$apk" "dist/TechPie-${TAG_NAME}-${architecture}-only.apk"
+          done
 
-      - name: Upload signed APK
+      - name: Upload signed APKs
         uses: actions/upload-artifact@v7
         with:
           name: TechPie-${{ env.TAG_NAME }}
           path: dist/*.apk
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish release with APK checksums
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          notes="$RUNNER_TEMP/release-notes.txt"
+          {
+            git for-each-ref --format='%(contents:body)' "refs/tags/$TAG_NAME"
+            printf '\n## SHA-256\n\n```text\n'
+            (cd dist && sha256sum *.apk)
+            printf '```\n'
+          } > "$notes"
+
+          gh release create "$TAG_NAME" dist/*.apk \
+            --verify-tag \
+            --title "$(git for-each-ref --format='%(contents:subject)' "refs/tags/$TAG_NAME")" \
+            --notes-file "$notes" \
+            --prerelease="$PRERELEASE"
