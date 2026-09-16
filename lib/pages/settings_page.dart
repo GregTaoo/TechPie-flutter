@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:techpie/services/auth_service.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../models/third_party_account.dart';
 import '../services/service_provider.dart';
@@ -140,6 +141,17 @@ class _SettingsPageState extends State<SettingsPage> {
                   ),
                 ),
               ),
+              ListTile(
+                leading: const Icon(Icons.person_remove_outlined),
+                title: const Text('申请注销账号'),
+                trailing: const Icon(Icons.open_in_new),
+                onTap: () => unawaited(
+                  launchUrl(
+                    Uri.parse('https://techpie.geekpie.club/privacy#account-deletion'),
+                    mode: LaunchMode.externalApplication,
+                  ),
+                ),
+              ),
               if (useIosChrome)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
@@ -180,6 +192,19 @@ class _SettingsPageState extends State<SettingsPage> {
                 subtitle: const Text('通过 GeekPie Uni-Auth 登录'),
                 onTap: () => unawaited(presentLoginPage(context)),
               ),
+            const Divider(),
+
+            ListTile(
+              leading: const Icon(Icons.privacy_tip_outlined),
+              title: const Text('隐私政策与使用支持'),
+              trailing: const Icon(Icons.open_in_new),
+              onTap: () => unawaited(
+                launchUrl(
+                  Uri.parse('https://techpie.geekpie.club/privacy'),
+                  mode: LaunchMode.externalApplication,
+                ),
+              ),
+            ),
             const Divider(),
 
             // Appearance section
