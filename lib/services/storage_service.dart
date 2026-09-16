@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -31,6 +32,10 @@ class StorageService {
       : _secure = const FlutterSecureStorage(
           aOptions: AndroidOptions(encryptedSharedPreferences: true),
         );
+
+  String? get campusWebOwner => _prefs.getString('campus_web_owner');
+  Future<void> setCampusWebOwner(String owner) =>
+      _prefs.setString('campus_web_owner', owner);
 
   // Secure session storage
   Future<void> saveSession(UserSession session) async {
@@ -134,7 +139,7 @@ class StorageService {
   }
 
   // SharedPreferences for non-sensitive data
-  bool get debugMode => _prefs.getBool(_debugModeKey) ?? false;
+  bool get debugMode => !kReleaseMode && (_prefs.getBool(_debugModeKey) ?? false);
   Future<void> setDebugMode(bool value) => _prefs.setBool(_debugModeKey, value);
 
   String get cachedSchoolName => _prefs.getString(_schoolNameKey) ?? '';
@@ -153,7 +158,7 @@ class StorageService {
   Future<void> setColorScheme(String scheme) =>
       _prefs.setString(_colorSchemeKey, scheme);
 
-  bool get useLocalhost => _prefs.getBool(_useLocalhostKey) ?? false;
+  bool get useLocalhost => !kReleaseMode && (_prefs.getBool(_useLocalhostKey) ?? false);
   Future<void> setUseLocalhost(bool value) =>
       _prefs.setBool(_useLocalhostKey, value);
 
