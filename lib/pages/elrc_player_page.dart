@@ -34,6 +34,7 @@ class _ElrcPlayerPageState extends State<ElrcPlayerPage> {
   var _readyGeneration = 0;
   var _hasPlaybackState = false;
   Timer? _loadTimeout;
+  Future<void>? _stopPlaybackFuture;
   double _resumeSeconds = 0;
   bool _resumePlaying = false;
   String? _error;
@@ -211,6 +212,7 @@ JSON.stringify((() => {
 (() => {
   let attempts = 0;
   const restore = () => {
+    if (window.techPiePlayerClosed) return true;
     const video = document.querySelector('video');
     if (!video || video.readyState < 1) return false;
     const duration = Number.isFinite(video.duration) ? video.duration : $seconds;
@@ -261,19 +263,41 @@ JSON.stringify((() => {
     if (kDebugMode) debugPrint('[ELRC player] $message');
   }
 
-  void _close() {
-    if (_closing) return;
+  Future<void> _stopPlayback() => _stopPlaybackFuture ??= _releaseMedia();
+
+  Future<void> _releaseMedia() async {
     _closing = true;
     _loadGeneration++;
     _loadTimeout?.cancel();
-    Navigator.of(context).pop();
+    try {
+      await _controller.runJavaScript('''
+window.techPiePlayerClosed = true;
+document.querySelectorAll('video, audio').forEach(media => {
+  media.pause();
+  media.removeAttribute('src');
+  media.querySelectorAll('source').forEach(source => source.remove());
+  media.load();
+});
+''').timeout(const Duration(seconds: 2));
+    } catch (_) {
+      // Native media documents may not expose a video element.
+    }
+    try {
+      await _controller.loadRequest(Uri.parse('about:blank'));
+    } catch (_) {
+      _trace('media document cleanup failed');
+    }
+  }
+
+  Future<void> _close() async {
+    if (_closing) return;
+    await _stopPlayback();
+    if (mounted) Navigator.of(context).pop();
   }
 
   @override
   void dispose() {
-    _closing = true;
-    _loadGeneration++;
-    _loadTimeout?.cancel();
+    unawaited(_stopPlayback());
     super.dispose();
   }
 
