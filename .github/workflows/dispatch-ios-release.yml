@@ -1,12 +1,11 @@
 name: Dispatch iOS Release
 
 on:
-  # Tags are created by release.yml from pubspec.yaml; this workflow can also be
-  # run on its own to re-dispatch an existing tag. The tag stays X.Y.Z+B even for
-  # a pre-release, because the signing workflow validates exactly that shape.
-  push:
-    tags:
-      - "ios-v*"
+  # Called by release.yml with the tag it just created; the tag stays X.Y.Z+B
+  # even for a pre-release, because the private signing workflow validates
+  # exactly that shape. `workflow_dispatch` is the replay path for an existing
+  # tag: a tag push cannot start a run here, and hand-made tags are what the
+  # release policy forbids.
   workflow_call:
     inputs:
       tag:
@@ -68,21 +67,22 @@ jobs:
             exit 1
           fi
 
-          git fetch --no-tags origin main:refs/remotes/origin/main || true
-          git fetch --no-tags origin master:refs/remotes/origin/master || true
+          # The tag must name a commit on a release ref: master, or a
+          # release/X.Y.Z branch — the stable bump commit lives only on that
+          # branch, so master alone would refuse every stable release.
+          git fetch --no-tags origin '+refs/heads/*:refs/remotes/origin/*' || true
 
           reachable=false
-          for branch in origin/main origin/master; do
-            if git rev-parse --verify --quiet "$branch" >/dev/null; then
-              if git merge-base --is-ancestor "$TAG_SHA" "$branch"; then
-                reachable=true
-                break
-              fi
+          while read -r ref; do
+            if git merge-base --is-ancestor "$TAG_SHA" "$ref"; then
+              reachable=true
+              break
             fi
-          done
+          done < <(git for-each-ref --format='%(refname:short)' refs/remotes/origin |
+            grep -E '^origin/(master|main|release/)')
 
           if [[ "$reachable" != "true" ]]; then
-            echo "Release tag must point to a commit reachable from main or master."
+            echo "::error::Release tag must point to a commit reachable from main, master or a release/* branch."
             exit 1
           fi
 

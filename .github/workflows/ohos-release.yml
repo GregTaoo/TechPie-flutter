@@ -15,7 +15,13 @@ on:
   workflow_call:
     inputs:
       release_tag:
-        description: Tag of the GitHub release to attach the hap to
+        description: Tag of the draft GitHub release to attach the hap to
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Tag of the draft GitHub release to attach the hap to
         required: true
         type: string
 
@@ -70,5 +76,13 @@ jobs:
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           set -euo pipefail
+
+          # Only a draft is fair game: release.yml publishes the release after
+          # this job, and an asset added to a published one is an asset nobody
+          # reviewed — which immutable releases refuse outright.
+          if [[ "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" != "true" ]]; then
+            echo "::error::Release $RELEASE_TAG is already published; its assets are frozen. Re-run the release pipeline for this tag instead."
+            exit 1
+          fi
 
           gh release upload "$RELEASE_TAG" dist/*.hap dist/*.sha256 --clobber
