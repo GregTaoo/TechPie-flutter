@@ -99,7 +99,13 @@ tag must agree with it or the release workflow refuses to publish.
 - `+B` must be above the released Android build (Play requires an increase) and
   above the released iOS build for the same version. Bump it for every release.
 - Tags are created by CI. Do not tag a release by hand; a tag that disagrees
-  with pubspec is refused.
+  with pubspec is refused. Nothing is tagged until the commit being released
+  passes `flutter analyze` and `flutter test` inside the release run itself
+  (`analyze.yml` passing on the same commit proves nothing — GitHub does not
+  order workflow runs).
+- The repository variable `RELEASE_FREEZE=true` merges a version change without
+  publishing: the plan still lands in the run summary, tagging and every
+  platform build are skipped.
 - **OHOS**: each release also publishes an unsigned hap
   (`techpie-<version>-unsigned.hap` plus its sha256) attached to the GitHub
   release, built by `scripts/build-unsigned-hap.sh` with `OHOS_UNSIGNED=1` (the

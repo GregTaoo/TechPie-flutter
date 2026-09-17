@@ -104,6 +104,30 @@ jobs:
           fi
           { echo '```text'; cat plan.out plan.err; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Set up Flutter
+        # Only a release pays for this: a push that changes no version still
+        # plans (and reports) but verifies nothing.
+        if: steps.plan.outputs.skip == 'false'
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.27.4"
+          cache: true
+
+      - name: Verify the commit being released
+        # GitHub does not order workflow runs, so passing analyze.yml says
+        # nothing about whether the release workflow is looking at a green
+        # commit. Check it here, before anything is tagged or built.
+        if: steps.plan.outputs.skip == 'false'
+        shell: bash
+        env:
+          PUB_HOSTED_URL: https://pub.flutter-io.cn
+        run: |
+          set -euo pipefail
+
+          flutter pub get
+          flutter analyze --no-pub
+          flutter test
+
   tag:
     name: Tag the release
     needs: plan
