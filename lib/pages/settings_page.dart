@@ -44,13 +44,28 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _loadAppVersion() async {
-    final info = await PackageInfo.fromPlatform();
-    if (!mounted) return;
-    setState(() {
-      _appVersion = info.buildNumber.isNotEmpty
-          ? '${info.version}+${info.buildNumber}'
-          : info.version;
-    });
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (!mounted) return;
+      if (info.version.isEmpty) {
+        // The tile would read "Version Unknown" with no clue why: the plugin
+        // resolves but its source (an OHOS bundle, Linux's version.json) came
+        // back empty.
+        debugPrint(
+          'PackageInfo returned an empty version '
+          '(appName="${info.appName}", packageName="${info.packageName}", '
+          'buildNumber="${info.buildNumber}")',
+        );
+      }
+      setState(() {
+        _appVersion = info.buildNumber.isNotEmpty
+            ? '${info.version}+${info.buildNumber}'
+            : info.version;
+      });
+    } catch (error) {
+      // Never let the tile's failure take the page down, but do say why.
+      debugPrint('PackageInfo.fromPlatform failed: $error');
+    }
   }
 
   @override
