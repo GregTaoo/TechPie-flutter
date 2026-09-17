@@ -291,11 +291,20 @@ new assets). It also keeps a half-assembled release from notifying watchers. A
 release is published in whatever repository runs the workflow
 (`HeZeBang/TechPie-flutter` today), so a run in a fork publishes there.
 
-Repository settings these workflows do not enforce but that the policy assumes:
-required reviewers on the `android-release` environment (it exists, with no
-protection rules today), so a human approves a run that signs with the release
-key; and leaving immutable releases off until the draft order above has shipped
-one release, after which it can be switched on.
+Repository settings that back this: the `android-release` environment requires a
+review before the signing job starts — self-review is allowed, so whoever
+triggers a release can approve their own, and admins can bypass, so nobody ends
+up stuck; the reviewers are the four collaborators. Dropping that requirement
+again (an empty `reviewers` array in the body; a `-F reviewers=[]` flag is
+silently ignored):
+
+```bash
+printf '{"reviewers": []}' | gh api -X PUT \
+  repos/HeZeBang/TechPie-flutter/environments/android-release --input -
+```
+
+Immutable releases are still off: the draft order above is what makes them safe,
+so switch them on once one release has shipped through it.
 
 One thing to know before enabling required status checks on `master` or
 `release/**`: `prepare-release.yml` opens its pull request with `GITHUB_TOKEN`,
