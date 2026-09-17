@@ -49,6 +49,25 @@ jobs:
           prerelease="${BASH_REMATCH[4]}"
           build_number="${BASH_REMATCH[5]}"
 
+          # pubspec.yaml is the single source of the app version; the tag only
+          # names an already-versioned commit. Refuse to publish a build whose
+          # store version and source version disagree.
+          pubspec_version="$(sed -n 's/^version:[[:space:]]*//p' pubspec.yaml | head -1)"
+          pubspec_name="${pubspec_version%%+*}"
+          pubspec_code="${pubspec_version##*+}"
+          if [[ "$pubspec_version" == "$pubspec_code" ]]; then
+            echo "::error::pubspec.yaml version $pubspec_version has no '+N' build number; a release needs one and pubspec.yaml is its only source."
+            exit 1
+          fi
+          if [[ "$pubspec_name" != "$build_name" ]]; then
+            echo "::error::Release tag $REQUESTED_TAG names version $build_name, but pubspec.yaml is $pubspec_version."
+            exit 1
+          fi
+          if [[ -n "$pubspec_code" && "$pubspec_code" != "$build_number" ]]; then
+            echo "::error::Release tag $REQUESTED_TAG names build $build_number, but pubspec.yaml is $pubspec_version."
+            exit 1
+          fi
+
           tag_sha="$(git rev-list -n 1 "$REQUESTED_TAG")"
           git fetch --no-tags origin master:refs/remotes/origin/master
           if ! git merge-base --is-ancestor "$tag_sha" origin/master; then
