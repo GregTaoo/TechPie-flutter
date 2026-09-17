@@ -5,11 +5,18 @@ name: OHOS Release
 # live on a build runner, and an unsigned hap is what a maintainer, a tester or
 # a store pipeline can sign themselves.
 #
-# Needs a runner that already carries the toolchain (see CLAUDE.md → Releasing):
-# the OHOS Flutter fork plus the DevEco command-line tools (hvigor, ohpm) and the
-# HarmonyOS SDK — roughly 10 GB that GitHub-hosted runners do not have. Set the
-# repository variable OHOS_CI_ENABLED=true to turn the job on and point
-# OHOS_CI_RUNNER at that runner's label.
+# The toolchain arrives as a container image (ci/Dockerfile.ohos-buildenv,
+# published by ci/publish-buildenv.sh) because it cannot be installed here: the
+# HarmonyOS SDK sits behind a Huawei developer login and the OHOS Flutter fork is
+# ~2 GB of git history. The image is baked once on a machine that already has
+# both, pushed to a private GHCR package, and pulled as a `container:` — so this
+# job runs on a stock `ubuntu-24.04` runner. There is nothing to turn on and no
+# self-hosted runner to keep alive.
+#
+# Pulling the image needs `packages: read`, and the package must be linked to
+# this repository (the image carries an `org.opencontainers.image.source` label
+# for exactly that). A fork cannot pull it, which is part of why this job is only
+# ever reached from a release run or a dispatch — never from a pull request.
 
 on:
   workflow_call:
@@ -27,13 +34,30 @@ on:
 
 permissions:
   contents: write
+  packages: read
 
 jobs:
   unsigned-hap:
     name: Build unsigned hap
-    if: vars.OHOS_CI_ENABLED == 'true'
-    runs-on: ${{ vars.OHOS_CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
+    # The container's default shell is sh, which does not know `pipefail`.
+    defaults:
+      run:
+        shell: bash
+    container:
+      # Bump by re-running ci/publish-buildenv.sh and pasting the tag it prints.
+      # The tag names the toolchain versions baked into the image, and is the
+      # only thing that says which toolchain this pipeline was tested against —
+      # so it is written out here rather than kept in a repository variable,
+      # where a change would not show up in review. (`container.image` accepts
+      # only the github/needs/strategy/matrix/vars/inputs contexts, so this has
+      # to be a literal — an `env:` entry could not be read here even if it held
+      # the same string.)
+      image: ghcr.io/hezebang/techpie-ohos-buildenv:6.1.1.268-3.27.5-ohos-1.0.5
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout release tag
         uses: actions/checkout@v7
@@ -42,34 +66,46 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.release_tag }}
 
-      - name: Verify the OHOS toolchain is available
-        shell: bash
+      # The image asserts its own toolchain at build time (see the end of
+      # ci/Dockerfile.ohos-buildenv); this catches the other failure mode — a
+      # workflow pointing at a tag that was never pushed, or one whose package
+      # this repository cannot read.
+      - name: Verify the build environment
         run: |
           set -euo pipefail
 
           missing=()
-          for tool in flutter hvigorw ohpm; do
+          for tool in flutter hvigorw ohpm node gh; do
             command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
           done
           if (( ${#missing[@]} )); then
-            echo "::error::Runner is missing: ${missing[*]}. It needs the OHOS Flutter fork and the DevEco command-line tools, on PATH (see CLAUDE.md → Releasing)."
+            echo "::error::This image is missing: ${missing[*]}. Rebuild it with ci/publish-buildenv.sh and point container.image at the new tag."
             exit 1
           fi
 
+          # Prints what actually ran, which is the evidence a mismatch would show
+          # up in — the image reference itself is only in the job header.
           flutter --version
+          hvigorw --version
           ohpm --version || true
+          node --version
+          java -version 2>&1 | head -1
+          # The image is trimmed on purpose so this job fits a hosted runner's
+          # disk — 3.3 GB to download, ~5.5 GB extracted, against ~14 GB free —
+          # and a container cannot free the runner's own disk anyway. If this
+          # ever looks tight, shrink the image (ci/Dockerfile.ohos-buildenv),
+          # don't hunt for more space here.
+          df -h /workspace | tail -1
 
+      # The mirrors (PUB_HOSTED_URL and both FLUTTER_*_STORAGE_BASE_URL) come from
+      # the image's environment, matching .envrc on the developer machine.
       - name: Resolve dependencies
-        # The committed lock resolves through the China mirror (see .envrc).
-        env:
-          PUB_HOSTED_URL: https://pub.flutter-io.cn
         run: flutter pub get
 
       - name: Build unsigned hap
         run: scripts/build-unsigned-hap.sh
 
       - name: Attach the hap to the release
-        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}

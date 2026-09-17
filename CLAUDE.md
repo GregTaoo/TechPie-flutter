@@ -447,9 +447,9 @@ distinguishable in git, and the file names deliberately do not try to.
   pushes it to a private GHCR package, and `ohos-release.yml` pulls it with
   `container:`. The job therefore runs on a stock `ubuntu-24.04`, and there is no
   `OHOS_CI_ENABLED` / `OHOS_CI_RUNNER` to configure. Upgrading either toolchain
-  means re-running `ci/publish-buildenv.sh` and copying the tag it prints into
-  `OHOS_BUILDENV_IMAGE`; the workflow pins that tag, never `latest`, so a release
-  always names the toolchain it was built and tested against.
+  means re-running `ci/publish-buildenv.sh` and copying the tag it prints into the
+  workflow's `container.image`; the workflow pins that tag, never `latest`, so a
+  release always names the toolchain it was built and tested against.
   Note: `flutter build hap` reports "Hvigor build failed to produce an hap file"
   for such a build — it looks for the `-signed.hap` the signing config would
   have produced. The script judges the build by the artifact instead.
@@ -464,7 +464,7 @@ distinguishable in git, and the file names deliberately do not try to.
 - Many upstream pub packages lack OHOS platform implementations. The `dependency_overrides` in `pubspec.yaml` point to OpenHarmony-SIG forks that add OHOS MethodChannel bindings. Don't remove these overrides without testing on OHOS.
 - Dart/Flutter SDK is pinned to an older version for HarmonyOS compatibility (see README warning).
 - `flutter_secure_storage_ohos` is NOT a federated plugin — it's a full fork with its own `FlutterSecureStorage` class. Importing the upstream package will crash on OHOS.
-- The OHOS CI image (`ci/Dockerfile.ohos-buildenv`) drops the SDK's native toolchain (`native/llvm`, `hms/native/BiSheng`), the previewer and the Flutter fork's web SDK to stay inside a hosted runner's disk budget — 9.7 GB of local toolchain becomes a ~4.3 GB image (the fork's 1.9 GB `.git` has to stay: `bin/internal/shared.sh` refuses to run without it). Adding native C/C++ (`ohos/entry/src/main/cpp/`) means restoring the `native/*` lines there, otherwise the build fails on a missing clang.
+- The OHOS CI image (`ci/Dockerfile.ohos-buildenv`) drops the SDK's native/C++ toolchain (`native/llvm`, `hms/native/BiSheng`), the previewer's device variant and HMS resource bundle, and the Flutter fork's web SDK to stay inside a hosted runner's disk budget — 9.7 GB of local toolchain becomes 3.3 GB to download / 5.5 GB extracted. Two things that look droppable are not: the fork's 1.9 GB `.git` (`bin/internal/shared.sh` refuses to run without it, and the framework version comes from a git tag) and `openharmony/previewer/common` (the resource compiler dlopens `hms/toolchains/lib/libimage_transcoder_shared.so`, whose RUNPATH points into it; the image build asserts that chain resolves). Adding native C/C++ (`ohos/entry/src/main/cpp/`) means restoring the `native/*` lines there, otherwise the build fails on a missing clang.
 
 ## API Pattern
 

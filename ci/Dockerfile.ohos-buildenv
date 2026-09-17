@@ -1,0 +1,207 @@
+# syntax=docker/dockerfile:1
+# ci/Dockerfile.ohos-buildenv
+#
+# The build environment the OHOS release job runs in, published to GHCR as a
+# private image and pulled by .github/workflows/ohos-release.yml through
+# `container:`. It exists for one reason: the OHOS toolchain cannot be installed
+# on a GitHub-hosted runner (the HarmonyOS SDK is behind a Huawei developer
+# login, and the OHOS Flutter fork is ~2 GB of git history), so the toolchain has
+# to arrive as an image instead. A stock `ubuntu-24.04` runner then works and
+# `OHOS_CI_ENABLED` / a self-hosted `OHOS_CI_RUNNER` are no longer needed.
+#
+# Build and publish it with ci/publish-buildenv.sh — never by hand, because that
+# script is what derives the tag from the two toolchain versions:
+#
+#   ci/publish-buildenv.sh              # build + push
+#   ci/publish-buildenv.sh --no-push    # build only, for local verification
+#
+# The context is a staging directory holding exactly two payloads, expected at
+# fixed paths inside it:
+#
+#   command-line-tools/   <- DevEco Command Line Tools ($CLD_DIR)
+#   flutter_flutter/      <- the OHOS Flutter fork      ($FLUTTER_DIR)
+#
+# Trimmed below, because the image has to fit a hosted runner's disk: 9.7 GB of
+# local payload becomes 3.3 GB to download and 5.5 GB extracted (the 1.9 GB of
+# Flutter git history has to stay — see the note in the trim step). What is
+# dropped is listed with the reason, and every drop is validated by a real
+# `flutter build hap` run, not by inspection.
+
+# ============================================================================
+# Stage 1: the toolchain, trimmed.
+#
+# The trim lives here rather than in the final stage on purpose: deleting a file
+# only makes an image smaller when the file was never written to an earlier
+# layer, and a `COPY` is its own layer. A stage that has been deleted from is
+# what multi-stage builds are for.
+# ============================================================================
+FROM ubuntu:24.04 AS toolchain
+
+COPY command-line-tools/ /opt/ohos/command-line-tools/
+COPY flutter_flutter/ /opt/ohos/flutter_flutter/
+
+# --- OHOS SDK: the native (C/C++) half of it -------------------------------
+# `openharmony/native/llvm` is the clang cross toolchain (2.3 GB) and
+# `hms/native/BiSheng` the BiSheng compiler it prefers (1.7 GB). Together with
+# the sysroots, the bundled cmake/ninja and the API docs that is 4.5 GB of
+# compiler that a module without `src/main/cpp` never invokes —
+# `ohos/entry/` is ArkTS + resources only.
+#
+# If the module ever grows native code, delete this block: the build then fails
+# with "clang not found" rather than silently producing a wrong hap.
+RUN rm -rf \
+        /opt/ohos/command-line-tools/sdk/default/openharmony/native/llvm \
+        /opt/ohos/command-line-tools/sdk/default/openharmony/native/sysroot \
+        /opt/ohos/command-line-tools/sdk/default/openharmony/native/build-tools \
+        /opt/ohos/command-line-tools/sdk/default/openharmony/native/docs \
+        /opt/ohos/command-line-tools/sdk/default/hms/native/BiSheng \
+        /opt/ohos/command-line-tools/sdk/default/hms/native/sysroot \
+        /opt/ohos/command-line-tools/sdk/default/hms/native/lldb \
+        /opt/ohos/command-line-tools/sdk/default/hms/native/docs
+
+# --- OHOS SDK: the previewer ------------------------------------------------
+# DevEco Studio's live preview runtime — but NOT previewer-only: the resource
+# compiler loads it. `hms/toolchains/lib/libimage_transcoder_shared.so`, which
+# hvigor dlopens during :entry:default@CompileResource, carries
+#
+#   RUNPATH $ORIGIN/../../../openharmony/previewer/common/bin:$ORIGIN/
+#
+# so `openharmony/previewer/common` is a *runtime library directory* of the
+# build, not a previewer asset — deleting it fails the build with
+#
+#   Failed to load .../libimage_transcoder_shared.so: libsec_shared.so:
+#   cannot open shared object file
+#
+# which is how it was caught. It stays (412 MB); what goes is the previewer's
+# device variant and HMS resource bundle, which nothing in a CLI build reads.
+RUN rm -rf \
+        /opt/ohos/command-line-tools/sdk/default/openharmony/previewer/liteWearable \
+        /opt/ohos/command-line-tools/sdk/default/hms/previewer/resources
+
+# --- code linter ------------------------------------------------------------
+# Standalone linter CLI. hvigor does not call it during a build (the module has
+# no code-linter.json5), and it is dead weight in a release image.
+RUN rm -rf /opt/ohos/command-line-tools/codelinter
+
+# --- OHOS Flutter fork ------------------------------------------------------
+# bin/cache/flutter_web_sdk is the web (dart2js) compiler, 274 MB. Only
+# `flutter build web` wants it, and if it is ever asked for, flutter re-downloads
+# it from FLUTTER_OHOS_STORAGE_BASE_URL rather than failing.
+#
+# `.git` stays, all 1.9 GB of it — it is not history nobody reads:
+#   - bin/internal/shared.sh:228 refuses to run at all without it ("The Flutter
+#     directory is not a clone of the GitHub project"), which is how this image's
+#     own build caught the first attempt at deleting it;
+#   - the framework version is derived from `git describe --match *.*.* --long
+#     --tags` (3.27.5-ohos-1.0.5-0-gd9cf54be36c here), so a stub repository would
+#     either fail the tool or invent a revision for the build.
+# A sparse checkout or a stub repository was considered and rejected: the fork's
+# version comes from a tag, so shrinking the history means either fetching it
+# again on the runner or inventing a revision — a fragility not worth 1.3 GB when
+# the finished image measures 3.3 GB against a runner's 14 GB.
+RUN rm -rf /opt/ohos/flutter_flutter/bin/cache/flutter_web_sdk
+
+# ============================================================================
+# Stage 2: the image CI runs in.
+# ============================================================================
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8
+
+# openjdk-17 is what hvigor signs and packs with; .envrc pins the same major on
+# the developer machine. git/curl/unzip/zip/xz-utils are what flutter's own
+# bootstrapper expects to find. gh is here for the release job's last step
+# (`gh release upload`): a container job gets none of the runner's own tools, so
+# anything the workflow shells out to has to be in the image. No build-essential:
+# nothing is compiled here.
+#
+# libgl1 is a build dependency, not a graphical one: the SDK's
+# libskia_canvaskit.so — pulled in by the resource compiler through
+# libimage_transcoder_shared.so — lists libGL.so.1 in its DT_NEEDED, and a
+# dynamically linked object is loaded or not loaded as a whole. The developer
+# machine has libGL from its desktop stack, so this only shows up in a bare
+# image. (libgl1 is the libglvnd loader: no drivers, no rendering.)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        openjdk-17-jdk-headless \
+        ca-certificates \
+        git \
+        curl \
+        unzip \
+        zip \
+        xz-utils \
+        file \
+        python3 \
+        libgl1 \
+        gh \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+COPY --from=toolchain /opt/ohos /opt/ohos
+
+# Directory layout and environment, matching .envrc on the developer machine.
+# Copy this file's ENV block when it changes — the two are meant to stay equal.
+#
+#   HOS_SDK_HOME      the dir *containing* `default/`, which is what
+#                     flutter_tools' HmosSdk reads (ohos_sdk.dart: kHmosHome,
+#                     falling back to DEVECO_SDK_HOME). It validates the SDK by
+#                     looking for `default/openharmony/toolchains/hdc`, so the
+#                     toolchains dir must keep its hdc.
+#   JAVA_HOME         Ubuntu's openjdk-17 location (Arch's differs from .envrc's;
+#                     the major version is what matters).
+#   tool/node/bin     the SDK's own node (v18.20.1 + npm), ahead of any system
+#                     node: ohos/hvigorfile.ts shells out to bare `node`, and
+#                     hvigor is only tested against this one.
+#   the three mirrors the fork pulls from; all are public and reachable from a
+#                   GitHub runner.
+#   LD_LIBRARY_PATH   what the SDK's own tools expect. The resource compiler
+#                   dlopens the image transcoder out of `hms/toolchains/lib`, and
+#                   that library reaches its own dependencies through a relative
+#                   RUNPATH (`$ORIGIN/../../../openharmony/previewer/common/bin`);
+#                   two of them (liblz4_shared.so, libjsoncpp.so) are indirect
+#                   dependencies with no RUNPATH of their own, so nothing finds
+#                   them by accident. The error the SDK prints for a missing one
+#                   recommends exactly this: "Adding the path ... to environment
+#                   variables". On a developer machine the desktop stack's
+#                   libjsoncpp happens to cover it; a bare image has no such luck.
+ENV HOS_SDK_HOME=/opt/ohos/command-line-tools/sdk \
+    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
+    FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn \
+    FLUTTER_OHOS_STORAGE_BASE_URL=https://flutter-ohos.obs.cn-south-1.myhuaweicloud.com \
+    PUB_HOSTED_URL=https://pub.flutter-io.cn \
+    LD_LIBRARY_PATH=/opt/ohos/command-line-tools/sdk/default/hms/toolchains/lib:/opt/ohos/command-line-tools/sdk/default/openharmony/previewer/common/bin \
+    PATH=/opt/ohos/flutter_flutter/bin:/opt/ohos/command-line-tools/bin:/opt/ohos/command-line-tools/sdk/default/openharmony/toolchains:/opt/ohos/command-line-tools/tool/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Git refuses a repository owned by another user ("dubious ownership"). CI's own
+# checkout is root-owned and needs this not at all, but the same command is meant
+# to be runnable against a developer's bind-mounted checkout — the verification
+# line ci/publish-buildenv.sh prints — where it is the difference between
+# building and a confusing failure.
+RUN git config --system --add safe.directory '*'
+
+# Fail the image build, not the release, if the toolchain does not actually work.
+# `flutter --version` proves the fork still runs after the trim — it is the check
+# that caught `.git` being load-bearing — and `hvigorw --version` proves hvigor
+# resolves and warms ~/.hvigor/wrapper so CI does not download it on every run.
+#
+# The last check is the trim's own regression test: the resource compiler dlopens
+# libimage_transcoder_shared.so during CompileResource, so every library in its
+# dependency chain has to be resolvable — including the ones it reaches through
+# its `$ORIGIN/../../../openharmony/previewer/common/bin` RUNPATH, and libGL.so.1
+# from libskia_canvaskit.so. A missing one used to surface only mid-release
+# ("Failed to load the library ... libsec_shared.so"); now it fails here.
+RUN set -eux; \
+    command -v flutter hvigorw ohpm node npm java gh; \
+    test -f "$HOS_SDK_HOME/default/openharmony/toolchains/hdc"; \
+    test -d "$HOS_SDK_HOME/default/openharmony/ets"; \
+    test -f /opt/ohos/flutter_flutter/bin/cache/flutter.version.json; \
+    transcoder="$HOS_SDK_HOME/default/hms/toolchains/lib/libimage_transcoder_shared.so"; \
+    test -f "$transcoder"; \
+    if ldd "$transcoder" | grep 'not found'; then \
+        echo "ERROR: the resource compiler cannot load the libraries above" >&2; \
+        exit 1; \
+    fi; \
+    flutter --version; \
+    hvigorw --version
+
+WORKDIR /workspace

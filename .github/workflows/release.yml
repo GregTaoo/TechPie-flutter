@@ -231,10 +231,20 @@ jobs:
   ohos:
     name: OHOS unsigned hap
     # A sibling of Android, not a successor: the draft release it attaches the
-    # hap to already exists. Skipped unless a runner with the OHOS toolchain is
-    # configured — see ohos-release.yml.
+    # hap to already exists.
+    #
+    # `packages: read` is for the private build-environment image this workflow
+    # pulls as its `container:`. Permissions can only be maintained or reduced
+    # down a workflow chain, never granted, so it has to be asked for here as well
+    # as in ohos-release.yml — a called workflow declaring `packages: read` under
+    # a caller that grants `none` is an elevation, and the pull is refused.
+    # `contents: write` mirrors this workflow's own top-level grant, and is what
+    # the job uses to attach the hap to the draft release.
     needs: [plan, tag, release]
     if: needs.plan.outputs.skip == 'false' && inputs.dry_run != true
+    permissions:
+      contents: write
+      packages: read
     uses: ./.github/workflows/ohos-release.yml
     with:
       release_tag: ${{ needs.plan.outputs.tag }}
