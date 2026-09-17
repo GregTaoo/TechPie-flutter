@@ -6,6 +6,11 @@ import 'package:desktop_webview_window/desktop_webview_window.dart'
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart' show WebViewCookie;
 
+import '../models/feature.dart';
+import '../services/service_provider.dart';
+import '../services/session/cookie_provider.dart';
+import '../services/session/session_node.dart';
+import '../services/third_party_auth_service.dart';
 import '../services/webview_bridge.dart';
 import 'generic_webview_page.dart';
 
@@ -25,8 +30,33 @@ mixin BhWebViewHost<T extends StatefulWidget> on State<T>
   /// The desktop window this page drives, when [isDesktopWebView].
   Webview? get desktopWebview;
 
-  /// Cookies handed to the webviews this page opens for the campus page.
-  List<WebViewCookie> get hostCookies => const <WebViewCookie>[];
+  /// The campus session this page reads its cookies from, when it has one.
+  /// Pages opened for a feature set it; a debug or plain page leaves it null.
+  CookieType? get hostCookieType => null;
+
+  /// [hostCookieType] resolved against the running app's session tree.
+  CampusSessionHandle? get hostSession {
+    final cookieType = hostCookieType;
+    if (cookieType == null) return null;
+    return CampusSessionHandle(
+      ServiceProvider.of(context).thirdPartyAuthService,
+      cookieType,
+    );
+  }
+
+  /// Cookies handed to the webviews this page opens for the campus page, read
+  /// live from the session its feature authenticates against.
+  List<WebViewCookie> get hostCookies =>
+      hostSession?.cookies ?? const <WebViewCookie>[];
+
+  /// Brings the feature's campus session up to date before a webview loads.
+  ///
+  /// A campus page writes its cookies into the browser store once and then
+  /// drives its own requests, so a node that is due for renewal would show up
+  /// there as a login screen — the API path cannot rescue it with a 401 retry.
+  /// Best effort: a failed pre-flight still opens the page, which falls back to
+  /// the campus SSO redirect.
+  Future<void> prepareHostSession() async => hostSession?.prepare();
 
   /// Title the campus page asked for, when it asked for one.
   String? get hostPageTitle => _pageTitle;
@@ -116,18 +146,28 @@ mixin BhWebViewHost<T extends StatefulWidget> on State<T>
   @override
   void openUrl(String url) {
     if (url.isEmpty) return;
+    unawaited(_openHostUrl(url));
+  }
+
+  /// Opens [url] for the page, on the session the parent page was opened on.
+  Future<void> _openHostUrl(String url) async {
+    await prepareHostSession();
+    if (!mounted) return;
     if (isDesktopWebView) {
-      unawaited(openDesktopWebview(title: url, url: url, cookies: hostCookies));
+      await openDesktopWebview(
+        title: url,
+        url: url,
+        cookies: hostCookies,
+        session: hostSession,
+      );
       return;
     }
-    unawaited(
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => GenericWebViewPage(
-            title: url,
-            url: url,
-            cookies: hostCookies,
-          ),
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => GenericWebViewPage(
+          title: url,
+          url: url,
+          cookieType: hostCookieType,
         ),
       ),
     );
@@ -151,6 +191,7 @@ Future<Webview?> openDesktopWebview({
   required String url,
   List<WebViewCookie> cookies = const <WebViewCookie>[],
   List<String> initialScripts = const <String>[],
+  CampusSessionHandle? session,
 }) async {
   final Webview webview;
   try {
@@ -167,7 +208,7 @@ Future<Webview?> openDesktopWebview({
   }
 
   final bridge = BhMobileSdkBridge(
-    host: DesktopWebviewHost(webview),
+    host: DesktopWebviewHost(webview, session),
     runJavaScript: (script) => webview.evaluateJavaScript(script),
   );
   webview.addOnWebMessageReceivedCallback((message) {
@@ -194,9 +235,13 @@ Future<Webview?> openDesktopWebview({
 /// Host for a campus page that lives in its own desktop window: it can still
 /// pick files and open pages, but there is no app chrome to drive.
 class DesktopWebviewHost implements BhMobileSdkHost {
-  DesktopWebviewHost(this.webview);
+  DesktopWebviewHost(this.webview, this.session);
 
   final Webview webview;
+
+  /// The session the pages it opens are signed in with, when the window was
+  /// opened for a campus feature.
+  final CampusSessionHandle? session;
 
   @override
   Future<List<BhMobileSdkFile>> pickFiles(
@@ -218,7 +263,18 @@ class DesktopWebviewHost implements BhMobileSdkHost {
   @override
   void openUrl(String url) {
     if (url.isEmpty) return;
-    unawaited(openDesktopWebview(title: url, url: url));
+    unawaited(_openChildWindow(url));
+  }
+
+  /// A link the campus page opened gets its own window, on the window's own
+  /// session — and up to date, since it is a new page load.
+  Future<void> _openChildWindow(String url) async {
+    await openDesktopWebview(
+      title: url,
+      url: url,
+      cookies: await session?.freshCookies() ?? const <WebViewCookie>[],
+      session: session,
+    );
   }
 
   @override
@@ -229,6 +285,70 @@ class DesktopWebviewHost implements BhMobileSdkHost {
 
   @override
   void setTitle(String title) {}
+}
+
+/// The campus session a webview — or a desktop window opened from one —
+/// authenticates against: the node its feature reads cookies from, plus the
+/// pre-flight that brings that node up to date before a page loads.
+class CampusSessionHandle {
+  const CampusSessionHandle(this.tpAuth, this.cookieType);
+
+  final ThirdPartyAuthService tpAuth;
+  final CookieType cookieType;
+
+  /// Each feature reads a different derived session: ecourse runs on the
+  /// CpDaily/CASTGC session directly, eams and the egate apps on their own
+  /// downstream cookies.
+  SessionNode? get node => switch (cookieType) {
+        CookieType.ecourse => tpAuth.cpdailyNode,
+        CookieType.eams => tpAuth.eamsNode,
+        CookieType.egateApp => tpAuth.egateAppNode,
+      };
+
+  /// The cookies to inject, as of the last [prepare].
+  List<WebViewCookie> get cookies => _webViewCookies(node?.cookieProvider);
+
+  /// Renews the node when its schedule says it is due. A webview writes its
+  /// cookies into the browser store once and then drives its own requests, so a
+  /// node that had gone stale would show up there as a login screen — the API
+  /// path cannot rescue it with a 401 retry. Best effort: a failed pre-flight
+  /// still opens the page, which falls back to the campus SSO redirect.
+  Future<void> prepare() async {
+    final session = node;
+    if (session == null) return;
+    try {
+      await tpAuth.sessionTree.freshCookie(session);
+    } catch (error) {
+      debugPrint('Campus session pre-flight failed: $error');
+    }
+  }
+
+  /// [prepare], then the cookies to inject — for a caller that opens a webview
+  /// of its own and cannot come back for them.
+  Future<List<WebViewCookie>> freshCookies() async {
+    await prepare();
+    return cookies;
+  }
+}
+
+/// Rebuilds a session's cookie string into webview cookie objects, one per
+/// `name=value` pair, scoped to the provider's campus host.
+List<WebViewCookie> _webViewCookies(CookieProvider? provider) {
+  if (provider == null || provider.isEmpty) return const <WebViewCookie>[];
+  final domain =
+      provider.domain.isNotEmpty ? provider.domain : 'ids.shanghaitech.edu.cn';
+  final cookies = <WebViewCookie>[];
+  for (final part in provider.cookies.split(';')) {
+    final separator = part.indexOf('=');
+    if (separator <= 0) continue;
+    final name = part.substring(0, separator).trim();
+    final value = part.substring(separator + 1).trim();
+    if (name.isEmpty || value.isEmpty) continue;
+    cookies.add(
+      WebViewCookie(name: name, value: value, domain: domain, path: '/'),
+    );
+  }
+  return cookies;
 }
 
 /// Reads the values the campus date fields use: `yyyy-MM-dd`, `HH:mm` and

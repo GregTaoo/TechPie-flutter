@@ -114,11 +114,23 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
     if (_supported) unawaited(_prepare());
   }
 
+  /// Renews the CpDaily session when its schedule says it is due, before a
+  /// campus webview loads: the page writes its cookies once and cannot answer
+  /// a 401 from here. Best effort — both callers fall back to the SSO redirect.
+  Future<void> _refreshCampusSession() async {
+    try {
+      await _tpAuth!.sessionTree.freshCookie(_tpAuth!.cpdailyNode);
+    } catch (error) {
+      _trace('campus session pre-flight failed: $error');
+    }
+  }
+
   Future<void> _prepare() async {
     final generation = _bindingOwner;
     final controller = WebViewController();
     final client = ElrcClient(controller);
     try {
+      await _refreshCampusSession();
       await _tpAuth!.campusWebSession.useIdsSession();
       _campusAttempted = true;
       if (!mounted || !_authorized || generation != _bindingOwner) {
@@ -363,6 +375,7 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
     try {
       if (!_campusAttempted) {
         _campusAttempted = true;
+        await _refreshCampusSession();
         final reused = await _tpAuth!.campusWebSession.useIdsSession();
         _trace(
           reused

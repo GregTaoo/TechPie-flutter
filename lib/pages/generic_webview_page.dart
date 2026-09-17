@@ -11,9 +11,9 @@ import 'package:webview_flutter/webview_flutter.dart'
         NavigationDelegate,
         NavigationDecision,
         WebViewWidget,
-        WebViewCookie,
         WebViewCookieManager;
 
+import '../models/feature.dart';
 import '../services/auth_service.dart';
 import '../services/campus_web_session.dart';
 import '../services/service_provider.dart';
@@ -32,16 +32,16 @@ class GenericWebViewPage extends StatefulWidget {
     super.key,
     required this.title,
     required this.url,
-    this.cookies,
+    this.cookieType,
     this.initialUserScripts = const <WebViewUserScript>[],
   });
 
   final String title;
   final String url;
 
-  /// Cookies the campus page needs, read from the derived session its feature
-  /// authenticates against.
-  final List<WebViewCookie>? cookies;
+  /// The campus session this page authenticates against. Null for a page with
+  /// no campus session (a plain URL).
+  final CookieType? cookieType;
 
   final List<WebViewUserScript> initialUserScripts;
 
@@ -65,8 +65,7 @@ class _GenericWebViewPageState extends State<GenericWebViewPage>
   Webview? get desktopWebview => _desktopWebview;
 
   @override
-  List<WebViewCookie> get hostCookies =>
-      widget.cookies ?? const <WebViewCookie>[];
+  CookieType? get hostCookieType => widget.cookieType;
 
   @override
   Future<void> runPageJavaScript(String script) async {
@@ -138,10 +137,13 @@ class _GenericWebViewPageState extends State<GenericWebViewPage>
   // -- Desktop path (desktop_webview_window popup) --
 
   Future<void> _openDesktop() async {
+    await prepareHostSession();
+    if (!mounted) return;
     final webview = await openDesktopWebview(
       title: widget.title,
       url: widget.url,
       cookies: hostCookies,
+      session: hostSession,
       initialScripts: <String>[
         for (final script in widget.initialUserScripts) script.source,
       ],
@@ -185,10 +187,12 @@ class _GenericWebViewPageState extends State<GenericWebViewPage>
       ]);
 
       // The campus pages share one native cookie store, whose reset on an
-      // account change [CampusWebSession] owns. Prime the account's IDS
-      // session, then stack the cookies of the derived session this feature
-      // authenticates against (ecourse runs on it directly, egate on its own
+      // account change [CampusWebSession] owns. Renew the feature's session
+      // first — this page writes its cookies once and cannot answer a 401 —
+      // then stack the cookies of the derived session it authenticates against
+      // (ecourse runs on the IDS session directly, egate on its own
       // MOD_AUTH_CAS/_WEU session derived from it).
+      await prepareHostSession();
       final primedIds = await _tpAuth!.campusWebSession.useIdsSession();
       if (!mounted ||
           !_authorized ||

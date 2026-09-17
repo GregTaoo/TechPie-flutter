@@ -17,6 +17,9 @@ import 'package:techpie/services/session/session_tree.dart';
 ///      cpdaily tgc; parent renew cascades to clear child derived cookies.
 ///   5. Two-level retry: a child 401 caused by a stale parent tgc triggers
 ///      parent renew → child re-mint → retry.
+///   6. freshCookie — the webview pre-flight — renews a due node (parent first,
+///      so the child re-mints against the new tgc) and leaves a node that is
+///      not due untouched.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -197,6 +200,47 @@ void main() {
 
     expect(response?.statusCode, 200);
     expect(client.renewCalls, 2);
+  });
+
+  // -- Webview pre-flight (freshCookie) tests --
+
+  test('freshCookie renews a due node and hands over the new cookie', () async {
+    await tree.cpdaily.renew();
+    tree.cpdaily.seedNextRenewTimestamp(
+      DateTime.now().subtract(const Duration(seconds: 1)),
+    );
+    final beforeEpoch = tree.cpdaily.epoch;
+
+    final cp = await tree.freshCookie(tree.cpdaily);
+
+    expect(client.renewCalls, 2);
+    expect(tree.cpdaily.epoch, greaterThan(beforeEpoch));
+    expect(cp?.cookies, 'JSESSIONID=js-v2; CASTGC=tgc-v2');
+  });
+
+  test('freshCookie leaves a node alone while its schedule is not due', () async {
+    await tree.cpdaily.renew();
+
+    final cp = await tree.freshCookie(tree.cpdaily);
+
+    expect(client.renewCalls, 1);
+    expect(cp?.cookies, 'JSESSIONID=js-v1; CASTGC=tgc-v1');
+  });
+
+  test('freshCookie renews a stale parent before re-minting the child', () async {
+    await tree.eams.renew();
+    tree.cpdaily.seedNextRenewTimestamp(
+      DateTime.now().subtract(const Duration(seconds: 1)),
+    );
+
+    final cp = await tree.freshCookie(tree.eams);
+
+    // Parent first: its renew cascades to clearing the child's derived cookie,
+    // which is then minted again against the new tgc.
+    expect(client.renewCalls, 1);
+    expect(client.eamsCalls, 2);
+    expect(client.lastEamsBody?['tgc'], 'tgc-v1');
+    expect(cp?.cookies, 'JSESSIONID=eams-v2');
   });
 
   // -- Child node (eams/elearning) downstream renew tests --

@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:webview_flutter/webview_flutter.dart' show WebViewCookie;
 
 import '../models/assignment.dart';
 import '../models/course.dart';
@@ -404,62 +403,19 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         break;
       case FeatureMode.webviewWithCookie:
         if (feature.url != null) {
-          final cookies = _buildCookiesForFeature(feature.cookieType);
           unawaited(
             pushAdaptivePage<void>(
               context,
               builder: (_) => GenericWebViewPage(
                 title: feature.description,
                 url: feature.url!,
-                cookies: cookies,
+                cookieType: feature.cookieType,
               ),
             ),
           );
         }
         break;
     }
-  }
-
-  List<WebViewCookie> _buildCookiesForFeature(CookieType? cookieType) {
-    final cookies = <WebViewCookie>[];
-    if (cookieType == null) return cookies;
-
-    final tpAuth = ServiceProvider.of(context).thirdPartyAuthService;
-    // Each webview feature authenticates against a different derived session:
-    // ecourse against the CpDaily/CASTGC session directly, egate (student
-    // leave, etc.) against its own MOD_AUTH_CAS/_WEU session derived from
-    // cpdaily. Read through the unified [CookieProvider] view so the cookie
-    // source per feature is explicit rather than defaulting to cpdaily.
-    final cp = switch (cookieType) {
-      CookieType.ecourse => tpAuth.cpdailyNode.cookieProvider,
-      CookieType.eams => tpAuth.eamsNode.cookieProvider,
-      CookieType.egateApp => tpAuth.egateAppNode.cookieProvider,
-    };
-    if (cp == null || cp.isEmpty) return cookies;
-
-    final domain = cp.domain.isNotEmpty
-        ? cp.domain
-        : 'ids.shanghaitech.edu.cn';
-
-    for (final part in cp.cookies.split(';')) {
-      final idx = part.indexOf('=');
-      if (idx > 0) {
-        final key = part.substring(0, idx).trim();
-        final value = part.substring(idx + 1).trim();
-        if (key.isNotEmpty && value.isNotEmpty) {
-          cookies.add(
-            WebViewCookie(
-              name: key,
-              value: value,
-              domain: domain,
-              path: '/',
-            ),
-          );
-        }
-      }
-    }
-
-    return cookies;
   }
 
   Widget _buildTodayClasses(ThemeData theme, bool isLoggedIn) {

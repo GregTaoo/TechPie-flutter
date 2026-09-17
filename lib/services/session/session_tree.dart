@@ -265,19 +265,7 @@ class SessionTree extends ChangeNotifier {
     SessionNode node,
     Future<CookieAction<T>> Function(CookieProvider provider) action,
   ) async {
-    if (node.parent != null &&
-        node.parent!.canRenew &&
-        node.parent!.isRenewDue) {
-      final parentOk = await node.parent!.renewIfDue();
-      if (!parentOk) return null;
-    }
-    if (!node.isAvailable) {
-      final ok = await node.renew();
-      if (!ok) return null;
-    } else if (node.canRenew && node.isRenewDue) {
-      final ok = await node.renew();
-      if (!ok) return null;
-    }
+    if (!await _ensureUsable(node)) return null;
     var cp = node.cookieProvider;
     if (cp == null) return null;
 
@@ -293,6 +281,33 @@ class SessionTree extends ChangeNotifier {
     if (cp == null) return null;
     final retried = await action(cp);
     return retried.value;
+  }
+
+  /// Brings [node] up to date for a caller that cannot come back with a 401 —
+  /// a campus page in a webview, whose cookies are written into the browser
+  /// store once, before it loads.
+  ///
+  /// The parent is renewed first when its own schedule is due, which cascades
+  /// to clearing the child's downstream cookie, so the child re-mints against
+  /// the new parent tgc. Best effort: null means nothing fresh could be
+  /// produced (the page should still open and fall back to the campus SSO
+  /// redirect).
+  Future<CookieProvider?> freshCookie(SessionNode node) async =>
+      await _ensureUsable(node) ? node.cookieProvider : null;
+
+  /// Renews [node] when its schedule says it is due, parent first, minting the
+  /// downstream cookie when it is missing. Returns whether the node can be
+  /// read afterwards.
+  Future<bool> _ensureUsable(SessionNode node) async {
+    if (node.parent != null &&
+        node.parent!.canRenew &&
+        node.parent!.isRenewDue) {
+      final parentOk = await node.parent!.renewIfDue();
+      if (!parentOk) return false;
+    }
+    if (!node.isAvailable) return node.renew();
+    if (node.canRenew && node.isRenewDue) return node.renew();
+    return true;
   }
 
   @override
