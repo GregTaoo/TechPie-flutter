@@ -11,6 +11,8 @@ import 'package:techpie/services/auth_service.dart';
 import 'package:techpie/services/debug_logger.dart';
 import 'package:techpie/services/http_client.dart';
 import 'package:techpie/services/storage_service.dart';
+import 'package:techpie/services/sync_crypto.dart';
+import 'package:techpie/services/sync_envelope.dart';
 import 'package:techpie/services/sync_service.dart';
 import 'package:techpie/services/third_party_auth_service.dart';
 import 'package:techpie/services/uni_auth_service.dart';
@@ -121,6 +123,51 @@ void main() {
     final withOldPassword = await stale.sync.restoreWithMasterPassword('pw-a');
     expect(withOldPassword.ok, isFalse);
     expect(withOldPassword.message, contains('不正确'));
+  });
+
+  test('a legacy cloud blob is migrated and rewritten in the current schema',
+      () async {
+    // A device running an older build wrote the pre-tombstone (v1) envelope.
+    final legacyPlain = jsonEncode({
+      'v': 1,
+      'accounts': [
+        ThirdPartyAccount(
+          platform: ThirdPartyPlatform.hydro,
+          account: 'user',
+          token: 'hydro-sid=legacy',
+          boundAt: DateTime.utc(2026),
+        ).toJson(),
+      ],
+    });
+    final legacyBlob = await SyncCrypto.encryptWithSalt(legacyPlain, 'pw');
+
+    final fx = await _Fixture.withSession();
+    fx.server.properties['techpie_sync'] = legacyBlob;
+
+    // Restoring reads the legacy shape — no tombstones, no updatedAt/deviceId.
+    final restored = await fx.sync.restoreWithMasterPassword('pw');
+    expect(restored.ok, isTrue, reason: restored.message);
+    expect(
+      fx.tpAuth.account(ThirdPartyPlatform.hydro)?.token,
+      'hydro-sid=legacy',
+    );
+
+    // …and the cloud is rewritten in this build's schema, tombstones included,
+    // so no later read has to translate it again.
+    Future<Map<String, dynamic>> storedEnvelope() async {
+      final plain = await SyncCrypto.decryptWithSalt(
+        fx.server.properties['techpie_sync']!,
+        'pw',
+      );
+      return jsonDecode(plain!) as Map<String, dynamic>;
+    }
+
+    final rewritten = await storedEnvelope();
+    expect(rewritten['v'], SyncSchema.current);
+    expect(rewritten, contains('tombstones'));
+
+    await fx.sync.pull();
+    expect((await storedEnvelope())['v'], SyncSchema.current);
   });
 
   test('push writes current bindings; disable clears the cloud blob',
