@@ -1,0 +1,141 @@
+name: Windows Release
+
+on:
+  # Tags are created by release.yml from pubspec.yaml, which then calls this
+  # workflow: a tag pushed with GITHUB_TOKEN cannot start a run, and a tag pushed
+  # by hand is what the release policy forbids. `workflow_dispatch` is the replay
+  # path for an existing tag.
+  workflow_call:
+    inputs:
+      tag:
+        description: Windows release tag to build
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing Windows release tag to build
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    name: Build Windows release
+    runs-on: windows-latest
+    # A desktop build is source-only here — no signing key and no Gradle — so an
+    # hour is a budget against a stalled download, not against the build. A job
+    # killed here leaves its tag and its draft behind, which is what the budget
+    # buys time against.
+    timeout-minutes: 60
+    # `windows-latest` runs `run:` steps under pwsh by default. Everything below
+    # except the packaging step is POSIX shell — starting with
+    # scripts/release-name.sh, which the bash below runs — so bash is the job
+    # default and the one PowerShell step says so for itself.
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Validate release request
+        env:
+          REQUESTED_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          # Git for Windows sets `core.autocrlf=true` in the system config and
+          # neither this image nor actions/checkout overrides it, so the checkout
+          # carries CRLF and bash would fail on every line of the helper. Normalise
+          # the one file this job runs as a shell script; the workspace is
+          # throwaway and nothing here commits.
+          sed -i 's/\r$//' scripts/release-name.sh
+
+          # scripts/release-name.sh is the one place the tag-to-release-name rule
+          # lives; it exits non-zero on a tag it does not recognise, so the build
+          # stops there rather than naming an artifact after a guess.
+          if ! release_name="$(bash scripts/release-name.sh "$REQUESTED_TAG")"; then
+            echo "::error::Invalid release tag: $REQUESTED_TAG"
+            exit 1
+          fi
+          if [[ -z "$release_name" ]]; then
+            echo "::error::scripts/release-name.sh printed no release name for $REQUESTED_TAG"
+            exit 1
+          fi
+
+          {
+            echo "TAG_NAME=$REQUESTED_TAG"
+            echo "RELEASE_NAME=$release_name"
+          } >> "$GITHUB_ENV"
+          echo "Release name: $release_name"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.27.4
+          cache: true
+
+      - name: Enable the Windows desktop target
+        # Harmless when the runner image already has it on; the build refuses to
+        # start without it.
+        run: flutter config --enable-windows-desktop
+
+      - name: Resolve locked dependencies
+        # The committed lock resolves through the China mirror (see .envrc).
+        env:
+          PUB_HOSTED_URL: https://pub.flutter-io.cn
+        run: flutter pub get --enforce-lockfile
+
+      - name: Build the Windows release
+        run: flutter build windows --release --no-pub
+
+      - name: Package the Windows bundle
+        shell: pwsh
+        # The archive is TechPie-<release name>-windows-x86-64.zip, where the
+        # release name is 1.0.1, or 1.0.1-rc.2 for a candidate (CLAUDE.md →
+        # Artifact names). Two candidates of one version must not produce two
+        # files a user cannot tell apart.
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bundle = 'build/windows/x64/runner/Release'
+          if (-not (Test-Path $bundle)) {
+            throw "Flutter produced no Windows bundle at $bundle"
+          }
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          # Braced so the variable name cannot run into the literal that follows.
+          $archive = "dist/TechPie-${env:RELEASE_NAME}-windows-x86-64.zip"
+          # The archive holds the bundle's contents, so it extracts to the same
+          # layout as Release/: the executable next to its DLLs and its data
+          # directory.
+          Compress-Archive -Path "$bundle/*" -DestinationPath $archive -Force
+          # The digest is printed for the log only: the release notes get theirs
+          # from the publish job in release.yml, which is what publishes a
+          # release.
+          Get-Item $archive | Format-List Name, Length
+          Get-FileHash $archive -Algorithm SHA256 | Format-List
+
+      - name: Attach the archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Only ever an upload: release.yml opens the draft this attaches to, and
+          # nothing here creates a release. A standalone dispatch run before that
+          # release exists therefore fails at this step, which is the intended
+          # refusal — release.yml is what publishes a release.
+          gh release upload "$TAG_NAME" dist/*.zip --clobber

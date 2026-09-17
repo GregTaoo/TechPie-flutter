@@ -22,12 +22,10 @@ The `.envrc` (managed by direnv) points `PATH` at the OHOS fork by default. Buil
 flutter pub get
 flutter run              # run on connected device/emulator
 
-# Linux release (forces upstream SDK)
-scripts/build-linux.sh
-
-# OHOS HAP release (forces OHOS fork)
-scripts/build-ohos.sh           # default: hap
-scripts/build-ohos.sh app       # or: app, har, hsp
+# Release artifacts are built by CI: release.yml calls one workflow per platform
+# (android-release.yml, linux-release.yml, windows-release.yml, ohos-release.yml,
+# dispatch-ios-release.yml). The one you can build locally is the OHOS hap:
+scripts/build-unsigned-hap.sh
 ```
 
 OHOS signing material is injected from env vars (`OHOS_*`) via `ohos/scripts/generate-build-profile.mjs`. Copy `.envrc.example` and fill in your DevEco-encrypted passwords.
@@ -394,18 +392,26 @@ ext        android   apk | aab
            windows   exe | msi | zip
 ```
 
-Published today: `TechPie-1.0.1-rc.2-android-arm64v8.apk` and
-`TechPie-1.0.1-rc.2-android-arm32v7.apk`, plus the hap
-`TechPie-1.0.1-rc.2-ohos-arm64v8-unsigned.hap` and its `.sha256` that
-`scripts/build-unsigned-hap.sh` writes and `ohos-release.yml` attaches when that
-job runs (see OHOS below). Nothing is published for Linux, macOS, Windows or iOS
-yet; adding one means adding a row above, not inventing a name.
+Published today: the two split APKs `TechPie-1.0.1-rc.2-android-arm64v8.apk` and
+`TechPie-1.0.1-rc.2-android-arm32v7.apk`, the `TechPie-1.0.1-rc.2-android-universal.apk`
+that carries every ABI, the `TechPie-1.0.1-rc.2-ohos-arm64v8-unsigned.hap` with its
+`.sha256`, `TechPie-1.0.1-rc.2-linux-x86-64.tar.gz` (the Linux bundle, which
+extracts to a single `bundle/` directory) and `TechPie-1.0.1-rc.2-windows-x86-64.zip`.
+macOS and iOS attach nothing to a release — iOS goes to TestFlight through the
+private signing repo. Adding a platform means adding a row above, not inventing a
+name.
 
-Where each name comes from, so workflow and script cannot drift: `release.yml`
-derives the release name once, the Android job recomputes it from the tag it was
-handed, and `scripts/build-unsigned-hap.sh` reads `RELEASE_NAME`, then the release
-tag it is checked out at, then pubspec. Three sources, one string — the same one
-the release is titled with.
+The universal APK's versionCode is the build number itself, while the splits carry
+ABI×1000 + B (arm32 1000+B, arm64 2000+B, measured on the shipped APKs). Replacing
+a split install with the universal one is therefore a downgrade Android refuses —
+uninstall first. It is also the only Android artifact that covers x86_64, which is
+what it is for.
+
+Where each name comes from, so workflow and script cannot drift: the tag-to-name
+rule lives in exactly one place, `scripts/release-name.sh`, which the Android,
+Linux and Windows jobs call and `scripts/build-unsigned-hap.sh` falls back to —
+that script reads `RELEASE_NAME`, then the release tag it is checked out at, then
+pubspec. One string, the same one the release is titled with.
 
 The release **title** is that release name with a `v` in front — `v1.0.1-rc.2`,
 `v1.0.1` — taken from the tag annotation's subject, so the title, the annotation's
@@ -415,10 +421,14 @@ distinguishable in git, and the file names deliberately do not try to.
 
 ### Operating the pipeline
 
-- CI signs and publishes the APKs (and the unsigned hap), and stops there:
-  **uploading to Play, AppGallery and the App Store is manual**, from those
-  artifacts. The Android signing material lives in the `android-release`
-  environment; the iOS dispatch needs `RELEASE_APP_*` and the signing repo.
+- CI signs and publishes every platform's artifacts and stops there: **uploading
+  to Play, AppGallery and the App Store is manual**, from those artifacts. Android
+  gets three APKs (arm64 and arm32 splits plus a universal one), Linux a `tar.gz`
+  of the bundle, Windows a `zip` of the release directory, OHOS the unsigned hap.
+  The `publish` job waits for all of them and is what writes the SHA-256 block —
+  once, over every asset, since a platform job only knows its own files. The
+  Android signing material lives in the `android-release` environment; the iOS
+  dispatch needs `RELEASE_APP_*` and the signing repo.
 - The `publish` job owns the "Latest" label: a candidate never takes it, and
   neither does a maintenance line published after a newer one. A release is
   labelled latest only when it is stable and its `X.Y.Z` is not older than the
@@ -450,6 +460,14 @@ distinguishable in git, and the file names deliberately do not try to.
   means re-running `ci/publish-buildenv.sh` and copying the tag it prints into the
   workflow's `container.image`; the workflow pins that tag, never `latest`, so a
   release always names the toolchain it was built and tested against.
+  Two settings on the GHCR package are what let the job pull it, and neither is
+  implied by the other: **Connect repository** (links the package to this repo) and,
+  under **Manage Actions access**, **Add repository** — the documented way to let a
+  workflow's `GITHUB_TOKEN` read it. Linking a package that was already published
+  does *not* make it inherit the repository's permissions, so the second step is not
+  optional. Symptom when either is missing: the job dies in `Initialize containers`
+  with `docker pull … Error response from daemon: denied`, before any step of ours
+  runs.
   Note: `flutter build hap` reports "Hvigor build failed to produce an hap file"
   for such a build — it looks for the `-signed.hap` the signing config would
   have produced. The script judges the build by the artifact instead.

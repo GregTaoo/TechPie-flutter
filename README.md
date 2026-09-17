@@ -98,8 +98,8 @@ export HOS_SDK_HOME="$HOME/dev/command-line-tools/sdk"
 
 | 渠道 | 什么触发 | 产物 |
 | --- | --- | --- |
-| **候选版** `X.Y.Z-rc.N` | 在 `master` 上手动运行 `release.yml` | GitHub 预发布 + 已签名 APK；iOS 进 TestFlight |
-| **正式版** `X.Y.Z` | 合并 `prepare-release.yml` 开出的 release PR | GitHub 正式发布（Latest）+ 已签名 APK；iOS 进 TestFlight |
+| **候选版** `X.Y.Z-rc.N` | 在 `master` 上手动运行 `release.yml` | GitHub 预发布 + Android 三个 APK（arm64/arm32 split + universal）、Linux `tar.gz`、Windows `zip`、OHOS 未签名 hap；iOS 进 TestFlight |
+| **正式版** `X.Y.Z` | 合并 `prepare-release.yml` 开出的 release PR | GitHub 正式发布（Latest）+ 同上全部产物；iOS 进 TestFlight |
 
 ```bash
 # 候选版：改 +B、写 CHANGELOG、推送、手动发布

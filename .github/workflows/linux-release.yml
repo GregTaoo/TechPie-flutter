@@ -1,0 +1,138 @@
+name: Linux Release
+
+on:
+  # Tags are created by release.yml from pubspec.yaml, which then calls this
+  # workflow: a tag pushed with GITHUB_TOKEN cannot start a run, and a tag pushed
+  # by hand is what the release policy forbids. `workflow_dispatch` is the replay
+  # path for an existing tag.
+  workflow_call:
+    inputs:
+      tag:
+        description: Linux release tag to build
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing Linux release tag to build
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build Linux release
+    runs-on: ubuntu-latest
+    # A cold Linux desktop build configures CMake, compiles every plugin, then
+    # links the runner and bundles the engine: the same order of magnitude as the
+    # Android build. A release that dies here leaves its tag and draft behind, so
+    # the job is worth waiting out.
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Validate release request
+        shell: bash
+        env:
+          REQUESTED_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          # The release name — what the artifact file name carries and what the
+          # release page is titled, `1.0.1` or `1.0.1-rc.2` — comes from the one
+          # place that knows the tag grammar. It exits non-zero on a tag it does
+          # not recognise, which fails the job before anything is built. The
+          # build number is in no name: it is global history, and a name has to
+          # say which version this is, not which build (CLAUDE.md → Artifact
+          # names).
+          release_name="$(scripts/release-name.sh "$REQUESTED_TAG")"
+
+          {
+            echo "TAG_NAME=$REQUESTED_TAG"
+            echo "RELEASE_NAME=$release_name"
+          } >> "$GITHUB_ENV"
+
+          echo "Building Linux $release_name from $REQUESTED_TAG."
+
+      - name: Install Linux desktop build dependencies
+        # What `flutter doctor` asks for on a Linux desktop target: a C++ and
+        # CMake toolchain plus GTK 3 headers. liblzma-dev is there for the
+        # bundled engine's dependency on it.
+        run: |
+          set -euo pipefail
+
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang \
+            cmake \
+            ninja-build \
+            pkg-config \
+            libgtk-3-dev \
+            liblzma-dev
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.27.4
+          cache: true
+
+      - name: Enable the Linux desktop target
+        # Harmless when the target is already enabled, and it makes a fresh
+        # runner behave like the machine the build was developed on.
+        run: flutter config --enable-linux-desktop
+
+      - name: Resolve locked dependencies
+        # The committed lock resolves through the China mirror (see .envrc).
+        env:
+          PUB_HOSTED_URL: https://pub.flutter-io.cn
+        run: flutter pub get --enforce-lockfile
+
+      - name: Build the Linux release
+        # `--no-pub` because the lock was resolved above: the build must not
+        # resolve anything of its own.
+        run: flutter build linux --release --no-pub
+
+      - name: Package the Linux bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # TechPie-<release name>-linux-x86-64.tar.gz: one grammar for every
+          # platform's artifact, with the file left in whatever shape the build
+          # produced. The archive holds `bundle/` itself, so it extracts to one
+          # directory — the runner, its libraries and data/ next to each other.
+          mkdir -p dist
+          tar -czf "dist/TechPie-${RELEASE_NAME}-linux-x86-64.tar.gz" \
+            -C build/linux/x64/release bundle
+
+          ls -l dist
+          sha256sum dist/*.tar.gz
+
+      - name: Attach the Linux artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Never `gh release create`: release.yml opens the release and is what
+          # publishes it, so this only adds an asset. A standalone dispatch
+          # (workflow_dispatch on a tag whose release does not exist yet)
+          # therefore fails at this step by design — `gh` refuses an upload to a
+          # release that is not there, rather than inventing one.
+          gh release upload "$TAG_NAME" dist/*.tar.gz --clobber
+          echo "Attached the Linux artifact to release $TAG_NAME."

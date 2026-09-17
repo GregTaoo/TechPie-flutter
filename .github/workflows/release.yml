@@ -250,6 +250,26 @@ jobs:
       release_tag: ${{ needs.plan.outputs.tag }}
     secrets: inherit
 
+  linux:
+    name: Linux artifacts
+    # Siblings of Android too: the draft release they attach to is the one the
+    # `release` job already opened above.
+    needs: [plan, tag, release]
+    if: needs.plan.outputs.skip == 'false' && inputs.dry_run != true
+    uses: ./.github/workflows/linux-release.yml
+    with:
+      tag: ${{ needs.plan.outputs.tag }}
+    secrets: inherit
+
+  windows:
+    name: Windows artifacts
+    needs: [plan, tag, release]
+    if: needs.plan.outputs.skip == 'false' && inputs.dry_run != true
+    uses: ./.github/workflows/windows-release.yml
+    with:
+      tag: ${{ needs.plan.outputs.tag }}
+    secrets: inherit
+
   publish:
     name: Publish the release
     # Nothing is visible until every asset is in: the Android job opens the
@@ -257,16 +277,25 @@ jobs:
     # what GitHub recommends under immutable releases (a published release
     # refuses new assets), and it keeps a half-assembled release from notifying
     # watchers. `always()` so a switched-off OHOS job still publishes.
-    needs: [plan, tag, release, android, ohos]
+    needs: [plan, tag, release, android, linux, windows, ohos]
     if: >-
       always() && !cancelled()
       && needs.plan.outputs.skip == 'false'
       && needs.android.result == 'success'
+      && needs.linux.result == 'success'
+      && needs.windows.result == 'success'
       && (needs.ohos.result == 'success' || needs.ohos.result == 'skipped')
       && inputs.dry_run != true
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # For the tag annotation, which is the release body's first half.
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
       - name: Publish the draft release
         shell: bash
         env:
@@ -298,6 +327,21 @@ jobs:
               latest=true
             fi
           fi
+
+          # The release body is the tag annotation plus the checksums of everything
+          # the platform jobs attached. Written here, and only here, because this is
+          # the first moment every asset exists: each platform job knows only its own
+          # files, and a block listing some of them would be worse than none. The
+          # assets carry their digests, so no download is needed to collect them.
+          notes="$RUNNER_TEMP/release-notes.txt"
+          {
+            git for-each-ref --format='%(contents:body)' "refs/tags/$TAG"
+            printf '\n## SHA-256\n\n```text\n'
+            gh release view "$TAG" --json assets \
+              --jq '.assets[] | "\(.digest // "unavailable" | sub("^sha256:"; ""))  \(.name)"' | sort
+            printf '```\n'
+          } > "$notes"
+          gh release edit "$TAG" --notes-file "$notes"
 
           # Print what is about to be published *before* publishing it, so a bad
           # field or a wrong flag fails while the release is still a draft.
