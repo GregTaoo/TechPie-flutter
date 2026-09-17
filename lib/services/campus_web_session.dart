@@ -2,27 +2,30 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:webview_flutter/webview_flutter.dart'
+    show WebViewController, WebViewCookieManager;
 
 import 'auth_service.dart';
 import 'session/session_node.dart';
 import 'storage_service.dart';
 
-/// Coordinates the App's campus WebViews, which share one native cookie store.
+/// Owns the browser-side half of the campus web session: the cookie store every
+/// embedded webview shares.
+///
+/// It is deliberately *not* a credential store — credentials live in the
+/// [SessionNode] tree, and pages read their cookies from there (see
+/// `CampusSessionHandle`). What this class does is reset that shared store when
+/// the primary account or its eGate binding changes, so a page opened under a
+/// new account cannot inherit the previous one's campus session.
+///
+/// The reset is a full wipe of the store: Android and OHOS cannot enumerate
+/// cookies by domain, and the store is private to this app — the system browser
+/// is unaffected, but another embedded login (ELRC, a fresh Casdoor round trip)
+/// has to sign in again afterwards.
 class CampusWebSession {
   CampusWebSession(this.node, this.storage) {
     node.addListener(_onBindingChanged);
   }
-
-  /// Host the IDS session lives on. A copy of these cookies injected into the
-  /// same store would only shadow what [useIdsSession] put there.
-  static const String idsHost = 'ids.shanghaitech.edu.cn';
-
-  /// Whether `name`/`domain` name one of the IDS session cookies
-  /// [useIdsSession] owns.
-  static bool isIdsSessionCookie(String name, String domain) =>
-      domain.toLowerCase() == idsHost &&
-      (name == 'CASTGC' || name == 'AUTHTGC');
 
   final SessionNode node;
   final StorageService storage;
@@ -31,11 +34,18 @@ class CampusWebSession {
   int _authRevision = 0;
   int _clearedAuthRevision = 0;
   Future<void> _pending = Future.value();
+  bool _storageClearDue = false;
+
+  /// Platforms whose embedded webviews share one app-private store we can wipe:
+  /// iOS, macOS and Android through webview_flutter, OHOS through its ArkWeb
+  /// plugin. Desktop windows own their store and are not covered.
   bool get supported =>
       !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.iOS ||
           defaultTargetPlatform == TargetPlatform.macOS ||
-          defaultTargetPlatform == TargetPlatform.android);
+          defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform.name == 'ohos');
+
   String get _owner {
     final userId = _auth?.session?.userId;
     if (userId == null) return 'signed-out';
@@ -79,6 +89,9 @@ class CampusWebSession {
     return operation;
   }
 
+  /// Wipes the shared store when the campus account changed since the last wipe.
+  /// Pages await this before they load, so nothing they inject can be wiped
+  /// after the fact.
   Future<void> prepare() => !supported ? Future.value() : _queue(_syncOwner);
 
   Future<void> _syncOwner() async {
@@ -87,35 +100,8 @@ class CampusWebSession {
     if (storage.campusWebOwner == owner && _clearedAuthRevision == revision) {
       return;
     }
-    final manager = CookieManager.instance();
-    final webStorage = WebStorageManager.instance();
-    if (defaultTargetPlatform == TargetPlatform.iOS ||
-        defaultTargetPlatform == TargetPlatform.macOS) {
-      for (final cookie in await manager.getAllCookies()) {
-        final domain = cookie.domain ?? '';
-        if (!_schoolDomain(domain)) continue;
-        await manager.deleteCookie(
-          url: WebUri('https://${domain.replaceFirst(RegExp(r'^\.'), '')}/'),
-          name: cookie.name,
-          domain: domain,
-          path: cookie.path ?? '/',
-        );
-      }
-      final records =
-          await webStorage.fetchDataRecords(dataTypes: WebsiteDataType.ALL);
-      await webStorage.removeDataFor(
-        dataTypes: WebsiteDataType.ALL,
-        dataRecords: records
-            .where((record) => _schoolDomain(record.displayName ?? ''))
-            .toList(),
-      );
-    } else {
-      // Android cannot enumerate cookie domains/paths. Its shared App store
-      // is reset on binding replacement, including other embedded web logins.
-      // False means the store was already empty, not that deletion failed.
-      await manager.deleteAllCookies();
-      await webStorage.deleteAllData();
-    }
+    await WebViewCookieManager().clearCookies();
+    _storageClearDue = true;
     await storage.setCampusWebOwner(owner);
     _clearedAuthRevision = revision;
     if (kDebugMode) {
@@ -123,51 +109,18 @@ class CampusWebSession {
     }
   }
 
-  Future<bool> useIdsSession() {
-    if (!supported) return Future.value(false);
-    final owner = _owner;
-    final revision = _authRevision;
-    return _queue(() async {
-      await _syncOwner();
-      void checkOwner() {
-        if (_auth?.isLoggedIn != true ||
-            _authRevision != revision ||
-            _owner != owner) {
-          throw StateError('校园账号已变更，请重新加载');
-        }
-      }
-
-      checkOwner();
-      if (node.account == null) return false;
-      final manager = CookieManager.instance();
-      final ids = WebUri('https://$idsHost/authserver/');
-      // A browser login can be newer than the saved CpDaily binding. Preserve
-      // it and let IDS validate the session through the service's SSO redirect.
-      final existing = await manager.getCookie(url: ids, name: 'CASTGC');
-      checkOwner();
-      final currentTgc = existing?.value;
-      if (currentTgc is String && currentTgc.isNotEmpty) return true;
-      final tgc = node.rawFields['tgc'] as String? ?? '';
-      if (tgc.isEmpty) return false;
-      for (final name in const ['CASTGC', 'AUTHTGC']) {
-        final saved = await manager.setCookie(
-          url: ids,
-          name: name,
-          value: tgc,
-          path: '/authserver',
-          isSecure: true,
-          isHttpOnly: true,
-        );
-        if (!saved) throw StateError('无法写入校园登录会话');
-        checkOwner();
-      }
-      return true;
-    });
+  /// Wipes [controller]'s local storage when an account change still owes one.
+  ///
+  /// The plugin only reaches local storage through a controller, so the page
+  /// that is about to load performs it — before it injects anything, so the new
+  /// account's cookies are never the collateral. Local storage of the previous
+  /// account would otherwise outlive the cookie wipe and be readable by whatever
+  /// origin-scoped code the next account loads.
+  Future<void> clearLocalStorageIfDue(WebViewController controller) async {
+    if (!_storageClearDue) return;
+    _storageClearDue = false;
+    await controller.clearLocalStorage();
   }
-
-  bool _schoolDomain(String domain) =>
-      domain == 'shanghaitech.edu.cn' ||
-      domain.endsWith('.shanghaitech.edu.cn');
 
   void dispose() {
     _auth?.removeListener(_onPrimaryAccountChanged);

@@ -15,7 +15,6 @@ import 'package:webview_flutter/webview_flutter.dart'
 
 import '../models/feature.dart';
 import '../services/auth_service.dart';
-import '../services/campus_web_session.dart';
 import '../services/service_provider.dart';
 import '../services/third_party_auth_service.dart';
 import '../services/webview_bridge.dart';
@@ -186,28 +185,23 @@ class _GenericWebViewPageState extends State<GenericWebViewPage>
         const WebViewUserScript(source: techPieDocumentStartScript),
       ]);
 
-      // The campus pages share one native cookie store, whose reset on an
-      // account change [CampusWebSession] owns. Renew the feature's session
-      // first — this page writes its cookies once and cannot answer a 401 —
-      // then stack the cookies of the derived session it authenticates against
-      // (ecourse runs on the IDS session directly, egate on its own
-      // MOD_AUTH_CAS/_WEU session derived from it).
+      // The campus pages share one cookie store, whose reset on an account
+      // change [CampusWebSession] owns: that wipe runs first (along with the
+      // feature's scheduled renew), then this page writes the cookies of the
+      // session it authenticates against — ecourse on the IDS/CASTGC session
+      // directly, egate on its own MOD_AUTH_CAS/_WEU session derived from it.
+      // Nothing is injected before the wipe, so nothing is collateral.
       await prepareHostSession();
-      final primedIds = await _tpAuth!.campusWebSession.useIdsSession();
+      final session = _tpAuth!.campusWebSession;
+      await session.clearLocalStorageIfDue(_controller);
       if (!mounted ||
           !_authorized ||
-          _owner != _tpAuth!.campusWebSession.owner) {
+          _owner != session.owner) {
         return;
       }
 
       final cookieManager = WebViewCookieManager();
       for (final c in hostCookies) {
-        // Where the native store already carries the IDS login — including a
-        // browser session newer than the saved binding, which useIdsSession()
-        // deliberately keeps — writing the saved copy again would shadow it.
-        if (primedIds && CampusWebSession.isIdsSessionCookie(c.name, c.domain)) {
-          continue;
-        }
         await cookieManager.setCookie(c);
       }
 

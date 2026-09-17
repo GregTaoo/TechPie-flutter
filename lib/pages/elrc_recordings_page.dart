@@ -9,6 +9,7 @@ import '../services/elrc_client.dart';
 import '../services/service_provider.dart';
 import '../services/third_party_auth_service.dart';
 import '../widgets/adaptive_page_navigation.dart';
+import 'campus_session_handle.dart';
 import 'elrc_player_page.dart';
 
 class ElrcRecordingsPage extends StatefulWidget {
@@ -114,12 +115,19 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
     if (_supported) unawaited(_prepare());
   }
 
-  /// Renews the CpDaily session when its schedule says it is due, before a
-  /// campus webview loads: the page writes its cookies once and cannot answer
-  /// a 401 from here. Best effort — both callers fall back to the SSO redirect.
-  Future<void> _refreshCampusSession() async {
+  /// Brings the shared store and the CpDaily session up to date, then writes the
+  /// session's cookies into the store the given controller will use: the hidden
+  /// webview below writes nothing itself, so it cannot answer a 401 either.
+  /// Best effort — both callers fall back to the SSO redirect.
+  Future<void> _writeCampusSession(WebViewController controller) async {
     try {
-      await _tpAuth!.sessionTree.freshCookie(_tpAuth!.cpdailyNode);
+      final session = CampusSessionHandle(_tpAuth!, _tpAuth!.cpdailyNode);
+      await session.prepare();
+      await _tpAuth!.campusWebSession.clearLocalStorageIfDue(controller);
+      final cookieManager = WebViewCookieManager();
+      for (final cookie in session.cookies) {
+        await cookieManager.setCookie(cookie);
+      }
     } catch (error) {
       _trace('campus session pre-flight failed: $error');
     }
@@ -130,8 +138,7 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
     final controller = WebViewController();
     final client = ElrcClient(controller);
     try {
-      await _refreshCampusSession();
-      await _tpAuth!.campusWebSession.useIdsSession();
+      await _writeCampusSession(controller);
       _campusAttempted = true;
       if (!mounted || !_authorized || generation != _bindingOwner) {
         client.dispose();
@@ -375,13 +382,8 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
     try {
       if (!_campusAttempted) {
         _campusAttempted = true;
-        await _refreshCampusSession();
-        final reused = await _tpAuth!.campusWebSession.useIdsSession();
-        _trace(
-          reused
-              ? 'IDS cookie prepared; awaiting official SSO'
-              : 'manual login required',
-        );
+        await _writeCampusSession(controller);
+        _trace('IDS cookie written; awaiting official SSO');
       }
       if (!mounted || request != _request) return;
       await controller.loadRequest(_loginUri);

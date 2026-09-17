@@ -8,10 +8,8 @@ import 'package:webview_flutter/webview_flutter.dart' show WebViewCookie;
 
 import '../models/feature.dart';
 import '../services/service_provider.dart';
-import '../services/session/cookie_provider.dart';
-import '../services/session/session_node.dart';
-import '../services/third_party_auth_service.dart';
 import '../services/webview_bridge.dart';
+import 'campus_session_handle.dart';
 import 'generic_webview_page.dart';
 
 /// Gives a webview page the host half of the campus page SDK: picking files
@@ -38,7 +36,7 @@ mixin BhWebViewHost<T extends StatefulWidget> on State<T>
   CampusSessionHandle? get hostSession {
     final cookieType = hostCookieType;
     if (cookieType == null) return null;
-    return CampusSessionHandle(
+    return CampusSessionHandle.forFeature(
       ServiceProvider.of(context).thirdPartyAuthService,
       cookieType,
     );
@@ -285,70 +283,6 @@ class DesktopWebviewHost implements BhMobileSdkHost {
 
   @override
   void setTitle(String title) {}
-}
-
-/// The campus session a webview — or a desktop window opened from one —
-/// authenticates against: the node its feature reads cookies from, plus the
-/// pre-flight that brings that node up to date before a page loads.
-class CampusSessionHandle {
-  const CampusSessionHandle(this.tpAuth, this.cookieType);
-
-  final ThirdPartyAuthService tpAuth;
-  final CookieType cookieType;
-
-  /// Each feature reads a different derived session: ecourse runs on the
-  /// CpDaily/CASTGC session directly, eams and the egate apps on their own
-  /// downstream cookies.
-  SessionNode? get node => switch (cookieType) {
-        CookieType.ecourse => tpAuth.cpdailyNode,
-        CookieType.eams => tpAuth.eamsNode,
-        CookieType.egateApp => tpAuth.egateAppNode,
-      };
-
-  /// The cookies to inject, as of the last [prepare].
-  List<WebViewCookie> get cookies => _webViewCookies(node?.cookieProvider);
-
-  /// Renews the node when its schedule says it is due. A webview writes its
-  /// cookies into the browser store once and then drives its own requests, so a
-  /// node that had gone stale would show up there as a login screen — the API
-  /// path cannot rescue it with a 401 retry. Best effort: a failed pre-flight
-  /// still opens the page, which falls back to the campus SSO redirect.
-  Future<void> prepare() async {
-    final session = node;
-    if (session == null) return;
-    try {
-      await tpAuth.sessionTree.freshCookie(session);
-    } catch (error) {
-      debugPrint('Campus session pre-flight failed: $error');
-    }
-  }
-
-  /// [prepare], then the cookies to inject — for a caller that opens a webview
-  /// of its own and cannot come back for them.
-  Future<List<WebViewCookie>> freshCookies() async {
-    await prepare();
-    return cookies;
-  }
-}
-
-/// Rebuilds a session's cookie string into webview cookie objects, one per
-/// `name=value` pair, scoped to the provider's campus host.
-List<WebViewCookie> _webViewCookies(CookieProvider? provider) {
-  if (provider == null || provider.isEmpty) return const <WebViewCookie>[];
-  final domain =
-      provider.domain.isNotEmpty ? provider.domain : 'ids.shanghaitech.edu.cn';
-  final cookies = <WebViewCookie>[];
-  for (final part in provider.cookies.split(';')) {
-    final separator = part.indexOf('=');
-    if (separator <= 0) continue;
-    final name = part.substring(0, separator).trim();
-    final value = part.substring(separator + 1).trim();
-    if (name.isEmpty || value.isEmpty) continue;
-    cookies.add(
-      WebViewCookie(name: name, value: value, domain: domain, path: '/'),
-    );
-  }
-  return cookies;
 }
 
 /// Reads the values the campus date fields use: `yyyy-MM-dd`, `HH:mm` and
