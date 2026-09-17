@@ -16,7 +16,7 @@ publish_to: "none" # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 0.1.0
+version: 1.0.1+4
 
 environment:
   sdk: ">=3.6.2 <4.0.0"
@@ -38,10 +38,20 @@ dependencies:
   dynamic_color: ">=1.7.0 <1.8.0"
   flutter:
     sdk: flutter
-  flutter_inappwebview: 6.1.5
   flutter_secure_storage: ^9.2.4
+  flutter_secure_storage_ohos: # HarmonyOS 安全存储
+    git:
+      url: https://gitcode.com/openharmony-sig/fluttertpc_flutter_secure_storage.git
+      path: flutter_secure_storage_ohos
+      ref: br_v9.2.2_ohos
   http: ^1.4.0
+  image_picker:
+    git:
+      url: https://gitee.com/openharmony-sig/flutter_packages.git
+      path: packages/image_picker/image_picker
+      ref: br_image_picker-v1.1.2_ohos
   intl: ^0.20.2
+  mobile_scanner: ^6.0.10
   open_filex: ^4.5.0
   package_info_plus: ^8.0.2
   path_provider: ^2.1.5
@@ -49,17 +59,78 @@ dependencies:
   shared_preferences: ^2.3.0
   url_launcher: ^6.3.0
   web: ^1.1.1
-  webview_flutter: 4.13.0
+  webview_flutter:
+    # HeZeBang/br_webview_flutter_ohos: the OHOS fork, plus document-start
+    # user-script injection on every platform.
+    git:
+      url: https://github.com/HeZeBang/br_webview_flutter_ohos.git
+      path: webview_flutter
+      ref: main
 
 dependency_overrides:
   # Linux: use forked desktop_webview_window (WebKitGTK) for webview
   # popup, avoiding WPE WebKit EGL issues on Wayland. The fork adds
-  # native setCookie via webkit_cookie_manager_add_cookie.
+  # native setCookie via webkit_cookie_manager_add_cookie and forwards
+  # WebKit script messages to Flutter; on Windows, WebView2's CookieManager.
   desktop_webview_window:
     git:
       url: https://github.com/HeZeBang/desktop_webview_window_fork.git
-      ref: master
+      ref: feature/techpie-bridge
 
+  # OpenHarmony-SIG forks add OHOS platform implementations for plugins
+  # whose upstream pub.dev releases don't ship them. Without these, the
+  # MethodChannel calls on OHOS throw MissingPluginException at boot.
+  image_picker_ohos:
+    git:
+      url: https://gitee.com/openharmony-sig/flutter_packages.git
+      path: packages/image_picker/image_picker_ohos
+      ref: br_image_picker-v1.1.2_ohos
+  mobile_scanner:
+    # CPF-Flutter's OHOS fork (gitcode.com/CPF-Flutter/fluttertpc_mobile_scanner,
+    # branch br_v6.0.10_ohos) with one guard added: the OHOS plugin compares
+    # defaultTargetPlatform against TargetPlatform.ohos, a member only the OHOS
+    # Flutter fork has, so the patched branch compares by name instead. Android
+    # and iOS ship from upstream Flutter, which cannot compile that member —
+    # and upstream's mobile_scanner has no OHOS platform, while the campus
+    # check-in page scans a WID from its camera. See
+    # github.com/HeZeBang/br_mobile_scanner_ohos, branch br_v6.0.10_ohos_techpie.
+    git:
+      url: https://github.com/HeZeBang/br_mobile_scanner_ohos.git
+      ref: br_v6.0.10_ohos_techpie
+  package_info_plus:
+    git:
+      url: https://gitee.com/openharmony-sig/flutter_plus_plugins.git
+      path: packages/package_info_plus/package_info_plus
+  path_provider_ohos:
+    git:
+      url: https://gitee.com/openharmony-sig/flutter_packages.git
+      path: packages/path_provider/path_provider_ohos
+      ref: br_path_provider-v2.1.4_ohos
+  shared_preferences_ohos:
+    git:
+      url: https://gitee.com/openharmony-sig/flutter_packages.git
+      path: packages/shared_preferences/shared_preferences_ohos
+  url_launcher_ohos:
+    git:
+      url: https://gitee.com/openharmony-sig/flutter_packages.git
+      path: packages/url_launcher/url_launcher_ohos
+  webview_flutter_platform_interface:
+    git:
+      url: https://github.com/HeZeBang/br_webview_flutter_ohos.git
+      path: webview_flutter_platform_interface
+      ref: main
+  # flutter_secure_storage:
+  #   git:
+  #     url: https://gitcode.com/openharmony-sig/fluttertpc_flutter_secure_storage.git
+  #     path: flutter_secure_storage
+  # flutter_secure_storage_platform_interface:
+  #   git:
+  #     url: https://gitcode.com/openharmony-sig/fluttertpc_flutter_secure_storage.git
+  #     path: flutter_secure_storage_platform_interface
+  # flutter_secure_storage_ohos:
+  #   git:
+  #     url: https://gitcode.com/openharmony-sig/fluttertpc_flutter_secure_storage.git
+  #     path: flutter_secure_storage_ohos
 dev_dependencies:
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is

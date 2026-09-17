@@ -11,6 +11,10 @@
     {
       "name": "EntryAbility_label",
       "value": "TechPie"
+    },
+    {
+      "name": "camera_reason",
+      "value": "使用相机扫描签到码"
     }
   ]
 }

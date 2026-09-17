@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
@@ -14,7 +15,8 @@ import 'session_node.dart';
 /// SessionTree
 /// ├── cpdaily     (top-level, account+password/SMS bind, /auth/renew)
 /// │   ├── eams        (child, /auth/third-party/eams, parent tgc)
-/// │   └── elearning   (child, /auth/third-party/elearning, parent tgc)
+/// │   ├── elearning   (child, /auth/third-party/elearning, parent tgc)
+/// │   └── egateApp    (child, /auth/third-party/egate-app, parent tgc)
 /// ├── gradescope  (top-level, account+password bind, bearer token)
 /// └── hydro       (top-level, account+password bind, sid cookie)
 /// ```
@@ -28,6 +30,9 @@ class SessionTree extends ChangeNotifier {
     required this.http,
     required this.baseUrl,
     this.persistDerived,
+    this.recordRenewStatus,
+    this.persistProbe,
+    this.persistRenewTimestamp,
   }) {
     cpdaily = SessionNode(
       id: 'cpdaily',
@@ -37,6 +42,10 @@ class SessionTree extends ChangeNotifier {
       renewPath: '/auth/renew',
       renewMode: RenewMode.cpdailySession,
       apiPath: 'egate',
+      recordRenewStatus: recordRenewStatus,
+      persistProbe: persistProbe,
+      persistRenewTimestamp: persistRenewTimestamp,
+      renewSchedule: RenewSchedule.cpdailyDefault,
     );
     gradescope = SessionNode(
       id: 'gradescope',
@@ -46,6 +55,11 @@ class SessionTree extends ChangeNotifier {
       renewPath: '/auth/third-party/gradescope',
       renewMode: RenewMode.password,
       apiPath: 'gradescope',
+      recordRenewStatus: recordRenewStatus,
+      keepaliveConfig: const KeepaliveConfig(method: 'HEAD', path: '/'),
+      persistProbe: persistProbe,
+      persistRenewTimestamp: persistRenewTimestamp,
+      renewSchedule: RenewSchedule.accountExpiry,
     );
     hydro = SessionNode(
       id: 'hydro',
@@ -55,6 +69,11 @@ class SessionTree extends ChangeNotifier {
       renewPath: '/auth/third-party/hydro',
       renewMode: RenewMode.password,
       apiPath: 'hydro',
+      recordRenewStatus: recordRenewStatus,
+      keepaliveConfig: const KeepaliveConfig(method: 'HEAD', path: '/'),
+      persistProbe: persistProbe,
+      persistRenewTimestamp: persistRenewTimestamp,
+      renewSchedule: RenewSchedule.accountExpiry,
     );
     eams = SessionNode(
       id: 'eams',
@@ -65,6 +84,14 @@ class SessionTree extends ChangeNotifier {
       renewPath: '/auth/third-party/eams',
       renewMode: RenewMode.parentCookie,
       persistDerived: persistDerived,
+      recordRenewStatus: recordRenewStatus,
+      persistProbe: persistProbe,
+      persistRenewTimestamp: persistRenewTimestamp,
+      renewSchedule: RenewSchedule.derivedCookie,
+      keepaliveConfig: KeepaliveConfig(
+        path: 'https://eams.shanghaitech.edu.cn/eams/stdDetail.action',
+        bodyRegex: RegExp(r'姓名[：:]\s*</td>\s*<td[^>]*>([^<]+)</td>'),
+      ),
     );
     elearning = SessionNode(
       id: 'elearning',
@@ -74,10 +101,54 @@ class SessionTree extends ChangeNotifier {
       parent: cpdaily,
       renewPath: '/auth/third-party/elearning',
       renewMode: RenewMode.parentCookie,
+      persistProbe: persistProbe,
+      persistRenewTimestamp: persistRenewTimestamp,
+      renewSchedule: RenewSchedule.derivedCookie,
       persistDerived: persistDerived,
+      recordRenewStatus: recordRenewStatus,
+      keepaliveConfig: KeepaliveConfig(
+        path:
+            'https://elearning.shanghaitech.edu.cn:8443/webapps/portal/execute/tabs/tabAction'
+            '?tab_tab_group_id=_1_1',
+        bodyRegex: RegExp(r'欢迎[，,]\s*(.+?)\s*&ndash;'),
+      ),
+    );
+    egateApp = SessionNode(
+      id: 'egateApp',
+      persist: persist,
+      http: http,
+      baseUrl: baseUrl,
+      parent: cpdaily,
+      renewPath: '/auth/third-party/egate-app',
+      persistProbe: persistProbe,
+      renewSchedule: RenewSchedule.derivedCookie,
+      persistRenewTimestamp: persistRenewTimestamp,
+      renewMode: RenewMode.parentCookie,
+      persistDerived: persistDerived,
+      recordRenewStatus: recordRenewStatus,
+      keepaliveConfig: KeepaliveConfig(
+        method: 'POST',
+        path:
+            'https://egate.shanghaitech.edu.cn/xsfw/sys/jbxxapp/modules/jbxx/hqdlxsjpcxx.do',
+        preFlightPath:
+            'https://egate.shanghaitech.edu.cn/xsfw/sys/funauthapp/api/getAppConfig/'
+            'xshdapp-4770201649822494.do?v=0918614558578972',
+        successCheck: (r) {
+          if (r.statusCode != 200) return false;
+          final data = jsonDecode(r.body);
+          return data['code'] == '0';
+        },
+        displayText: (r) {
+          final data = jsonDecode(r.body);
+          final rows = ((data['datas'] as Map?)?['hqdlxsjpcxx']
+              as Map?)?['rows'] as List?;
+          return (rows?.firstOrNull as Map?)?['XSBH'] as String? ?? 'egateApp';
+        },
+      ),
     );
     cpdaily.attachChild(eams);
     cpdaily.attachChild(elearning);
+    cpdaily.attachChild(egateApp);
 
     // Only top-level node notifications propagate up to the tree (facade →
     // UI / sync / auto-refetch). Child nodes (eams/elearning) mint cookies
@@ -91,6 +162,9 @@ class SessionTree extends ChangeNotifier {
   }
   final PersistAccount persist;
   final PersistDerivedCookie? persistDerived;
+  final PersistProbe? persistProbe;
+  final PersistRenewStatus? recordRenewStatus;
+  final PersistRenewTimestamp? persistRenewTimestamp;
   final LoggingHttpClient http;
   final BaseUrlGetter baseUrl;
 
@@ -99,6 +173,7 @@ class SessionTree extends ChangeNotifier {
   late final SessionNode hydro;
   late final SessionNode eams;
   late final SessionNode elearning;
+  late final SessionNode egateApp;
 
   /// All top-level nodes in a stable order.
   List<SessionNode> get roots => [cpdaily, gradescope, hydro];
@@ -125,6 +200,7 @@ class SessionTree extends ChangeNotifier {
     final node = switch (nodeId) {
       'eams' => eams,
       'elearning' => elearning,
+      'egateApp' => egateApp,
       _ => null,
     };
     node?.setDerivedCookie(cookie);
@@ -189,12 +265,7 @@ class SessionTree extends ChangeNotifier {
     SessionNode node,
     Future<CookieAction<T>> Function(CookieProvider provider) action,
   ) async {
-    // If not available, try to mint credentials first (initial minting for
-    // child nodes, or a no-op for top-level nodes that are already bound).
-    if (!node.isAvailable) {
-      final ok = await node.renew();
-      if (!ok) return null;
-    }
+    if (!await _ensureUsable(node)) return null;
     var cp = node.cookieProvider;
     if (cp == null) return null;
 
@@ -212,12 +283,39 @@ class SessionTree extends ChangeNotifier {
     return retried.value;
   }
 
+  /// Brings [node] up to date for a caller that cannot come back with a 401 —
+  /// a campus page in a webview, whose cookies are written into the browser
+  /// store once, before it loads.
+  ///
+  /// The parent is renewed first when its own schedule is due, which cascades
+  /// to clearing the child's downstream cookie, so the child re-mints against
+  /// the new parent tgc. Best effort: null means nothing fresh could be
+  /// produced (the page should still open and fall back to the campus SSO
+  /// redirect).
+  Future<CookieProvider?> freshCookie(SessionNode node) async =>
+      await _ensureUsable(node) ? node.cookieProvider : null;
+
+  /// Renews [node] when its schedule says it is due, parent first, minting the
+  /// downstream cookie when it is missing. Returns whether the node can be
+  /// read afterwards.
+  Future<bool> _ensureUsable(SessionNode node) async {
+    if (node.parent != null &&
+        node.parent!.canRenew &&
+        node.parent!.isRenewDue) {
+      final parentOk = await node.parent!.renewIfDue();
+      if (!parentOk) return false;
+    }
+    if (!node.isAvailable) return node.renew();
+    if (node.canRenew && node.isRenewDue) return node.renew();
+    return true;
+  }
+
   @override
   void dispose() {
     for (final n in [cpdaily, gradescope, hydro]) {
       n.removeListener(notifyListeners);
     }
-    for (final n in [cpdaily, gradescope, hydro, eams, elearning]) {
+    for (final n in [cpdaily, gradescope, hydro, eams, elearning, egateApp]) {
       n.dispose();
     }
     super.dispose();

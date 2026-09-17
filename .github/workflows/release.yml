@@ -1,0 +1,299 @@
+name: Release
+
+# pubspec.yaml is the single version source for every release. Two ways in, both
+# deliberate:
+#
+#   push to the release branch  → the release PR was merged (stable)
+#   dispatch on master          → an explicit request for a candidate
+#
+# Nothing else publishes: a push that does not move the `version:` line plans
+# nothing, which is what keeps cutting a release branch — and any later fix on it
+# — from publishing. Nothing here invents a version: `X.Y.Z` and `+B` come from
+# pubspec, and the rc ordinal is counted from the tags — `1.0.0+4` is candidate 2
+# of the 1.0.0 line, so `1.0.0-rc.2` on master and `1.0.0` on a release/X.Y.Z
+# branch. Platform version stamps never carry the suffix: iOS rejects a
+# CFBundleShortVersionString like `1.0.0-rc.4`, and one artifact version keeps
+# Android identical. Existing tags are read only to refuse a build number that is
+# not an increase, and to make a re-run of the same release a no-op.
+#
+# The workflow only decides and tags. The platform builds are called as reusable
+# workflows, because a tag pushed with GITHUB_TOKEN does not trigger the
+# tag-based workflows that would otherwise start them.
+
+on:
+  # Two ways in, and both are deliberate:
+  #
+  #   push to release/**  → the release PR was merged. release-plan.mjs publishes
+  #                         only when that push moved the version line, so cutting
+  #                         the branch — or a later fix on it — publishes nothing.
+  #   workflow_dispatch   → an explicit request. Candidates are released this way,
+  #                         and so is anything that has to be asked for again.
+  push:
+    branches:
+      - "release/**"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Print the plan without tagging or building
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Plan the release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      skip: ${{ steps.plan.outputs.skip }}
+      release_name: ${{ steps.plan.outputs.release_name }}
+      base: ${{ steps.plan.outputs.base }}
+      tag: ${{ steps.plan.outputs.tag }}
+      tag_ios: ${{ steps.plan.outputs.tag_ios }}
+      prerelease: ${{ steps.plan.outputs.prerelease }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Plan
+        id: plan
+        shell: bash
+        env:
+          # The branch this runs on, never an input: one source for both the channel
+          # and the commit that gets checked out above.
+          REF: ${{ github.ref_name }}
+          EVENT: ${{ github.event_name }}
+          # The commit this push started from: empty for a dispatch, all zeros for a
+          # branch's first push. Both mean "the version line did not move".
+          BASE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+
+          args=(--ref "$REF")
+          if [[ "$EVENT" == "push" ]]; then
+            args+=(--base "$BASE")
+          fi
+
+          if ! node scripts/release-plan.mjs "${args[@]}" > plan.out 2> plan.err; then
+            cat plan.err
+            exit 1
+          fi
+          cat plan.out >> "$GITHUB_OUTPUT"
+          { echo '```text'; cat plan.out plan.err; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Set up Flutter
+        # Only a release pays for this: a push that changes no version still
+        # plans (and reports) but verifies nothing.
+        if: steps.plan.outputs.skip == 'false'
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.27.4"
+          cache: true
+
+      - name: Verify the commit being released
+        # GitHub does not order workflow runs, so passing analyze.yml says
+        # nothing about whether the release workflow is looking at a green
+        # commit. Check it here, before anything is tagged or built.
+        if: steps.plan.outputs.skip == 'false'
+        shell: bash
+        env:
+          PUB_HOSTED_URL: https://pub.flutter-io.cn
+        run: |
+          set -euo pipefail
+
+          flutter pub get
+          flutter analyze --no-pub
+          flutter test
+
+  tag:
+    name: Tag the release
+    needs: plan
+    if: needs.plan.outputs.skip == 'false' && inputs.dry_run != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Create and push annotated tags
+        shell: bash
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
+          TAG_IOS: ${{ needs.plan.outputs.tag_ios }}
+          RELEASE_NAME: ${{ needs.plan.outputs.release_name }}
+          # The product version, which is the key CHANGELOG.md is written against.
+          PRODUCT_VERSION: ${{ needs.plan.outputs.base }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "TechPie release bot"
+          git config user.email "release-bot@users.noreply.github.com"
+
+          # The annotation *is* the changelog: its subject becomes the release
+          # title and its body the release page, so what a user reads there is
+          # what the release actually shipped. release-plan.mjs already refused
+          # the same lookup, so this cannot come up empty.
+          subject="TechPie ${RELEASE_NAME}"
+          message="$RUNNER_TEMP/tag-message.md"
+          {
+            echo "$subject"
+            echo
+            node scripts/changelog.mjs "$PRODUCT_VERSION"
+          } > "$message"
+
+          for tag in "$TAG" "$TAG_IOS"; do
+            if git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null; then
+              echo "Tag $tag already exists; leaving it alone."
+              continue
+            fi
+            # `--cleanup=verbatim`: the default ("strip") deletes lines starting
+            # with `#`, which would silently eat every markdown heading in the
+            # notes — the release page would lose them too.
+            git tag -a --cleanup=verbatim -F "$message" "$tag"
+            git push origin "refs/tags/$tag"
+            echo "Pushed $tag"
+          done
+
+  release:
+    name: Open the draft release
+    # The release object exists before any platform builds, so Android, iOS and
+    # OHOS run in parallel and each attaches what it built; `publish` below is
+    # what makes the whole thing public. Re-dispatching leaves an existing
+    # release alone.
+    needs: [plan, tag]
+    if: needs.plan.outputs.skip == 'false' && inputs.dry_run != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Create the draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          PRERELEASE: ${{ needs.plan.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; leaving it alone."
+            exit 0
+          fi
+
+          # Title and body come from the tag's annotation, which the tag job
+          # wrote. The digest block the Android job appends later replaces this
+          # body with the same text plus the checksums.
+          gh release create "$TAG" \
+            --verify-tag \
+            --draft \
+            --prerelease="$PRERELEASE" \
+            --title "$(git for-each-ref --format='%(contents:subject)' "refs/tags/$TAG")" \
+            --notes "$(git for-each-ref --format='%(contents:body)' "refs/tags/$TAG")"
+
+  android:
+    name: Android artifacts
+    needs: [plan, tag, release]
+    if: needs.plan.outputs.skip == 'false' && inputs.dry_run != true
+    uses: ./.github/workflows/android-release.yml
+    with:
+      tag: ${{ needs.plan.outputs.tag }}
+    secrets: inherit
+
+  ios:
+    name: iOS release
+    needs: [plan, tag]
+    if: needs.plan.outputs.skip == 'false' && inputs.dry_run != true
+    uses: ./.github/workflows/dispatch-ios-release.yml
+    with:
+      tag: ${{ needs.plan.outputs.tag_ios }}
+    secrets: inherit
+
+  ohos:
+    name: OHOS unsigned hap
+    # A sibling of Android, not a successor: the draft release it attaches the
+    # hap to already exists. Skipped unless a runner with the OHOS toolchain is
+    # configured — see ohos-release.yml.
+    needs: [plan, tag, release]
+    if: needs.plan.outputs.skip == 'false' && inputs.dry_run != true
+    uses: ./.github/workflows/ohos-release.yml
+    with:
+      release_tag: ${{ needs.plan.outputs.tag }}
+    secrets: inherit
+
+  publish:
+    name: Publish the release
+    # Nothing is visible until every asset is in: the Android job opens the
+    # release as a draft and the OHOS job attaches the hap, so publishing last is
+    # what GitHub recommends under immutable releases (a published release
+    # refuses new assets), and it keeps a half-assembled release from notifying
+    # watchers. `always()` so a switched-off OHOS job still publishes.
+    needs: [plan, tag, release, android, ohos]
+    if: >-
+      always() && !cancelled()
+      && needs.plan.outputs.skip == 'false'
+      && needs.android.result == 'success'
+      && (needs.ohos.result == 'success' || needs.ohos.result == 'skipped')
+      && inputs.dry_run != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Publish the draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          # The product version, which names the release PR branch to clean up.
+          PRODUCT_VERSION: ${{ needs.plan.outputs.base }}
+          PRERELEASE: ${{ needs.plan.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+
+          # "Latest" is decided here rather than left to GitHub's heuristic: a
+          # candidate must never take it, and neither must a maintenance line
+          # published after a newer one. Only the product version matters, since
+          # the build number is global and always moves forward.
+          base="${TAG#v}"; base="${base%%-*}"; base="${base%%+*}"
+          previous="$(gh api "repos/$GH_REPO/releases/latest" --jq '.tag_name' 2>/dev/null || true)"
+          previous_base="${previous#android-v}"; previous_base="${previous_base#v}"
+          previous_base="${previous_base%%-*}"; previous_base="${previous_base%%+*}"
+
+          latest=false
+          if [[ "$PRERELEASE" != "true" ]]; then
+            # An unreadable previous tag (none at all, or a shape this does not
+            # know) leaves nothing to lose to, so the stable release takes the
+            # label.
+            if [[ ! "$previous_base" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
+              [[ "$(printf '%s\n%s\n' "$previous_base" "$base" | sort --version-sort | tail -1)" == "$base" ]]; then
+              latest=true
+            fi
+          fi
+
+          gh release edit "$TAG" --draft=false --prerelease="$PRERELEASE" --latest="$latest"
+          gh release view "$TAG" \
+            --json tagName,isPrerelease,isLatest,assets \
+            --jq '"\(.tagName): published, prerelease=\(.isPrerelease), latest=\(.isLatest), assets=\([.assets[].name] | join(", "))"'
+
+          # The proposal branch has done its job now that the release is out, and
+          # one dead branch per release would add up. Best effort: a release
+          # dispatched by hand never had one.
+          gh api -X DELETE "repos/$GH_REPO/git/refs/heads/release-prep/$PRODUCT_VERSION" >/dev/null 2>&1 ||
+            echo "No release-prep/$PRODUCT_VERSION branch to clean up."

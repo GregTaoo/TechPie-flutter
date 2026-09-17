@@ -19,6 +19,13 @@ class AppShell extends StatefulWidget {
 }
 
 class _AppShellState extends State<AppShell> {
+  // Temporarily disabled: the wide-window sidebar (DesktopShell) is turned
+  // off so every window width uses MobileShell's bottom nav bar instead.
+  // Flip this back to true to restore the sidebar at width >= 600. The
+  // nav-bar-clearance check in adaptive_feedback.dart was changed to match —
+  // re-enabling this alone is not enough, see that call site as well.
+  static const bool _desktopShellEnabled = false;
+
   int _selectedIndex = 0;
   int _previousSelectedIndex = 0;
   bool _sidebarCollapsed = false;
@@ -92,7 +99,8 @@ class _AppShellState extends State<AppShell> {
     final windowSizeClass = appWindowSizeClassOf(context);
     final pageView = _buildPageView(context);
 
-    if (windowSizeClass == AppWindowSizeClass.expanded) {
+    if (_desktopShellEnabled &&
+        windowSizeClass == AppWindowSizeClass.expanded) {
       return DesktopShell(
         destinations: _destinations,
         selectedIndex: _selectedIndex,
@@ -103,7 +111,8 @@ class _AppShellState extends State<AppShell> {
       );
     }
 
-    if (windowSizeClass == AppWindowSizeClass.medium) {
+    if (_desktopShellEnabled &&
+        windowSizeClass == AppWindowSizeClass.medium) {
       return DesktopShell(
         destinations: _destinations,
         selectedIndex: _selectedIndex,

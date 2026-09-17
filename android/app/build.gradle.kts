@@ -78,7 +78,8 @@ if (releaseTaskRequested) {
 
 android {
     namespace = "club.geekpie.techpie"
-    compileSdk = flutter.compileSdkVersion
+    // mobile_scanner compiles against SDK 36; the SDK's default lags behind it.
+    compileSdk = 36
     ndkVersion = "28.2.13676358"
 
     signingConfigs {
@@ -112,7 +113,7 @@ android {
         applicationId = "club.geekpie.techpie"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        minSdk = 23
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName

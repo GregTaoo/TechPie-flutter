@@ -2,12 +2,19 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+// NOTE: import the OHOS package, not the upstream `flutter_secure_storage`.
+// Despite the name, `flutter_secure_storage_ohos` is a hard fork (declares
+// `library flutter_secure_storage;` and ships its own FlutterSecureStorage
+// class with OhosOptions) — it is NOT a federated platform implementation.
+// Importing the upstream facade falls through to UNSUPPORTED_PLATFORM on OHOS
+// and crashes at boot. Keep this import as-is on the OHOS branch.
+import 'package:flutter_secure_storage_ohos/flutter_secure_storage_ohos.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/assignment_overrides.dart';
 import '../models/course_table.dart';
 import '../models/oa_gym.dart';
+import '../models/renew_status.dart';
 import '../models/third_party_account.dart';
 import '../models/user_session.dart';
 
@@ -23,7 +30,6 @@ class StorageService {
   static const _syncLastAtKey = 'sync_last_at';
   static const _syncMasterKeyKey = 'sync_master_key'; // secure storage
   static const _deviceIdKey = 'device_id';
-
 
   final FlutterSecureStorage _secure;
   final SharedPreferences _prefs;
@@ -133,9 +139,49 @@ class StorageService {
   }
 
   Future<void> clearAllDerivedCookies() async {
-    for (final id in const ['eams', 'elearning']) {
+    for (final id in const ['eams', 'elearning', 'egateApp']) {
       await _secure.delete(key: '$_derivedCookieKeyPrefix$id');
     }
+  }
+
+  // Renew status (last attempt outcome per session-node id: cpdaily,
+  // gradescope, hydro, eams, elearning). Local-only UI signal, never synced.
+  static const _renewStatusKeyPrefix = 'renew_status_';
+
+  Future<void> saveRenewStatus(String nodeId, RenewStatus status) =>
+      _prefs.setString(
+        '$_renewStatusKeyPrefix$nodeId',
+        jsonEncode(status.toJson()),
+      );
+
+  RenewStatus? loadRenewStatus(String nodeId) {
+    final raw = _prefs.getString('$_renewStatusKeyPrefix$nodeId');
+    if (raw == null) return null;
+    try {
+      return RenewStatus.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // Session-node renewal schedule. Local-only runtime state; never synced.
+  static const _nextRenewKeyPrefix = 'next_renew_';
+
+  Future<void> saveNextRenewTimestamp(
+    String nodeId,
+    DateTime? timestamp,
+  ) async {
+    final key = '$_nextRenewKeyPrefix$nodeId';
+    if (timestamp == null) {
+      await _prefs.remove(key);
+    } else {
+      await _prefs.setString(key, timestamp.toIso8601String());
+    }
+  }
+
+  DateTime? loadNextRenewTimestamp(String nodeId) {
+    final raw = _prefs.getString('$_nextRenewKeyPrefix$nodeId');
+    return raw == null ? null : DateTime.tryParse(raw);
   }
 
   // SharedPreferences for non-sensitive data
@@ -217,8 +263,8 @@ class StorageService {
     return CourseTable.fromJson(jsonDecode(raw) as Map<String, dynamic>);
   }
 
-  Future<void> saveTermCalendar(String key, TermCalendar info) => _prefs
-      .setString('$_termBeginPrefix$key', jsonEncode(info.toJson()));
+  Future<void> saveTermCalendar(String key, TermCalendar info) =>
+      _prefs.setString('$_termBeginPrefix$key', jsonEncode(info.toJson()));
 
   TermCalendar? loadTermCalendar(String key) {
     final raw = _prefs.getString('$_termBeginPrefix$key');

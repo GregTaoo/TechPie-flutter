@@ -1,9 +1,16 @@
 name: Android Release
 
 on:
-  push:
-    tags:
-      - "android-v*"
+  # Tags are created by release.yml from pubspec.yaml, which then calls this
+  # workflow: a tag pushed with GITHUB_TOKEN cannot start a run, and a tag pushed
+  # by hand is what the release policy forbids. `workflow_dispatch` is the replay
+  # path for an existing tag.
+  workflow_call:
+    inputs:
+      tag:
+        description: Android release tag to build
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       tag:
@@ -15,7 +22,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+  group: ${{ inputs.tag || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -23,6 +30,11 @@ jobs:
     name: Build signed Android release
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # The deployment environment the signing job runs in. Today it carries no
+    # secrets and no protection rules: the ANDROID_* secrets are repository-scoped,
+    # so this only labels the deployment. It is declared because that is where they
+    # belong — `gh secret set <NAME> --env android-release`, once per secret,
+    # narrows them to this job — and a review rule would then gate that same job.
     environment: android-release
 
     steps:
@@ -31,28 +43,61 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Validate release request
         shell: bash
         env:
-          REQUESTED_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          REQUESTED_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
 
-          if [[ ! "$REQUESTED_TAG" =~ ^android-v([0-9]+)\.([0-9]+)\.([0-9]+)(-rc\.[0-9]+)?\+([0-9]+)$ ]]; then
-            echo "::error::Invalid Android release tag: $REQUESTED_TAG"
-            echo "Expected format: android-vX.Y.Z+B or android-vX.Y.Z-rc.N+B"
+          # Group 1 is the legacy `android-` prefix, 2-4 are X.Y.Z, 5 the
+          # pre-release name, 6 the build number: POSIX ERE has no
+          # non-capturing groups, hence the offset.
+          if [[ ! "$REQUESTED_TAG" =~ ^(android-)?v([0-9]+)\.([0-9]+)\.([0-9]+)(-[0-9A-Za-z][0-9A-Za-z.-]*)?\+([0-9]+)$ ]]; then
+            echo "::error::Invalid release tag: $REQUESTED_TAG"
+            echo "Expected format: vX.Y.Z+B, or vX.Y.Z-rc.N+B for a pre-release"
             exit 1
           fi
-          build_name="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
-          prerelease="${BASH_REMATCH[4]}"
-          build_number="${BASH_REMATCH[5]}"
+          build_name="${BASH_REMATCH[2]}.${BASH_REMATCH[3]}.${BASH_REMATCH[4]}"
+          prerelease="${BASH_REMATCH[5]}"
+          build_number="${BASH_REMATCH[6]}"
 
+          # pubspec.yaml is the single source of the app version; the tag only
+          # names an already-versioned commit. Refuse to publish a build whose
+          # store version and source version disagree.
+          # The platform version stamp is X.Y.Z, so a pre-release suffix in
+          # pubspec (declared, or the -rc.N release.yml derives) is not part of
+          # what this tag must match.
+          pubspec_version="$(sed -n 's/^version:[[:space:]]*//p' pubspec.yaml | head -1)"
+          pubspec_name="${pubspec_version%%+*}"
+          pubspec_base="${pubspec_name%%-*}"
+          pubspec_code="${pubspec_version##*+}"
+          if [[ "$pubspec_version" == "$pubspec_code" ]]; then
+            echo "::error::pubspec.yaml version $pubspec_version has no '+N' build number; a release needs one and pubspec.yaml is its only source."
+            exit 1
+          fi
+          if [[ "$pubspec_base" != "$build_name" || "$pubspec_code" != "$build_number" ]]; then
+            echo "::error::Tag $REQUESTED_TAG names $build_name+$build_number, but pubspec.yaml is $pubspec_version."
+            exit 1
+          fi
+
+          # The tag must name a commit on a release ref: master, or a
+          # release/X.Y.Z branch — the stable bump commit lives only on that
+          # branch, so master alone would refuse every stable release.
           tag_sha="$(git rev-list -n 1 "$REQUESTED_TAG")"
-          git fetch --no-tags origin master:refs/remotes/origin/master
-          if ! git merge-base --is-ancestor "$tag_sha" origin/master; then
-            echo "::error::Release tag must point to a commit reachable from master."
+          git fetch --no-tags origin '+refs/heads/*:refs/remotes/origin/*'
+          reachable=false
+          while read -r ref; do
+            if git merge-base --is-ancestor "$tag_sha" "$ref"; then
+              reachable=true
+              break
+            fi
+          done < <(git for-each-ref --format='%(refname:short)' refs/remotes/origin |
+            grep -E '^origin/(master|main|release/)')
+          if [[ "$reachable" != "true" ]]; then
+            echo "::error::Release tag must point to a commit reachable from master or a release/* branch."
             exit 1
           fi
 
@@ -77,6 +122,9 @@ jobs:
           cache: true
 
       - name: Resolve locked dependencies
+        # The committed lock resolves through the China mirror (see .envrc).
+        env:
+          PUB_HOSTED_URL: https://pub.flutter-io.cn
         run: flutter pub get --enforce-lockfile
 
       - name: Restore signing key
@@ -169,7 +217,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish release with APK checksums
+      - name: Attach the APKs and their checksums
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -177,16 +225,32 @@ jobs:
         run: |
           set -euo pipefail
 
+          title="$(git for-each-ref --format='%(contents:subject)' "refs/tags/$TAG_NAME")"
           notes="$RUNNER_TEMP/release-notes.txt"
           {
             git for-each-ref --format='%(contents:body)' "refs/tags/$TAG_NAME"
             printf '\n## SHA-256\n\n```text\n'
-            (cd dist && sha256sum *.apk)
+            (cd dist && sha256sum ./*.apk)
             printf '```\n'
           } > "$notes"
 
-          gh release create "$TAG_NAME" dist/*.apk \
-            --verify-tag \
-            --title "$(git for-each-ref --format='%(contents:subject)' "refs/tags/$TAG_NAME")" \
-            --notes-file "$notes" \
-            --prerelease="$PRERELEASE"
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            # The normal path: release.yml opened the draft, so this only adds
+            # the assets and the digest block. A published release refuses the
+            # upload, which is the intended refusal — its assets are what the
+            # tag published.
+            gh release upload "$TAG_NAME" dist/*.apk --clobber
+            gh release edit "$TAG_NAME" --title "$title" --notes-file "$notes"
+            echo "Attached the APKs to the existing release $TAG_NAME."
+          else
+            # Standalone replay of this workflow (workflow_dispatch with a tag
+            # whose release never got created). Still a draft on purpose:
+            # release.yml is what publishes a release.
+            gh release create "$TAG_NAME" dist/*.apk \
+              --verify-tag \
+              --draft \
+              --title "$title" \
+              --notes-file "$notes" \
+              --prerelease="$PRERELEASE"
+            echo "Draft release $TAG_NAME created; release.yml publishes it."
+          fi

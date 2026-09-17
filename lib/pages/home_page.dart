@@ -409,6 +409,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               builder: (_) => GenericWebViewPage(
                 title: feature.description,
                 url: feature.url!,
+                cookieType: feature.cookieType,
               ),
             ),
           );

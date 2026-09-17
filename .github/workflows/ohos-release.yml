@@ -1,0 +1,88 @@
+name: OHOS Release
+
+# Publishes an *unsigned* hap for a release. Unsigned is deliberate: signing a
+# hap needs the developer's certificate and provision profile, which must not
+# live on a build runner, and an unsigned hap is what a maintainer, a tester or
+# a store pipeline can sign themselves.
+#
+# Needs a runner that already carries the toolchain (see CLAUDE.md → Releasing):
+# the OHOS Flutter fork plus the DevEco command-line tools (hvigor, ohpm) and the
+# HarmonyOS SDK — roughly 10 GB that GitHub-hosted runners do not have. Set the
+# repository variable OHOS_CI_ENABLED=true to turn the job on and point
+# OHOS_CI_RUNNER at that runner's label.
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Tag of the draft GitHub release to attach the hap to
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Tag of the draft GitHub release to attach the hap to
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  unsigned-hap:
+    name: Build unsigned hap
+    if: vars.OHOS_CI_ENABLED == 'true'
+    runs-on: ${{ vars.OHOS_CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 120
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ inputs.release_tag }}
+
+      - name: Verify the OHOS toolchain is available
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          missing=()
+          for tool in flutter hvigorw ohpm; do
+            command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
+          done
+          if (( ${#missing[@]} )); then
+            echo "::error::Runner is missing: ${missing[*]}. It needs the OHOS Flutter fork and the DevEco command-line tools, on PATH (see CLAUDE.md → Releasing)."
+            exit 1
+          fi
+
+          flutter --version
+          ohpm --version || true
+
+      - name: Resolve dependencies
+        # The committed lock resolves through the China mirror (see .envrc).
+        env:
+          PUB_HOSTED_URL: https://pub.flutter-io.cn
+        run: flutter pub get
+
+      - name: Build unsigned hap
+        run: scripts/build-unsigned-hap.sh
+
+      - name: Attach the hap to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+
+          # Only a draft is fair game: release.yml publishes the release after
+          # this job, and an asset added to a published one is an asset nobody
+          # reviewed — which immutable releases refuse outright.
+          if [[ "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" != "true" ]]; then
+            echo "::error::Release $RELEASE_TAG is already published; its assets are frozen. Re-run the release pipeline for this tag instead."
+            exit 1
+          fi
+
+          gh release upload "$RELEASE_TAG" dist/*.hap dist/*.sha256 --clobber

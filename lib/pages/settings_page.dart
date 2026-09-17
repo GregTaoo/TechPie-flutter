@@ -6,11 +6,9 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:techpie/services/auth_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../models/third_party_account.dart';
 import '../services/service_provider.dart';
 import '../services/sync_service.dart';
 import '../services/theme_service.dart';
-import '../services/third_party_auth_service.dart';
 import '../utils/adaptive_layout.dart';
 import '../utils/platform.dart';
 import '../widgets/adaptive_alert_dialog.dart';
@@ -24,6 +22,7 @@ import '../widgets/blurred_app_bar.dart';
 import '../widgets/desktop_popup.dart';
 import '../widgets/ios/ios_native_navigation_bar.dart';
 import 'debug_log_page.dart';
+import 'debug_webview_page.dart';
 import 'login_page.dart';
 import 'sync_settings_page.dart';
 import 'third_party_accounts_page.dart';
@@ -45,13 +44,28 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _loadAppVersion() async {
-    final info = await PackageInfo.fromPlatform();
-    if (!mounted) return;
-    setState(() {
-      _appVersion = info.buildNumber.isNotEmpty
-          ? '${info.version}+${info.buildNumber}'
-          : info.version;
-    });
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (!mounted) return;
+      if (info.version.isEmpty) {
+        // The tile would read "Version Unknown" with no clue why: the plugin
+        // resolves but its source (an OHOS bundle, Linux's version.json) came
+        // back empty.
+        debugPrint(
+          'PackageInfo returned an empty version '
+          '(appName="${info.appName}", packageName="${info.packageName}", '
+          'buildNumber="${info.buildNumber}")',
+        );
+      }
+      setState(() {
+        _appVersion = info.buildNumber.isNotEmpty
+            ? '${info.version}+${info.buildNumber}'
+            : info.version;
+      });
+    } catch (error) {
+      // Never let the tile's failure take the page down, but do say why.
+      debugPrint('PackageInfo.fromPlatform failed: $error');
+    }
   }
 
   @override
@@ -115,12 +129,11 @@ class _SettingsPageState extends State<SettingsPage> {
                   ].join(' · '),
                 ),
               ),
-              _CpdailyBindingTile(tpAuth: tpAuth),
               ListTile(
                 leading: const Icon(Icons.account_tree_outlined),
                 title: const Text('Linked accounts'),
                 subtitle: Text(
-                  '${tpAuth.boundPlatforms.length} bound · Gradescope / Hydro / eGate',
+                  '${tpAuth.boundPlatforms.length} bound · CpDaily/IDS · Gradescope · Hydro',
                 ),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => unawaited(
@@ -291,6 +304,20 @@ class _SettingsPageState extends State<SettingsPage> {
                 setState(() {});
               },
             ),
+            if (!kReleaseMode)
+              ListTile(
+                leading: const Icon(Icons.science_outlined),
+                title: const Text('WebView Test'),
+                subtitle: const Text('Bridge injection and custom URL testing'),
+                onTap: () => unawaited(
+                  pushAdaptivePage<void>(
+                    context,
+                    builder: (_) => const DebugWebViewPage(
+                      initialUrl: 'http://127.0.0.1:8000/bridge_test.html',
+                    ),
+                  ),
+                ),
+              ),
             if (!kReleaseMode && logger.enabled)
               ListTile(
                 leading: const Icon(Icons.list_alt),
@@ -579,43 +606,6 @@ class _AdaptiveSwitchTile extends StatelessWidget {
       subtitle: Text(subtitle),
       trailing: AdaptiveSwitch(value: value, onChanged: onChanged),
       onTap: () => onChanged(!value),
-    );
-  }
-}
-
-class _CpdailyBindingTile extends StatelessWidget {
-  final ThirdPartyAuthService tpAuth;
-
-  const _CpdailyBindingTile({required this.tpAuth});
-
-  @override
-  Widget build(BuildContext context) {
-    final cpdaily = tpAuth.account(ThirdPartyPlatform.cpdaily);
-    final bound = cpdaily != null;
-    final theme = Theme.of(context);
-
-    return ListTile(
-      leading: Icon(
-        bound ? Icons.vpn_key : Icons.vpn_key_outlined,
-        color: bound ? theme.colorScheme.primary : null,
-      ),
-      title: const Text('CpDaily / IDS'),
-      subtitle: Text(
-        bound
-            ? '已绑定 · ${cpdaily.name ?? cpdaily.sid ?? cpdaily.account}'
-            : '未绑定 · 需要绑定以启用课表和考试功能',
-      ),
-      trailing: bound
-          ? Icon(Icons.check_circle, color: theme.colorScheme.primary, size: 20)
-          : const Icon(Icons.chevron_right),
-      onTap: bound
-          ? null
-          : () => unawaited(
-                pushAdaptivePage<void>(
-                  context,
-                  builder: (_) => const ThirdPartyAccountsPage(),
-                ),
-              ),
     );
   }
 }

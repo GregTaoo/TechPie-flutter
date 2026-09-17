@@ -1,16 +1,24 @@
 import 'dart:async';
-import 'dart:io' show Platform;
 
-import 'package:desktop_webview_window/desktop_webview_window.dart'
-    show WebviewWindow, CreateConfiguration;
+import 'package:desktop_webview_window/desktop_webview_window.dart' show Webview;
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart'
-    show WebViewController, JavaScriptMode, NavigationDelegate,
-         NavigationDecision, WebViewWidget;
+    show
+        JavaScriptMessage,
+        WebViewController,
+        WebViewUserScript,
+        JavaScriptMode,
+        NavigationDelegate,
+        NavigationDecision,
+        WebViewWidget,
+        WebViewCookieManager;
 
+import '../models/feature.dart';
 import '../services/auth_service.dart';
 import '../services/service_provider.dart';
 import '../services/third_party_auth_service.dart';
+import '../services/webview_bridge.dart';
+import 'webview_host.dart';
 
 /// A page that hosts a webview.
 ///
@@ -23,23 +31,55 @@ class GenericWebViewPage extends StatefulWidget {
     super.key,
     required this.title,
     required this.url,
+    this.cookieType,
+    this.initialUserScripts = const <WebViewUserScript>[],
   });
 
   final String title;
   final String url;
 
+  /// The campus session this page authenticates against. Null for a page with
+  /// no campus session (a plain URL).
+  final CookieType? cookieType;
+
+  final List<WebViewUserScript> initialUserScripts;
+
   @override
   State<GenericWebViewPage> createState() => _GenericWebViewPageState();
 }
 
-class _GenericWebViewPageState extends State<GenericWebViewPage> {
+class _GenericWebViewPageState extends State<GenericWebViewPage>
+    with BhWebViewHost<GenericWebViewPage>, WidgetsBindingObserver {
   late final WebViewController _controller;
+  Webview? _desktopWebview;
+  String? _desktopError;
 
   ThirdPartyAuthService? _tpAuth;
   AuthService? _auth;
   String? _primaryUserId;
   String? _owner;
   String? _error;
+
+  @override
+  Webview? get desktopWebview => _desktopWebview;
+
+  @override
+  CookieType? get hostCookieType => widget.cookieType;
+
+  @override
+  Future<void> runPageJavaScript(String script) async {
+    if (isDesktopWebView) {
+      await _desktopWebview?.evaluateJavaScript(script);
+      return;
+    }
+    await _controller.runJavaScript(script);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
 
   @override
   void didChangeDependencies() {
@@ -56,11 +96,26 @@ class _GenericWebViewPageState extends State<GenericWebViewPage> {
     }
     _owner = _tpAuth!.campusWebSession.owner;
     _tpAuth!.addListener(_bindingChanged);
-    if (Platform.isLinux || Platform.isWindows) {
+    if (isDesktopWebView) {
       unawaited(_openDesktop());
     } else {
       _controller = WebViewController();
       unawaited(_initController());
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _auth?.removeListener(_primaryAccountChanged);
+    _tpAuth?.removeListener(_bindingChanged);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(notifyBhMobileSdkResume());
     }
   }
 
@@ -78,25 +133,29 @@ class _GenericWebViewPageState extends State<GenericWebViewPage> {
     Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
-  @override
-  void dispose() {
-    _auth?.removeListener(_primaryAccountChanged);
-    _tpAuth?.removeListener(_bindingChanged);
-    super.dispose();
-  }
-
   // -- Desktop path (desktop_webview_window popup) --
 
   Future<void> _openDesktop() async {
-    final webview = await WebviewWindow.create(
-      configuration: CreateConfiguration(
-        title: widget.title,
-        windowWidth: 900,
-        windowHeight: 700,
-      ),
+    await prepareHostSession();
+    if (!mounted) return;
+    final webview = await openDesktopWebview(
+      title: widget.title,
+      url: widget.url,
+      cookies: hostCookies,
+      session: hostSession,
+      initialScripts: <String>[
+        for (final script in widget.initialUserScripts) script.source,
+      ],
     );
-
-    webview.launch(widget.url);
+    if (webview == null) {
+      if (mounted) {
+        setState(
+          () => _desktopError = 'The WebView window could not be opened',
+        );
+      }
+      return;
+    }
+    _desktopWebview = webview;
     if (mounted) Navigator.of(context).pop();
   }
 
@@ -113,12 +172,39 @@ class _GenericWebViewPageState extends State<GenericWebViewPage> {
         ),
       );
 
-      await _tpAuth!.campusWebSession.useIdsSession();
+      installBhMobileSdkBridge();
+      await _controller.addJavaScriptChannel(
+        'TechPieBridge',
+        onMessageReceived: (JavaScriptMessage message) {
+          unawaited(handleBhMobileSdkMessage(message.message));
+        },
+      );
+
+      await _controller.addUserScripts(<WebViewUserScript>[
+        ...widget.initialUserScripts,
+        const WebViewUserScript(source: techPieDocumentStartScript),
+      ]);
+
+      // The campus pages share one cookie store, whose reset on an account
+      // change [CampusWebSession] owns: that wipe runs first (along with the
+      // feature's scheduled renew), then this page writes the cookies of the
+      // session it authenticates against — ecourse on the IDS/CASTGC session
+      // directly, egate on its own MOD_AUTH_CAS/_WEU session derived from it.
+      // Nothing is injected before the wipe, so nothing is collateral.
+      await prepareHostSession();
+      final session = _tpAuth!.campusWebSession;
+      await session.clearLocalStorageIfDue(_controller);
       if (!mounted ||
           !_authorized ||
-          _owner != _tpAuth!.campusWebSession.owner) {
+          _owner != session.owner) {
         return;
       }
+
+      final cookieManager = WebViewCookieManager();
+      for (final c in hostCookies) {
+        await cookieManager.setCookie(c);
+      }
+
       await _controller.loadRequest(Uri.parse(widget.url));
     } catch (_) {
       if (mounted) setState(() => _error = '校园网页加载失败，请稍后重试');
@@ -127,15 +213,22 @@ class _GenericWebViewPageState extends State<GenericWebViewPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (Platform.isLinux || Platform.isWindows) {
+    final appBar = hostNavBarVisible
+        ? AppBar(title: Text(hostPageTitle ?? widget.title), centerTitle: true)
+        : null;
+    if (isDesktopWebView) {
       return Scaffold(
-        appBar: AppBar(title: Text(widget.title), centerTitle: true),
-        body: const Center(child: CircularProgressIndicator()),
+        appBar: appBar,
+        body: Center(
+          child: _desktopError == null
+              ? const CircularProgressIndicator()
+              : Text(_desktopError!),
+        ),
       );
     }
 
     return Scaffold(
-      appBar: AppBar(title: Text(widget.title), centerTitle: true),
+      appBar: appBar,
       body: _error == null
           ? WebViewWidget(controller: _controller)
           : Center(child: Text(_error!)),

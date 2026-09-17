@@ -26,6 +26,9 @@ class SyncSettingsPage extends StatefulWidget {
 
 class _SyncSettingsPageState extends State<SyncSettingsPage> {
   String? _busyAction;
+  bool _versionFetchStarted = false;
+  bool _loadingCloudVersion = false;
+  DateTime? _cloudLastModified;
 
   bool get _busy => _busyAction != null;
 
@@ -33,6 +36,14 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
   Widget build(BuildContext context) {
     final sp = ServiceProvider.of(context);
     final sync = sp.syncService;
+    // One-time lazy fetch of the cloud version for the comparison tile.
+    // Deliberately NOT in initState — ServiceProvider.of() depends on
+    // InheritedWidget lookup, which throws if called before initState
+    // completes.
+    if (!_versionFetchStarted && sync.enabled) {
+      _versionFetchStarted = true;
+      unawaited(_loadCloudVersion(sync));
+    }
     final useIosChrome = isIos();
     final useLegacyIosChrome = usesLegacyIosChrome();
     final topInset = useIosChrome || useLegacyIosChrome
@@ -73,6 +84,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
               const SizedBox(height: 8),
               if (sync.enabled) ...[
                 _statusTile(sync),
+                _versionCompareTile(sync),
                 _actionPanel([
                   _actionButton(
                     id: 'pull',
@@ -158,6 +170,51 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     );
   }
 
+  Widget _versionCompareTile(SyncService sync) {
+    String two(int n) => n.toString().padLeft(2, '0');
+    String fmt(DateTime t) =>
+        '${t.year}-${two(t.month)}-${two(t.day)} ${two(t.hour)}:${two(t.minute)}';
+
+    final local = sync.localLastModified;
+    final cloud = _cloudLastModified;
+    final localLabel = local == null ? '无本地数据' : fmt(local);
+    String cloudLabel;
+    String? compareLabel;
+    if (_loadingCloudVersion) {
+      cloudLabel = '正在获取…';
+    } else if (cloud == null) {
+      cloudLabel = '未知（需先解密一次，例如「立即从云端恢复」）';
+    } else {
+      cloudLabel = fmt(cloud);
+      if (local == null) {
+        compareLabel = '云端较新';
+      } else if (local.isAfter(cloud)) {
+        compareLabel = '本地较新';
+      } else if (cloud.isAfter(local)) {
+        compareLabel = '云端较新';
+      } else {
+        compareLabel = '已一致';
+      }
+    }
+
+    return ListTile(
+      leading: const Icon(Icons.compare_arrows_outlined),
+      title: const Text('版本对比'),
+      subtitle: Text(
+        '本地: $localLabel\n云端: $cloudLabel'
+        '${compareLabel != null ? ' · $compareLabel' : ''}',
+      ),
+      isThreeLine: true,
+      trailing: IconButton(
+        icon: const Icon(Icons.refresh),
+        tooltip: '刷新云端版本',
+        onPressed: _loadingCloudVersion
+            ? null
+            : () => unawaited(_loadCloudVersion(sync)),
+      ),
+    );
+  }
+
   Widget _actionPanel(List<Widget> actions) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
@@ -171,6 +228,19 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
         ],
       ),
     );
+  }
+
+  Future<void> _loadCloudVersion(SyncService sync) async {
+    if (!mounted) return;
+    setState(() => _loadingCloudVersion = true);
+    try {
+      final at = await sync.cloudLastModified();
+      if (mounted) setState(() => _cloudLastModified = at);
+    } finally {
+      // Always clear the in-flight flag, even if the fetch throws, so the
+      // compare tile's refresh button cannot get stuck disabled.
+      if (mounted) setState(() => _loadingCloudVersion = false);
+    }
   }
 
   Widget _actionButton({
@@ -222,12 +292,29 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     setState(() => _busyAction = action);
     try {
       await task();
+    } catch (error) {
+      // Without this the page just looks inert: the dialog closes, the task
+      // throws and nothing tells the user what happened.
+      _toast('操作失败：$error');
     } finally {
       if (mounted) setState(() => _busyAction = null);
     }
   }
 
   Future<void> _setup(SyncService sync) async {
+    // A device that is not syncing yet reads the cloud only here: if a backup
+    // already exists it is some other device's, and setting up now would
+    // replace it. Ask before touching it.
+    final bool hasRemoteBackup;
+    try {
+      hasRemoteBackup = await sync.cloudHasBlob();
+    } catch (error) {
+      _toast('无法确认云端备份状态：$error');
+      return;
+    }
+    if (hasRemoteBackup && await _confirmRemoteBackupOverwrite() != true) {
+      return;
+    }
     final pwd = await _askMasterPassword(
       title: '设置主密码',
       confirm: true,
@@ -235,9 +322,34 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     );
     if (pwd == null) return;
     await _guard('setup', () async {
-      final outcome = await sync.setupWithMasterPassword(pwd);
+      final outcome = await sync.setupWithMasterPassword(
+        pwd,
+        overwriteRemote: hasRemoteBackup,
+      );
       _feedback(outcome);
+      if (outcome.ok) unawaited(_loadCloudVersion(sync));
     });
+  }
+
+  /// Confirms setting up over a backup the cloud already holds. Returns whether
+  /// the user chose to continue.
+  Future<bool> _confirmRemoteBackupOverwrite() async {
+    final ok = await showAdaptiveAlertDialog<bool>(
+      context: context,
+      title: '云端已有备份',
+      message: '本设备尚未开启云同步，但云端已存在一份备份。'
+          '如果它来自你的其它设备，建议先「从云端恢复」；'
+          '继续设置将用本设备的绑定覆盖云端备份。',
+      actions: const [
+        AdaptiveAlertAction<bool>(label: '取消', value: false),
+        AdaptiveAlertAction<bool>(
+          label: '继续设置（覆盖）',
+          value: true,
+          isDestructive: true,
+        ),
+      ],
+    );
+    return ok == true;
   }
 
   Future<void> _restore(SyncService sync) async {
@@ -250,6 +362,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     await _guard('restore', () async {
       final outcome = await sync.restoreWithMasterPassword(pwd);
       _feedback(outcome);
+      if (outcome.ok) unawaited(_loadCloudVersion(sync));
     });
   }
 
@@ -290,6 +403,10 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     await _guard('disable', () async {
       final outcome = await sync.disable();
       _feedback(outcome);
+      if (outcome.ok) {
+        _versionFetchStarted = false;
+        setState(() => _cloudLastModified = null);
+      }
     });
   }
 
@@ -298,6 +415,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
       try {
         await sync.pull();
         _toast('已从云端恢复绑定');
+        unawaited(_loadCloudVersion(sync));
       } on NeedMasterPassword {
         _toast('需要主密码，请在下方输入');
       } catch (_) {
@@ -311,6 +429,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
       final res = await sync.push();
       if (res.ok) {
         _toast('已备份到云端');
+        unawaited(_loadCloudVersion(sync));
       } else {
         // Surface Casdoor's real reason (e.g. "Unauthorized operation") so the
         // user knows whether it's a network/authz/permission issue.

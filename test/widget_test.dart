@@ -6,6 +6,7 @@ import 'package:techpie/main.dart';
 import 'package:techpie/services/assignment_service.dart';
 import 'package:techpie/services/auth_service.dart';
 import 'package:techpie/services/debug_logger.dart';
+import 'package:techpie/services/egate_app_service.dart';
 import 'package:techpie/services/http_client.dart';
 import 'package:techpie/services/oa_gym_service.dart';
 import 'package:techpie/services/schedule_service.dart';
@@ -82,6 +83,7 @@ void main() {
     final assignments =
         AssignmentService(storage, http, auth, tpAuth, schedule);
     final oaGym = OaGymService(auth, storage, tpAuth);
+    final egateApp = EgateAppService(auth, storage, tpAuth);
     final sync = SyncService(auth, tpAuth, storage);
 
     await tester.pumpWidget(
@@ -94,6 +96,7 @@ void main() {
         assignmentService: assignments,
         thirdPartyAuthService: tpAuth,
         oaGymService: oaGym,
+        egateAppService: egateApp,
         uniAuthService: uniAuth,
         syncService: sync,
       ),
@@ -123,6 +126,7 @@ void main() {
     final assignments =
         AssignmentService(storage, http, auth, tpAuth, schedule);
     final oaGym = OaGymService(auth, storage, tpAuth);
+    final egateApp = EgateAppService(auth, storage, tpAuth);
     final sync = SyncService(auth, tpAuth, storage);
 
     await tester.pumpWidget(
@@ -135,6 +139,7 @@ void main() {
         assignmentService: assignments,
         thirdPartyAuthService: tpAuth,
         oaGymService: oaGym,
+        egateAppService: egateApp,
         uniAuthService: uniAuth,
         syncService: sync,
       ),

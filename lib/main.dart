@@ -10,6 +10,7 @@ import 'models/third_party_account.dart';
 import 'services/assignment_service.dart';
 import 'services/auth_service.dart';
 import 'services/debug_logger.dart';
+import 'services/egate_app_service.dart';
 import 'services/http_client.dart';
 import 'services/oa_gym_service.dart';
 import 'services/schedule_service.dart';
@@ -67,6 +68,11 @@ Future<void> _realMain(SharedPreferences prefs) async {
     thirdPartyAuthService,
   );
   final oaGymService = OaGymService(
+    authService,
+    storageService,
+    thirdPartyAuthService,
+  );
+  final egateAppService = EgateAppService(
     authService,
     storageService,
     thirdPartyAuthService,
@@ -129,6 +135,7 @@ Future<void> _realMain(SharedPreferences prefs) async {
       assignmentService: assignmentService,
       thirdPartyAuthService: thirdPartyAuthService,
       oaGymService: oaGymService,
+      egateAppService: egateAppService,
       uniAuthService: uniAuthService,
       syncService: syncService,
     ),
@@ -234,6 +241,7 @@ class TechPieApp extends StatefulWidget {
   final AssignmentService assignmentService;
   final ThirdPartyAuthService thirdPartyAuthService;
   final OaGymService oaGymService;
+  final EgateAppService egateAppService;
   final UniAuthService uniAuthService;
   final SyncService syncService;
 
@@ -247,6 +255,7 @@ class TechPieApp extends StatefulWidget {
     required this.assignmentService,
     required this.thirdPartyAuthService,
     required this.oaGymService,
+    required this.egateAppService,
     required this.uniAuthService,
     required this.syncService,
   });
@@ -258,6 +267,9 @@ class TechPieApp extends StatefulWidget {
 class _TechPieAppState extends State<TechPieApp> {
   @override
   Widget build(BuildContext context) {
+    // The plugin has no implementation on iOS, web or OHOS, where asking for
+    // the palette throws a MissingPluginException the builder does not catch.
+    if (!supportsSystemDynamicColor()) return _buildApp();
     return DynamicColorBuilder(
       builder: (lightDynamic, darkDynamic) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -280,6 +292,7 @@ class _TechPieAppState extends State<TechPieApp> {
         assignmentService: widget.assignmentService,
         thirdPartyAuthService: widget.thirdPartyAuthService,
         oaGymService: widget.oaGymService,
+        egateAppService: widget.egateAppService,
         uniAuthService: widget.uniAuthService,
         syncService: widget.syncService,
         child: MaterialApp(

@@ -1,0 +1,164 @@
+name: Prepare a release
+
+# Opens the release pull request for one version line: it cuts release/X.Y.Z at
+# the commit this ran on, and proposes the version bump on top of it. Merging
+# that pull request is what publishes — release.yml listens for a push to a
+# release branch that moves the version line.
+#
+#   gh workflow run prepare-release.yml --ref master -f version=1.0.0
+#
+# The notes are not written here. CHANGELOG.md must already carry a non-empty
+# `## [1.0.0]` section, because that section is what the release ships as its
+# notes. Without one this refuses to propose anything: fix the notes where they
+# live, then run this again — it rewrites the same branches and updates the same
+# pull request.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Product version to release, as X.Y.Z
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: prepare-release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Open the release pull request
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check the ref belongs to this version
+        env:
+          REF: ${{ github.ref_name }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::version must be X.Y.Z, got '$VERSION'."
+            exit 1
+          fi
+
+          case "$REF" in
+            master) ;;
+            release/*)
+              # A rebuild of this line, or the next patch cut from it: the branch
+              # must be a release branch of the same X.Y line as the version.
+              line="${REF#release/}"
+              if [[ ! "$line" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ || "${line%.*}" != "${VERSION%.*}" ]]; then
+                echo "::error::$REF is not a release branch for $VERSION. Dispatch on master, or on a release/X.Y.Z branch of the same X.Y line."
+                exit 1
+              fi
+              ;;
+            *)
+              echo "::error::dispatch this on master, or on the release branch of the same line; this ran on $REF."
+              exit 1
+              ;;
+          esac
+
+      - name: Work out the version to write, and the notes it would ship with
+        id: target
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          target="$(node scripts/release-plan.mjs --next-version "$VERSION")"
+          echo "version=$target" >> "$GITHUB_OUTPUT"
+
+          # Fails when the section is missing or empty, which is the point: a
+          # release nobody can read is not worth proposing.
+          node scripts/changelog.mjs "$VERSION" > notes.md
+
+          current="$(sed -n 's/^version:[[:space:]]*//p' pubspec.yaml | head -1)"
+          if [[ "$current" == "$target" ]]; then
+            # Nothing to propose: this ref already carries the version to release,
+            # which is what releasing a line whose candidates were skipped looks
+            # like. The branch is still worth cutting, and release.yml publishes
+            # it on demand.
+            echo "proposal=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::$VERSION is already $target here, so there is nothing to bump. The branch is cut; publish it with: gh workflow run release.yml --ref release/$VERSION"
+          else
+            echo "proposal=true" >> "$GITHUB_OUTPUT"
+            echo "Proposing $target, with $(wc -l < notes.md) lines of notes."
+          fi
+
+      - name: Cut the release branch, if this line has never shipped before
+        env:
+          BRANCH: release/${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          if git ls-remote --exit-code --heads origin "refs/heads/$BRANCH" >/dev/null 2>&1; then
+            echo "$BRANCH already exists; leaving it alone."
+            exit 0
+          fi
+
+          # Cutting the branch moves no version line, so release.yml plans it,
+          # finds that nothing moved, and publishes nothing.
+          git push origin "HEAD:refs/heads/$BRANCH"
+
+      - name: Propose the bump
+        if: steps.target.outputs.proposal == 'true'
+        env:
+          PREP: release-prep/${{ inputs.version }}
+          TARGET: ${{ steps.target.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "TechPie release bot"
+          git config user.email "release-bot@users.noreply.github.com"
+
+          git checkout -B "$PREP"
+          sed -i "s/^version:.*$/version: $TARGET/" pubspec.yaml
+          if git diff --quiet -- pubspec.yaml; then
+            echo "::error::pubspec.yaml already says $TARGET; there is nothing to propose."
+            exit 1
+          fi
+          git commit -am "chore(release): $TARGET"
+
+          # A branch this workflow owns, so re-running it updates the pull request
+          # instead of failing on a rewritten branch.
+          git push --force origin "HEAD:refs/heads/$PREP"
+
+      - name: Open or update the pull request
+        if: steps.target.outputs.proposal == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BRANCH: release/${{ inputs.version }}
+          PREP: release-prep/${{ inputs.version }}
+          TARGET: ${{ steps.target.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          {
+            echo "Merging this publishes **$TARGET**."
+            echo
+            echo "That merge is the last push of the version line: it moves"
+            echo "\`version:\` on \`$BRANCH\`, and that is what \`release.yml\` releases."
+            echo "What the release page will say:"
+            echo
+            cat notes.md
+          } > body.md
+
+          number="$(gh pr list --head "$PREP" --base "$BRANCH" --state open --json number --jq '.[0].number // ""')"
+          if [[ -n "$number" ]]; then
+            gh pr edit "$number" --title "release: $TARGET" --body-file body.md
+            echo "Updated pull request #$number."
+          else
+            gh pr create --base "$BRANCH" --head "$PREP" --title "release: $TARGET" --body-file body.md
+          fi
