@@ -257,10 +257,15 @@ tagged and refuses the release when that section is missing or empty.
   Fix the cause first — and for a merge that already landed, run
   `gh workflow run release.yml --ref release/X.Y.Z` afterwards, because the fixing
   push moves no version line and would publish nothing on its own.
-- **A platform build failed after the tag was made**: the tag stays (the ledger,
-  and the build number is spent). Re-run that platform with
-  `gh workflow run android-release.yml -f tag=<tag>` — the draft is refreshed, not
-  recreated.
+- **A platform build was cancelled or failed after the tag was made**: the tag
+  stays (the ledger, and the build number is spent). Re-run that job with
+  `gh run rerun <run-id> --failed` — but note that this re-runs only the failed or
+  cancelled jobs, so the `publish` job, which was *skipped* because of them, does
+  not come back with them. Publish by hand afterwards, with the same two flags the
+  job computes:
+  `gh release edit <tag> --draft=false --prerelease=<true|false> --latest=<true|false>`
+  (a candidate is `prerelease=true latest=false`). Re-dispatching `release.yml`
+  instead is a no-op: the plan sees the tags already at that commit and skips.
 - **A published release is wrong**: supersede it with a higher build number.
   Deleting the release object is fine; deleting its tag is not, because the next
   release would then be free to reuse the number.
@@ -384,9 +389,17 @@ satisfies App Store Connect's per-train rule.
   release, built by `scripts/build-unsigned-hap.sh` with `OHOS_UNSIGNED=1` (the
   generator writes a profile without signing material, so hvigor packs the
   unsigned hap). Signing happens on the device owner's machine, never in CI.
-  The job is off until a runner carrying the OHOS Flutter fork and the DevEco
-  command-line tools exists: set the repository variables `OHOS_CI_ENABLED=true`
-  and `OHOS_CI_RUNNER=<runner label>`.
+  The toolchain reaches CI as a container image, not as a self-hosted runner:
+  `ci/Dockerfile.ohos-buildenv` bakes the OHOS Flutter fork and the DevEco
+  command-line tools — neither can be installed on a hosted runner, because the
+  HarmonyOS SDK sits behind a Huawei developer login and the fork is ~2 GB of git
+  history — `ci/publish-buildenv.sh` stages what the developer machine has and
+  pushes it to a private GHCR package, and `ohos-release.yml` pulls it with
+  `container:`. The job therefore runs on a stock `ubuntu-24.04`, and there is no
+  `OHOS_CI_ENABLED` / `OHOS_CI_RUNNER` to configure. Upgrading either toolchain
+  means re-running `ci/publish-buildenv.sh` and copying the tag it prints into
+  `OHOS_BUILDENV_IMAGE`; the workflow pins that tag, never `latest`, so a release
+  always names the toolchain it was built and tested against.
   Note: `flutter build hap` reports "Hvigor build failed to produce an hap file"
   for such a build — it looks for the `-signed.hap` the signing config would
   have produced. The script judges the build by the artifact instead.
@@ -401,6 +414,7 @@ satisfies App Store Connect's per-train rule.
 - Many upstream pub packages lack OHOS platform implementations. The `dependency_overrides` in `pubspec.yaml` point to OpenHarmony-SIG forks that add OHOS MethodChannel bindings. Don't remove these overrides without testing on OHOS.
 - Dart/Flutter SDK is pinned to an older version for HarmonyOS compatibility (see README warning).
 - `flutter_secure_storage_ohos` is NOT a federated plugin — it's a full fork with its own `FlutterSecureStorage` class. Importing the upstream package will crash on OHOS.
+- The OHOS CI image (`ci/Dockerfile.ohos-buildenv`) drops the SDK's native toolchain (`native/llvm`, `hms/native/BiSheng`), the previewer and the Flutter fork's web SDK to stay inside a hosted runner's disk budget — 9.7 GB of local toolchain becomes a ~4.3 GB image (the fork's 1.9 GB `.git` has to stay: `bin/internal/shared.sh` refuses to run without it). Adding native C/C++ (`ohos/entry/src/main/cpp/`) means restoring the `native/*` lines there, otherwise the build fails on a missing clang.
 
 ## API Pattern
 
