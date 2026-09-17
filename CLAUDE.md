@@ -111,6 +111,11 @@ tag must agree with it or the release workflow refuses to publish.
   Note: `flutter build hap` reports "Hvigor build failed to produce an hap file"
   for such a build — it looks for the `-signed.hap` the signing config would
   have produced. The script judges the build by the artifact instead.
+  Also note: the OHOS toolchain rewrites `AppScope/app.json5`'s version fields
+  itself and hvigor flattens a pre-release name, so a declared `1.0.0-rc.4+5`
+  packs as versionName `1.0.0.4` with versionCode 5. Android and iOS get the
+  pre-release name stripped instead (iOS forbids it in
+  `CFBundleShortVersionString`), which is why the release name lives in the tag.
 
 ## OHOS-Specific Gotchas
 
