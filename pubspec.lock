@@ -552,9 +552,9 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: "br_v6.0.10_ohos"
-      resolved-ref: eb450cf85a2f31dd8921aadceaf181a94ac57cee
-      url: "https://gitcode.com/CPF-Flutter/fluttertpc_mobile_scanner.git"
+      ref: "br_v6.0.10_ohos_techpie"
+      resolved-ref: ccb4c8c7b5fba0666f2c9bb207121f7f2bc2026c
+      url: "https://github.com/HeZeBang/br_mobile_scanner_ohos.git"
     source: git
     version: "6.0.10"
   open_filex:
