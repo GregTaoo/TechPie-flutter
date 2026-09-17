@@ -1,9 +1,18 @@
 name: Dispatch iOS Release
 
 on:
+  # Tags are created by release.yml from pubspec.yaml; this workflow can also be
+  # run on its own to re-dispatch an existing tag. The tag stays X.Y.Z+B even for
+  # a pre-release, because the signing workflow validates exactly that shape.
   push:
     tags:
       - "ios-v*"
+  workflow_call:
+    inputs:
+      tag:
+        description: iOS release tag to dispatch
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       tag:
@@ -15,7 +24,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+  group: ${{ inputs.tag || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -28,12 +37,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Validate release tag
         shell: bash
         env:
-          TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          TAG_NAME: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
 
@@ -46,6 +55,18 @@ jobs:
           BUILD_NAME="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
           BUILD_NUMBER="${BASH_REMATCH[4]}"
           TAG_SHA="$(git rev-list -n 1 "$TAG_NAME")"
+
+          # pubspec.yaml (as of this tag) is the version source; the tag only
+          # carries the version it was cut from. A pre-release suffix in pubspec
+          # does not reach iOS, whose CFBundleShortVersionString stays X.Y.Z.
+          pubspec_version="$(sed -n 's/^version:[[:space:]]*//p' pubspec.yaml | head -1)"
+          pubspec_name="${pubspec_version%%+*}"
+          pubspec_base="${pubspec_name%%-*}"
+          pubspec_code="${pubspec_version##*+}"
+          if [[ "$pubspec_base" != "$BUILD_NAME" || "$pubspec_code" != "$BUILD_NUMBER" ]]; then
+            echo "::error::Tag $TAG_NAME names $BUILD_NAME+$BUILD_NUMBER, but pubspec.yaml is $pubspec_version."
+            exit 1
+          fi
 
           git fetch --no-tags origin main:refs/remotes/origin/main || true
           git fetch --no-tags origin master:refs/remotes/origin/master || true

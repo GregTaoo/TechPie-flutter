@@ -1,9 +1,17 @@
 name: Android Release
 
 on:
+  # Tags are created by release.yml from pubspec.yaml; this workflow can also be
+  # run on its own for a re-build of an existing tag.
   push:
     tags:
       - "android-v*"
+  workflow_call:
+    inputs:
+      tag:
+        description: Android release tag to build
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       tag:
@@ -15,7 +23,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+  group: ${{ inputs.tag || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -31,18 +39,18 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Validate release request
         shell: bash
         env:
-          REQUESTED_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          REQUESTED_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
 
-          if [[ ! "$REQUESTED_TAG" =~ ^android-v([0-9]+)\.([0-9]+)\.([0-9]+)(-rc\.[0-9]+)?\+([0-9]+)$ ]]; then
+          if [[ ! "$REQUESTED_TAG" =~ ^android-v([0-9]+)\.([0-9]+)\.([0-9]+)(-[0-9A-Za-z][0-9A-Za-z.-]*)?\+([0-9]+)$ ]]; then
             echo "::error::Invalid Android release tag: $REQUESTED_TAG"
-            echo "Expected format: android-vX.Y.Z+B or android-vX.Y.Z-rc.N+B"
+            echo "Expected format: android-vX.Y.Z+B or android-vX.Y.Z-<pre-release>+B"
             exit 1
           fi
           build_name="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
@@ -52,19 +60,19 @@ jobs:
           # pubspec.yaml is the single source of the app version; the tag only
           # names an already-versioned commit. Refuse to publish a build whose
           # store version and source version disagree.
+          # The platform version stamp is X.Y.Z, so a pre-release suffix in
+          # pubspec (declared, or the -rc.N release.yml derives) is not part of
+          # what this tag must match.
           pubspec_version="$(sed -n 's/^version:[[:space:]]*//p' pubspec.yaml | head -1)"
           pubspec_name="${pubspec_version%%+*}"
+          pubspec_base="${pubspec_name%%-*}"
           pubspec_code="${pubspec_version##*+}"
           if [[ "$pubspec_version" == "$pubspec_code" ]]; then
             echo "::error::pubspec.yaml version $pubspec_version has no '+N' build number; a release needs one and pubspec.yaml is its only source."
             exit 1
           fi
-          if [[ "$pubspec_name" != "$build_name" ]]; then
-            echo "::error::Release tag $REQUESTED_TAG names version $build_name, but pubspec.yaml is $pubspec_version."
-            exit 1
-          fi
-          if [[ -n "$pubspec_code" && "$pubspec_code" != "$build_number" ]]; then
-            echo "::error::Release tag $REQUESTED_TAG names build $build_number, but pubspec.yaml is $pubspec_version."
+          if [[ "$pubspec_base" != "$build_name" || "$pubspec_code" != "$build_number" ]]; then
+            echo "::error::Tag $REQUESTED_TAG names $build_name+$build_number, but pubspec.yaml is $pubspec_version."
             exit 1
           fi
 

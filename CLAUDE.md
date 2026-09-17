@@ -81,6 +81,26 @@ iOS Liquid Glass (iOS 26+) vs legacy iOS chrome is detected at boot via a Method
 
 Campus web services (ecourse, student leave, etc.) are opened in an in-app WebView with injected CASTGC cookies sourced from the eGate binding (`ThirdPartyAuthService.egateCookies()`). The `Feature` model declares `FeatureMode.native` vs `FeatureMode.webviewWithCookie`.
 
+## Releasing
+
+`pubspec.yaml` is the single version source: `version: X.Y.Z[-pre.N]+B`. Nothing
+else declares a version — the OHOS `AppScope/app.json5` is generated from it at
+build time, Android/iOS/Windows/Linux derive their stamps from it, and a release
+tag must agree with it or the release workflow refuses to publish.
+
+- **Changing the version on `master`** publishes a pre-release: `release.yml`
+  plans it, tags `android-v<name>+B` / `ios-v<name>+B`, then calls the Android
+  build and the iOS dispatch. The pre-release name comes from pubspec when it
+  declares one (`1.0.0-beta.2+5`); otherwise it is the next `-rc.N` for that base
+  version. It never reaches the platform version stamps, because iOS rejects a
+  `CFBundleShortVersionString` like `1.0.0-rc.1`.
+- **Cutting a `release/X.Y.Z` branch** publishes the stable release for `X.Y.Z`.
+  The branch must carry exactly that version, with no pre-release suffix.
+- `+B` must be above the released Android build (Play requires an increase) and
+  above the released iOS build for the same version. Bump it for every release.
+- Tags are created by CI. Do not tag a release by hand; a tag that disagrees
+  with pubspec is refused.
+
 ## OHOS-Specific Gotchas
 
 - Many upstream pub packages lack OHOS platform implementations. The `dependency_overrides` in `pubspec.yaml` point to OpenHarmony-SIG forks that add OHOS MethodChannel bindings. Don't remove these overrides without testing on OHOS.

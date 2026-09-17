@@ -1,0 +1,152 @@
+name: Release
+
+# pubspec.yaml is the single version source for every release:
+#
+#   push to master with a changed `version:`  → pre-release (e.g. 1.0.0-rc.2)
+#   first push of a release/X.Y.Z branch      → stable release for X.Y.Z
+#
+# Nothing here invents a version: the plan is derived from pubspec.yaml and the
+# tags that already exist. A pre-release name comes from pubspec when it declares
+# one (`1.0.0-beta.2+5` → `1.0.0-beta.2`), otherwise from the version's own
+# history: the next `-rc.N` for that base version. Platform version stamps never
+# carry it — iOS rejects a CFBundleShortVersionString like `1.0.0-rc.1`, and a
+# single artifact version keeps Android identical.
+#
+# The workflow only decides and tags. The platform builds are called as reusable
+# workflows, because a tag pushed with GITHUB_TOKEN does not trigger the
+# tag-based workflows that would otherwise start them.
+
+on:
+  push:
+    branches:
+      - master
+      - "release/**"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch to plan a release for (defaults to the dispatched ref)
+        required: false
+        type: string
+      dry_run:
+        description: Print the plan without tagging or building
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Plan the release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      skip: ${{ steps.plan.outputs.skip }}
+      channel: ${{ steps.plan.outputs.channel }}
+      release_name: ${{ steps.plan.outputs.release_name }}
+      version: ${{ steps.plan.outputs.version }}
+      code: ${{ steps.plan.outputs.code }}
+      tag_android: ${{ steps.plan.outputs.tag_android }}
+      tag_ios: ${{ steps.plan.outputs.tag_ios }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Did pubspec's version change in this push?
+        id: changed
+        shell: bash
+        env:
+          BEFORE: ${{ github.event.before }}
+          EVENT: ${{ github.event_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$EVENT" != "push" || -z "$BEFORE" || "$BEFORE" == "0000000000000000000000000000000000000000" ]]; then
+            # A branch's first push, or a manual run: plan it and let the
+            # already-tagged check below decide whether it is new.
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only "$BEFORE" "$SHA" -- pubspec.yaml | grep -q .; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Plan
+        id: plan
+        shell: bash
+        env:
+          REF: ${{ inputs.ref || github.ref_name }}
+          CHANGED: ${{ steps.changed.outputs.changed }}
+        run: |
+          set -euo pipefail
+
+          if ! node scripts/release-plan.mjs --ref "$REF" --changed "$CHANGED" > plan.out 2> plan.err; then
+            cat plan.err
+            exit 1
+          fi
+          cat plan.out >> "$GITHUB_OUTPUT"
+          { echo '```text'; cat plan.out plan.err; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+  tag:
+    name: Tag the release
+    needs: plan
+    if: needs.plan.outputs.skip == 'false' && inputs.dry_run != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Create and push annotated tags
+        shell: bash
+        env:
+          TAG_ANDROID: ${{ needs.plan.outputs.tag_android }}
+          TAG_IOS: ${{ needs.plan.outputs.tag_ios }}
+          RELEASE_NAME: ${{ needs.plan.outputs.release_name }}
+          CHANNEL: ${{ needs.plan.outputs.channel }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "TechPie release bot"
+          git config user.email "release-bot@users.noreply.github.com"
+          subject="TechPie ${RELEASE_NAME}"
+          body="Version ${RELEASE_NAME} (${CHANNEL} channel), versioned by pubspec.yaml."
+
+          for tag in "$TAG_ANDROID" "$TAG_IOS"; do
+            if git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null; then
+              echo "Tag $tag already exists; leaving it alone."
+              continue
+            fi
+            git tag -a "$tag" -m "$subject" -m "$body"
+            git push origin "refs/tags/$tag"
+            echo "Pushed $tag"
+          done
+
+  android:
+    name: Android artifacts
+    needs: [plan, tag]
+    if: needs.plan.outputs.skip == 'false' && inputs.dry_run != true
+    uses: ./.github/workflows/android-release.yml
+    with:
+      tag: ${{ needs.plan.outputs.tag_android }}
+    secrets: inherit
+
+  ios:
+    name: iOS release
+    needs: [plan, tag]
+    if: needs.plan.outputs.skip == 'false' && inputs.dry_run != true
+    uses: ./.github/workflows/dispatch-ios-release.yml
+    with:
+      tag: ${{ needs.plan.outputs.tag_ios }}
+    secrets: inherit
