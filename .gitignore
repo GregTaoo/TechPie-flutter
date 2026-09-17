@@ -80,6 +80,9 @@ ohos/AppScope/app.json5
 # Generated files
 .flutter-plugins
 
+# Release artifacts staged by scripts/build-unsigned-hap.sh
+dist/
+
 # Android: Groovy build scripts re-generated alongside the Kotlin DSL
 # (.kts) versions we actually use. Keep only the .kts variants.
 /android/build.gradle

@@ -150,3 +150,15 @@ jobs:
     with:
       tag: ${{ needs.plan.outputs.tag_ios }}
     secrets: inherit
+
+  ohos:
+    name: OHOS unsigned hap
+    # After Android: that job creates the GitHub release this one attaches the
+    # hap to. Skipped unless a runner with the OHOS toolchain is configured —
+    # see ohos-release.yml.
+    needs: [plan, tag, android]
+    if: needs.plan.outputs.skip == 'false' && inputs.dry_run != true
+    uses: ./.github/workflows/ohos-release.yml
+    with:
+      release_tag: ${{ needs.plan.outputs.tag_android }}
+    secrets: inherit

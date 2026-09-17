@@ -100,6 +100,17 @@ tag must agree with it or the release workflow refuses to publish.
   above the released iOS build for the same version. Bump it for every release.
 - Tags are created by CI. Do not tag a release by hand; a tag that disagrees
   with pubspec is refused.
+- **OHOS**: each release also publishes an unsigned hap
+  (`techpie-<version>-unsigned.hap` plus its sha256) attached to the GitHub
+  release, built by `scripts/build-unsigned-hap.sh` with `OHOS_UNSIGNED=1` (the
+  generator writes a profile without signing material, so hvigor packs the
+  unsigned hap). Signing happens on the device owner's machine, never in CI.
+  The job is off until a runner carrying the OHOS Flutter fork and the DevEco
+  command-line tools exists: set the repository variables `OHOS_CI_ENABLED=true`
+  and `OHOS_CI_RUNNER=<runner label>`.
+  Note: `flutter build hap` reports "Hvigor build failed to produce an hap file"
+  for such a build — it looks for the `-signed.hap` the signing config would
+  have produced. The script judges the build by the artifact instead.
 
 ## OHOS-Specific Gotchas
 

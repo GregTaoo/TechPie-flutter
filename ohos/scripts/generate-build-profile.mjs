@@ -4,6 +4,11 @@
 //   ohos/AppScope/app.json5        <- AppScope/app.template.json5 + pubspec.yaml version
 //   ohos/build-profile.json5       <- build-profile.template.json5 + OHOS_* env vars
 //
+// With OHOS_UNSIGNED=1 the profile is written without any signing material, so
+// hvigor packs `<module>-default-unsigned.hap` instead of a signed one. That is
+// the build CI publishes (no signing secrets on the runner) and the one a
+// contributor without signing material can run.
+//
 // hvigorfile.ts runs this on every hvigor invocation (DevEco builds included),
 // and it can also be invoked directly:
 //
@@ -87,6 +92,21 @@ function generateBuildProfile() {
     throw new Error(`Template not found: ${templatePath}`);
   }
 
+  let content = readFileSync(templatePath, 'utf8');
+
+  if (process.env.OHOS_UNSIGNED === '1') {
+    // Drop the signing block and the product's reference to it: hvigor then has
+    // nothing to sign with and writes `entry-default-unsigned.hap`.
+    content = content
+      .replace(/"signingConfigs":\s*\[[\s\S]*?\n    \],\n/, '')
+      .replace(/"signingConfig": "default",\n/, '');
+    if (content.includes('signingConfig')) {
+      throw new Error('Could not strip the signing block from the template');
+    }
+    writeFileSync(outputPath, content);
+    return;
+  }
+
   const missing = REQUIRED.filter((k) => !process.env[k]);
   if (missing.length === REQUIRED.length) {
     // No signing env at all — likely a contributor without signing material.
@@ -105,7 +125,6 @@ function generateBuildProfile() {
     );
   }
 
-  let content = readFileSync(templatePath, 'utf8');
   for (const key of REQUIRED) {
     content = content.replaceAll(`__${key}__`, process.env[key]);
   }
