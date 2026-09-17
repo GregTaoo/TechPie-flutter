@@ -5,12 +5,13 @@ name: Release
 #   push to master with a changed `version:`  → pre-release (e.g. 1.0.0-rc.2)
 #   first push of a release/X.Y.Z branch      → stable release for X.Y.Z
 #
-# Nothing here invents a version: the plan is derived from pubspec.yaml and the
-# tags that already exist. A pre-release name comes from pubspec when it declares
-# one (`1.0.0-beta.2+5` → `1.0.0-beta.2`), otherwise from the version's own
-# history: the next `-rc.N` for that base version. Platform version stamps never
-# carry it — iOS rejects a CFBundleShortVersionString like `1.0.0-rc.1`, and a
-# single artifact version keeps Android identical.
+# Nothing here invents a version, and nothing is inferred from history: the
+# build number *is* the rc ordinal, so pubspec alone pins the release name —
+# `1.0.0+4` is `1.0.0-rc.4` on master and `1.0.0` on a release/X.Y.Z branch.
+# Platform version stamps never carry the suffix: iOS rejects a
+# CFBundleShortVersionString like `1.0.0-rc.4`, and one artifact version keeps
+# Android identical. Existing tags are read only to refuse a build number that
+# is not an increase, and to make a re-run of the same release a no-op.
 #
 # The workflow only decides and tags. The platform builds are called as reusable
 # workflows, because a tag pushed with GITHUB_TOKEN does not trigger the

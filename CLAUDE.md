@@ -90,10 +90,12 @@ tag must agree with it or the release workflow refuses to publish.
 
 - **Changing the version on `master`** publishes a pre-release: `release.yml`
   plans it, tags `android-v<name>+B` / `ios-v<name>+B`, then calls the Android
-  build and the iOS dispatch. The pre-release name comes from pubspec when it
-  declares one (`1.0.0-beta.2+5`); otherwise it is the next `-rc.N` for that base
-  version. It never reaches the platform version stamps, because iOS rejects a
-  `CFBundleShortVersionString` like `1.0.0-rc.1`.
+  build and the iOS dispatch. The build number *is* the pre-release ordinal, so
+  `1.0.0+4` releases as `1.0.0-rc.4` — one number pins everything, and nothing is
+  inferred from tag history. A suffix written in pubspec is accepted only when it
+  says exactly that (`1.0.0-rc.4+4`); anything else is refused. The suffix never
+  reaches the platform version stamps, because iOS rejects a
+  `CFBundleShortVersionString` like `1.0.0-rc.4`.
 - **Cutting a `release/X.Y.Z` branch** publishes the stable release for `X.Y.Z`.
   The branch must carry exactly that version, with no pre-release suffix.
 - `+B` must be above the released Android build (Play requires an increase) and

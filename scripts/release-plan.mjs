@@ -118,19 +118,6 @@ function highestIosCode(tags, base) {
   return highest;
 }
 
-/// Pre-release ordinal for [base]: one past the highest already-tagged rc/beta
-/// for the same base version, so `1.0.0-rc.1` is followed by `1.0.0-rc.2`.
-function nextPrereleaseOrdinal(tags, base) {
-  let highest = 0;
-  for (const tag of tags) {
-    const match = new RegExp(
-      `^(?:android|ios)-v${base.replaceAll('.', '\\.')}-rc\\.([0-9]+)\\+[0-9]+$`,
-    ).exec(tag);
-    if (match) highest = Math.max(highest, Number(match[1]));
-  }
-  return highest + 1;
-}
-
 /// Highest product version already shipped as a *stable* Android release, so a
 /// release branch cannot regress the line (e.g. release/1.0.0 after 1.1.0).
 function highestStableBase(tags) {
@@ -188,14 +175,20 @@ function plan(opts) {
     }
   }
 
-  // A pre-release name is either declared in pubspec (author's choice) or
-  // derived from the version's own history: the next rc for this base version.
+  // One number, one meaning: the build number counts the pre-releases of this
+  // version line, so `1.0.0+4` on master is `1.0.0-rc.4`. A declared suffix is
+  // accepted only when it says exactly that, which keeps pubspec and the
+  // release name from ever disagreeing.
   const releaseName =
-    channel === 'stable'
-      ? version.base
-      : version.pre !== ''
-        ? version.raw.slice(0, version.raw.indexOf('+'))
-        : `${version.base}-rc.${nextPrereleaseOrdinal(tags, version.base)}`;
+    channel === 'stable' ? version.base : `${version.base}-rc.${version.code}`;
+  if (version.pre !== '' && version.pre !== `rc.${version.code}`) {
+    throw new Error(
+      `pubspec version ${version.raw} declares "-${version.pre}", but the build ` +
+        `number names the pre-release: ${version.base}-rc.${version.code}+${version.code}. ` +
+        `Drop the suffix and let the channel name it, or write exactly ` +
+        `"-rc.${version.code}".`,
+    );
+  }
 
   const androidHighest = highestAndroidCode(tags);
   const iosHighest = highestIosCode(tags, version.base);
