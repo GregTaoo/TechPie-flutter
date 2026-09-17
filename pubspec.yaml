@@ -52,7 +52,7 @@ dependencies:
       path: packages/image_picker/image_picker
       ref: br_image_picker-v1.1.2_ohos
   intl: ^0.20.2
-  mobile_scanner: ^6.0.11
+  mobile_scanner: ^6.0.10
   open_filex: ^4.5.0
   package_info_plus: ^8.0.2
   path_provider: ^2.1.5
@@ -86,6 +86,13 @@ dependency_overrides:
       url: https://gitee.com/openharmony-sig/flutter_packages.git
       path: packages/image_picker/image_picker_ohos
       ref: br_image_picker-v1.1.2_ohos
+  mobile_scanner:
+    # CPF-Flutter fork: upstream 6.0.10 plus the OHOS plugin (Camera Kit);
+    # upstream's release has no OHOS platform, and the campus check-in page
+    # scans a WID from its camera.
+    git:
+      url: https://gitcode.com/CPF-Flutter/fluttertpc_mobile_scanner.git
+      ref: br_v6.0.10_ohos
   package_info_plus:
     git:
       url: https://gitee.com/openharmony-sig/flutter_plus_plugins.git

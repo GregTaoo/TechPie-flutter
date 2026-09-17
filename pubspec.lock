@@ -551,11 +551,12 @@ packages:
   mobile_scanner:
     dependency: "direct main"
     description:
-      name: mobile_scanner
-      sha256: "0b466a0a8a211b366c2e87f3345715faef9b6011c7147556ad22f37de6ba3173"
-      url: "https://pub.flutter-io.cn"
-    source: hosted
-    version: "6.0.11"
+      path: "."
+      ref: "br_v6.0.10_ohos"
+      resolved-ref: eb450cf85a2f31dd8921aadceaf181a94ac57cee
+      url: "https://gitcode.com/CPF-Flutter/fluttertpc_mobile_scanner.git"
+    source: git
+    version: "6.0.10"
   open_filex:
     dependency: "direct main"
     description:

@@ -134,7 +134,9 @@ class _EgateAppPageState extends State<EgateAppPage> {
     final topInset = useIosChrome || useLegacyIosChrome
         ? 0.0
         : adaptiveTopBarHeight() + MediaQuery.viewPaddingOf(context).top;
-    final canScanWithCamera = isAndroid() || isIos();
+    // Mobile camera scanning runs on the platforms whose mobile_scanner build
+    // has a camera implementation; the desktop platforms keep the manual entry.
+    final canScanWithCamera = isAndroid() || isIos() || isOhos();
 
     return Scaffold(
       extendBodyBehindAppBar: !useIosChrome && !useLegacyIosChrome,

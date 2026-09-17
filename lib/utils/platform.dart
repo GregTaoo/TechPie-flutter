@@ -39,6 +39,12 @@ double adaptiveTopBarHeight() => usesIosLiquidGlass() ? 64.0 : kToolbarHeight;
 /// Check if the current platform is Android and not web.
 bool isAndroid() => !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
+/// Check if the current platform is HarmonyOS NEXT (OHOS) and not web.
+///
+/// The OHOS Flutter fork adds `TargetPlatform.ohos`; matching on the name keeps
+/// this file compiling against upstream Flutter, which has no such constant.
+bool isOhos() => !kIsWeb && defaultTargetPlatform.name == 'ohos';
+
 /// Whether `dynamic_color` ships an implementation here — it covers Android,
 /// Linux, macOS and Windows only.
 ///

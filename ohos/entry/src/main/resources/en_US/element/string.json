@@ -11,6 +11,10 @@
     {
       "name": "EntryAbility_label",
       "value": "TechPie"
+    },
+    {
+      "name": "camera_reason",
+      "value": "Use the camera to scan a check-in code"
     }
   ]
 }
