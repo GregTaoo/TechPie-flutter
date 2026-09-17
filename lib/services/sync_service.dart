@@ -579,13 +579,22 @@ class SyncService extends ChangeNotifier {
     return true;
   }
 
-  /// First-time setup on a device that has no cloud blob yet: derive a key
-  /// from [password] (fresh salt), cache it, and push current bindings.
-  Future<SyncOutcome> setupWithMasterPassword(String password) async {
+  /// First-time setup on a device that is not syncing yet: derive a key from
+  /// [password] (fresh salt), cache it, and push current bindings.
+  ///
+  /// When the cloud already holds a backup — typically another device's — the
+  /// caller confirms the overwrite and passes [overwriteRemote]. Without that
+  /// confirmation the call refuses, so a thin local state cannot silently
+  /// replace a good backup.
+  Future<SyncOutcome> setupWithMasterPassword(
+    String password, {
+    bool overwriteRemote = false,
+  }) async {
     if (password.isEmpty) {
       return const SyncOutcome(ok: false, message: '主密码不能为空');
     }
-    if (await cloudHasBlob()) {
+    final remoteExists = await cloudHasBlob();
+    if (remoteExists && !overwriteRemote) {
       // Cloud already has a backup — user should restore, not set up fresh.
       return const SyncOutcome(
         ok: false,
@@ -610,7 +619,10 @@ class SyncService extends ChangeNotifier {
     await _storage.setSyncLastAt(_lastSyncAt!.toIso8601String());
     _lastError = null;
     notifyListeners();
-    return const SyncOutcome(ok: true, message: '云同步已开启');
+    return SyncOutcome(
+      ok: true,
+      message: remoteExists ? '云同步已开启（已覆盖云端备份）' : '云同步已开启',
+    );
   }
 
   /// Restore on a device that has a cloud blob but no cached key: verify

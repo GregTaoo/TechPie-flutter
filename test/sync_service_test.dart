@@ -76,6 +76,53 @@ void main() {
     expect(fx2.tpAuth.account(ThirdPartyPlatform.cpdaily), isNull);
   });
 
+  test('setup replaces an existing cloud backup only when confirmed', () async {
+    // Device A set up first: its backup is the cloud's only copy.
+    final fx = await _Fixture.withSession();
+    await fx.tpAuth.replaceAll([
+      ThirdPartyAccount(
+        platform: ThirdPartyPlatform.gradescope,
+        account: 'a@b.edu',
+        token: 'gs-token-a',
+        boundAt: DateTime.utc(2026),
+      ),
+    ]);
+    await fx.sync.setupWithMasterPassword('pw-a');
+
+    // Device B is not syncing: an unconfirmed setup must not touch A's backup.
+    final fx2 = await _Fixture.withSession(server: fx.server);
+    await fx2.tpAuth.replaceAll([
+      ThirdPartyAccount(
+        platform: ThirdPartyPlatform.hydro,
+        account: 'user-b',
+        token: 'hydro-sid=b',
+        boundAt: DateTime.utc(2026, 2),
+      ),
+    ]);
+    final refused = await fx2.sync.setupWithMasterPassword('pw-b');
+    expect(refused.ok, isFalse, reason: refused.message);
+    expect(refused.message, contains('已存在备份'));
+
+    final overwritten = await fx2.sync.setupWithMasterPassword(
+      'pw-b',
+      overwriteRemote: true,
+    );
+    expect(overwritten.ok, isTrue, reason: overwritten.message);
+    expect(overwritten.message, contains('覆盖'));
+
+    // The blob now decrypts with B's password and carries B's binding, while
+    // A's password no longer opens it.
+    final fx3 = await _Fixture.withSession(server: fx.server);
+    final restored = await fx3.sync.restoreWithMasterPassword('pw-b');
+    expect(restored.ok, isTrue, reason: restored.message);
+    expect(fx3.tpAuth.account(ThirdPartyPlatform.hydro)?.token, 'hydro-sid=b');
+
+    final stale = await _Fixture.withSession(server: fx.server);
+    final withOldPassword = await stale.sync.restoreWithMasterPassword('pw-a');
+    expect(withOldPassword.ok, isFalse);
+    expect(withOldPassword.message, contains('不正确'));
+  });
+
   test('push writes current bindings; disable clears the cloud blob',
       () async {
     final fx = await _Fixture.withSession();

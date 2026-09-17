@@ -292,12 +292,29 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     setState(() => _busyAction = action);
     try {
       await task();
+    } catch (error) {
+      // Without this the page just looks inert: the dialog closes, the task
+      // throws and nothing tells the user what happened.
+      _toast('操作失败：$error');
     } finally {
       if (mounted) setState(() => _busyAction = null);
     }
   }
 
   Future<void> _setup(SyncService sync) async {
+    // A device that is not syncing yet reads the cloud only here: if a backup
+    // already exists it is some other device's, and setting up now would
+    // replace it. Ask before touching it.
+    final bool hasRemoteBackup;
+    try {
+      hasRemoteBackup = await sync.cloudHasBlob();
+    } catch (error) {
+      _toast('无法确认云端备份状态：$error');
+      return;
+    }
+    if (hasRemoteBackup && await _confirmRemoteBackupOverwrite() != true) {
+      return;
+    }
     final pwd = await _askMasterPassword(
       title: '设置主密码',
       confirm: true,
@@ -305,10 +322,34 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     );
     if (pwd == null) return;
     await _guard('setup', () async {
-      final outcome = await sync.setupWithMasterPassword(pwd);
+      final outcome = await sync.setupWithMasterPassword(
+        pwd,
+        overwriteRemote: hasRemoteBackup,
+      );
       _feedback(outcome);
       if (outcome.ok) unawaited(_loadCloudVersion(sync));
     });
+  }
+
+  /// Confirms setting up over a backup the cloud already holds. Returns whether
+  /// the user chose to continue.
+  Future<bool> _confirmRemoteBackupOverwrite() async {
+    final ok = await showAdaptiveAlertDialog<bool>(
+      context: context,
+      title: '云端已有备份',
+      message: '本设备尚未开启云同步，但云端已存在一份备份。'
+          '如果它来自你的其它设备，建议先「从云端恢复」；'
+          '继续设置将用本设备的绑定覆盖云端备份。',
+      actions: const [
+        AdaptiveAlertAction<bool>(label: '取消', value: false),
+        AdaptiveAlertAction<bool>(
+          label: '继续设置（覆盖）',
+          value: true,
+          isDestructive: true,
+        ),
+      ],
+    );
+    return ok == true;
   }
 
   Future<void> _restore(SyncService sync) async {
