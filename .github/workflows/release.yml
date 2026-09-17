@@ -15,6 +15,10 @@ name: Release
 # The workflow only decides and tags. The platform builds are called as reusable
 # workflows, because a tag pushed with GITHUB_TOKEN does not trigger the
 # tag-based workflows that would otherwise start them.
+#
+# Set the repository variable RELEASE_FREEZE=true to merge a version change
+# without publishing: the plan still runs and lands in the summary, but nothing
+# is tagged or built. Unset it to release.
 
 on:
   push:
@@ -86,6 +90,7 @@ jobs:
         env:
           REF: ${{ inputs.ref || github.ref_name }}
           CHANGED: ${{ steps.changed.outputs.changed }}
+          RELEASE_FREEZE: ${{ vars.RELEASE_FREEZE }}
         run: |
           set -euo pipefail
 
@@ -94,12 +99,15 @@ jobs:
             exit 1
           fi
           cat plan.out >> "$GITHUB_OUTPUT"
+          if [[ "${RELEASE_FREEZE:-}" == "true" ]]; then
+            echo "[release-plan] RELEASE_FREEZE=true: tagging and platform builds are skipped." >&2
+          fi
           { echo '```text'; cat plan.out plan.err; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
   tag:
     name: Tag the release
     needs: plan
-    if: needs.plan.outputs.skip == 'false' && inputs.dry_run != true
+    if: needs.plan.outputs.skip == 'false' && inputs.dry_run != true && vars.RELEASE_FREEZE != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -136,7 +144,7 @@ jobs:
   android:
     name: Android artifacts
     needs: [plan, tag]
-    if: needs.plan.outputs.skip == 'false' && inputs.dry_run != true
+    if: needs.plan.outputs.skip == 'false' && inputs.dry_run != true && vars.RELEASE_FREEZE != 'true'
     uses: ./.github/workflows/android-release.yml
     with:
       tag: ${{ needs.plan.outputs.tag_android }}
@@ -145,7 +153,7 @@ jobs:
   ios:
     name: iOS release
     needs: [plan, tag]
-    if: needs.plan.outputs.skip == 'false' && inputs.dry_run != true
+    if: needs.plan.outputs.skip == 'false' && inputs.dry_run != true && vars.RELEASE_FREEZE != 'true'
     uses: ./.github/workflows/dispatch-ios-release.yml
     with:
       tag: ${{ needs.plan.outputs.tag_ios }}
@@ -157,7 +165,7 @@ jobs:
     # hap to. Skipped unless a runner with the OHOS toolchain is configured —
     # see ohos-release.yml.
     needs: [plan, tag, android]
-    if: needs.plan.outputs.skip == 'false' && inputs.dry_run != true
+    if: needs.plan.outputs.skip == 'false' && inputs.dry_run != true && vars.RELEASE_FREEZE != 'true'
     uses: ./.github/workflows/ohos-release.yml
     with:
       release_tag: ${{ needs.plan.outputs.tag_android }}
