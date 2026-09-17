@@ -30,6 +30,11 @@ jobs:
     name: Build signed Android release
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # The deployment environment the signing job runs in. Today it carries no
+    # secrets and no protection rules: the ANDROID_* secrets are repository-scoped,
+    # so this only labels the deployment. It is declared because that is where they
+    # belong — `gh secret set <NAME> --env android-release`, once per secret,
+    # narrows them to this job — and a review rule would then gate that same job.
     environment: android-release
 
     steps:

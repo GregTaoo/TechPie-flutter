@@ -291,17 +291,26 @@ new assets). It also keeps a half-assembled release from notifying watchers. A
 release is published in whatever repository runs the workflow
 (`HeZeBang/TechPie-flutter` today), so a run in a fork publishes there.
 
-Repository settings that back this: the `android-release` environment requires a
-review before the signing job starts — self-review is allowed, so whoever
-triggers a release can approve their own, and admins can bypass, so nobody ends
-up stuck; the reviewers are the four collaborators. Dropping that requirement
-again (an empty `reviewers` array in the body; a `-F reviewers=[]` flag is
-silently ignored):
+Repository settings that back this: `android-release` is declared by the signing
+job but carries **no protection rules, deliberately** — every release is already
+a human act (a dispatch, or merging the release PR), so an approval rule would add
+a click without adding a check, and the deployment log is what records who did
+what. Add one if the project grows maintainers who should sign off:
 
 ```bash
-printf '{"reviewers": []}' | gh api -X PUT \
-  repos/HeZeBang/TechPie-flutter/environments/android-release --input -
+printf '{"reviewers": [{"type": "User", "id": <id>}], "prevent_self_review": false}' | \
+  gh api -X PUT repos/HeZeBang/TechPie-flutter/environments/android-release --input -
 ```
+
+(An empty `reviewers` array clears it again. It has to be sent as JSON: a
+`-F reviewers=[]` flag is silently ignored.)
+
+The signing material is **repository-scoped** today, so the environment restricts
+nothing yet — any workflow in this repository, including one on a collaborator's
+pull request, can read `ANDROID_KEYSTORE_BASE64`. Moving the four `ANDROID_*`
+secrets into it (`gh secret set ANDROID_KEYSTORE_BASE64 --env android-release`,
+once each, values in hand) narrows that to the job that declares the environment,
+which is the reason the declaration is there at all.
 
 Immutable releases are still off: the draft order above is what makes them safe,
 so switch them on once one release has shipped through it.
