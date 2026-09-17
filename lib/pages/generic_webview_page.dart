@@ -14,6 +14,9 @@ import 'package:webview_flutter/webview_flutter.dart'
         WebViewCookie,
         WebViewCookieManager;
 
+import '../services/auth_service.dart';
+import '../services/service_provider.dart';
+import '../services/third_party_auth_service.dart';
 import '../services/webview_bridge.dart';
 import 'webview_host.dart';
 
@@ -34,6 +37,9 @@ class GenericWebViewPage extends StatefulWidget {
 
   final String title;
   final String url;
+
+  /// Cookies the campus page needs, read from the derived session its feature
+  /// authenticates against.
   final List<WebViewCookie>? cookies;
 
   final List<WebViewUserScript> initialUserScripts;
@@ -47,6 +53,12 @@ class _GenericWebViewPageState extends State<GenericWebViewPage>
   late final WebViewController _controller;
   Webview? _desktopWebview;
   String? _desktopError;
+
+  ThirdPartyAuthService? _tpAuth;
+  AuthService? _auth;
+  String? _primaryUserId;
+  String? _owner;
+  String? _error;
 
   @override
   Webview? get desktopWebview => _desktopWebview;
@@ -68,6 +80,23 @@ class _GenericWebViewPageState extends State<GenericWebViewPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_tpAuth != null) return;
+    final services = ServiceProvider.of(context);
+    _tpAuth = services.thirdPartyAuthService;
+    _auth = services.authService;
+    _primaryUserId = _auth!.session?.userId;
+    _auth!.addListener(_primaryAccountChanged);
+    if (!_auth!.isLoggedIn) {
+      _error = '请先登录 TechPie';
+      return;
+    }
+    _owner = _tpAuth!.campusWebSession.owner;
+    _tpAuth!.addListener(_bindingChanged);
     if (isDesktopWebView) {
       unawaited(_openDesktop());
     } else {
@@ -79,6 +108,8 @@ class _GenericWebViewPageState extends State<GenericWebViewPage>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _auth?.removeListener(_primaryAccountChanged);
+    _tpAuth?.removeListener(_bindingChanged);
     super.dispose();
   }
 
@@ -87,6 +118,20 @@ class _GenericWebViewPageState extends State<GenericWebViewPage>
     if (state == AppLifecycleState.resumed) {
       unawaited(notifyBhMobileSdkResume());
     }
+  }
+
+  void _bindingChanged() {
+    if (_owner == _tpAuth!.campusWebSession.owner) return;
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  bool get _authorized =>
+      _auth!.isLoggedIn && _auth!.session?.userId == _primaryUserId;
+
+  void _primaryAccountChanged() {
+    if (_authorized || !mounted) return;
+    setState(() => _error = '请先登录 TechPie');
+    Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
   // -- Desktop path (desktop_webview_window popup) --
@@ -102,7 +147,9 @@ class _GenericWebViewPageState extends State<GenericWebViewPage>
     );
     if (webview == null) {
       if (mounted) {
-        setState(() => _desktopError = 'The WebView window could not be opened');
+        setState(
+          () => _desktopError = 'The WebView window could not be opened',
+        );
       }
       return;
     }
@@ -113,33 +160,50 @@ class _GenericWebViewPageState extends State<GenericWebViewPage>
   // -- Mobile / webview_flutter in-app widget --
 
   Future<void> _initController() async {
-    await _controller.setJavaScriptMode(JavaScriptMode.unrestricted);
-    await _controller.setNavigationDelegate(
-      NavigationDelegate(
-        onNavigationRequest: (request) => NavigationDecision.navigate,
-      ),
-    );
+    try {
+      await _controller.setJavaScriptMode(JavaScriptMode.unrestricted);
+      await _controller.setNavigationDelegate(
+        NavigationDelegate(
+          onNavigationRequest: (request) => _authorized
+              ? NavigationDecision.navigate
+              : NavigationDecision.prevent,
+        ),
+      );
 
-    installBhMobileSdkBridge();
-    await _controller.addJavaScriptChannel(
-      'TechPieBridge',
-      onMessageReceived: (JavaScriptMessage message) {
-        unawaited(handleBhMobileSdkMessage(message.message));
-      },
-    );
+      installBhMobileSdkBridge();
+      await _controller.addJavaScriptChannel(
+        'TechPieBridge',
+        onMessageReceived: (JavaScriptMessage message) {
+          unawaited(handleBhMobileSdkMessage(message.message));
+        },
+      );
 
-    await _controller.addUserScripts(<WebViewUserScript>[
-      ...widget.initialUserScripts,
-      const WebViewUserScript(source: techPieDocumentStartScript),
-    ]);
+      await _controller.addUserScripts(<WebViewUserScript>[
+        ...widget.initialUserScripts,
+        const WebViewUserScript(source: techPieDocumentStartScript),
+      ]);
 
-    final cookieManager = WebViewCookieManager();
-    await cookieManager.clearCookies();
-    for (final c in hostCookies) {
-      await cookieManager.setCookie(c);
+      // The campus pages share one native cookie store, whose reset on an
+      // account change [CampusWebSession] owns. Prime the account's IDS
+      // session, then stack the cookies of the derived session this feature
+      // authenticates against (ecourse runs on it directly, egate on its own
+      // MOD_AUTH_CAS/_WEU session derived from it).
+      await _tpAuth!.campusWebSession.useIdsSession();
+      if (!mounted ||
+          !_authorized ||
+          _owner != _tpAuth!.campusWebSession.owner) {
+        return;
+      }
+
+      final cookieManager = WebViewCookieManager();
+      for (final c in hostCookies) {
+        await cookieManager.setCookie(c);
+      }
+
+      await _controller.loadRequest(Uri.parse(widget.url));
+    } catch (_) {
+      if (mounted) setState(() => _error = '校园网页加载失败，请稍后重试');
     }
-
-    await _controller.loadRequest(Uri.parse(widget.url));
   }
 
   @override
@@ -160,7 +224,9 @@ class _GenericWebViewPageState extends State<GenericWebViewPage>
 
     return Scaffold(
       appBar: appBar,
-      body: WebViewWidget(controller: _controller),
+      body: _error == null
+          ? WebViewWidget(controller: _controller)
+          : Center(child: Text(_error!)),
     );
   }
 }

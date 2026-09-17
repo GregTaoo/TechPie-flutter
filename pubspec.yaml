@@ -38,6 +38,7 @@ dependencies:
   dynamic_color: ">=1.7.0 <1.8.0"
   flutter:
     sdk: flutter
+  flutter_inappwebview: 6.1.5
   flutter_secure_storage: ^9.2.4
   flutter_secure_storage_ohos: # HarmonyOS 安全存储
     git:
@@ -45,13 +46,13 @@ dependencies:
       path: flutter_secure_storage_ohos
       ref: br_v9.2.2_ohos
   http: ^1.4.0
-  intl: ^0.20.2
-  mobile_scanner: ^6.0.11
   image_picker:
     git:
       url: https://gitee.com/openharmony-sig/flutter_packages.git
       path: packages/image_picker/image_picker
       ref: br_image_picker-v1.1.2_ohos
+  intl: ^0.20.2
+  mobile_scanner: ^6.0.11
   open_filex: ^4.5.0
   package_info_plus: ^8.0.2
   path_provider: ^2.1.5
@@ -72,6 +73,11 @@ dependency_overrides:
   # OpenHarmony-SIG forks add OHOS platform implementations for plugins
   # whose upstream pub.dev releases don't ship them. Without these, the
   # MethodChannel calls on OHOS throw MissingPluginException at boot.
+  image_picker_ohos:
+    git:
+      url: https://gitee.com/openharmony-sig/flutter_packages.git
+      path: packages/image_picker/image_picker_ohos
+      ref: br_image_picker-v1.1.2_ohos
   package_info_plus:
     git:
       url: https://gitee.com/openharmony-sig/flutter_plus_plugins.git
@@ -84,11 +90,6 @@ dependency_overrides:
     git:
       url: https://gitee.com/openharmony-sig/flutter_packages.git
       path: packages/url_launcher/url_launcher_ohos
-  image_picker_ohos:
-    git:
-      url: https://gitee.com/openharmony-sig/flutter_packages.git
-      path: packages/image_picker/image_picker_ohos
-      ref: br_image_picker-v1.1.2_ohos
   webview_flutter_platform_interface:
     path: ../br_webview_flutter_ohos/webview_flutter_platform_interface
   # flutter_secure_storage:
@@ -103,7 +104,6 @@ dependency_overrides:
   #   git:
   #     url: https://gitcode.com/openharmony-sig/fluttertpc_flutter_secure_storage.git
   #     path: flutter_secure_storage_ohos
-
 dev_dependencies:
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is

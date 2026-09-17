@@ -10,11 +10,12 @@ import '../services/service_provider.dart';
 import '../services/session/session_node.dart';
 import '../utils/platform.dart';
 import '../widgets/adaptive_alert_dialog.dart';
+import '../widgets/adaptive_confirmation_button.dart';
 import '../widgets/adaptive_feedback.dart';
+import '../widgets/adaptive_page_navigation.dart';
+import '../widgets/app_shell/app_shell_metrics.dart';
 import '../widgets/blurred_app_bar.dart';
-import '../widgets/ios_liquid/ios_glass_confirmation_button.dart';
-import '../widgets/ios_liquid/ios_native_navigation_bar.dart';
-import '../widgets/ios_liquid/ios_platform_view_page_transitions.dart';
+import '../widgets/ios/ios_native_navigation_bar.dart';
 import 'third_party_bind_page.dart';
 
 /// The three states the linked-accounts status dot can show. `null` (no
@@ -81,14 +82,14 @@ class ThirdPartyAccountsPage extends StatelessWidget {
                 if (Navigator.canPop(context))
                   const IosNativeNavigationBarItem(
                     id: 'back',
-                    title: '返回',
+                    title: 'Settings',
                     sfSymbol: 'chevron.left',
-                    accessibilityLabel: '返回',
+                    accessibilityLabel: '返回 Settings',
                   ),
               ],
               onItemPressed: (id) {
                 if (id == 'back') {
-                  unawaited(maybePopPlatformViewPage<void>(context));
+                  unawaited(maybePopAdaptivePage<void>(context));
                 }
               },
             )
@@ -98,7 +99,10 @@ class ThirdPartyAccountsPage extends StatelessWidget {
         builder: (context, _) {
           final cpdailyBound = tpAuth.hasCpdailyBinding;
           return ListView(
-            padding: EdgeInsets.only(top: topInset, bottom: 120),
+            padding: EdgeInsets.only(
+              top: topInset,
+              bottom: AppShellMetrics.bottomContentPaddingOf(context),
+            ),
             children: [
               // CpDaily/IDS is the parent session — Blackboard (elearning),
               // 教务系统 (eams), and eGate 签到 (egateApp) below are all
@@ -197,7 +201,7 @@ class _StatusDot extends StatelessWidget {
 
 Widget _dottedIcon(
     BuildContext context, IconData icon, Color? color, _LinkHealth? health,
-    {double size = 24}) {
+    {double size = 24,}) {
   return Stack(
     clipBehavior: Clip.none,
     children: [
@@ -249,7 +253,7 @@ class _TopLevelTileState extends State<_TopLevelTile> {
         subtitle: const Text('未绑定'),
         trailing: const Icon(Icons.chevron_right),
         onTap: () => unawaited(
-          pushPlatformViewPage<void>(
+          pushAdaptivePage<void>(
             context,
             builder: (_) => ThirdPartyBindPage(platform: widget.platform),
           ),
@@ -293,7 +297,7 @@ class _TopLevelTileState extends State<_TopLevelTile> {
                   onPressed: () => unawaited(_refresh(context)),
                 ),
           isIos()
-              ? IosGlassConfirmationButton(
+              ? AdaptiveConfirmationButton(
                   label: 'Unbind',
                   confirmTitle: '解绑 ${widget.platform.label}?',
                   confirmLabel: '解绑',
@@ -353,7 +357,7 @@ class _TopLevelTileState extends State<_TopLevelTile> {
       MapEntry('最近刷新', _renewStatusLabel(widget.renewStatus)),
       MapEntry('下次刷新', _nextRenewLabel(widget.node.nextRenewTimestamp)),
       MapEntry('Token 有效期',
-          acc.expireAt != null ? _formatDateTime(acc.expireAt!) : '无'),
+          acc.expireAt != null ? _formatDateTime(acc.expireAt!) : '无',),
       MapEntry('自动续期', acc.autoRenew ? '已开启' : '未开启'),
       if (widget.platform == ThirdPartyPlatform.hydro) ...[
         MapEntry('Hydro 站点', acc.hydroOrigin ?? ''),
@@ -409,7 +413,7 @@ class _ChildSessionTileState extends State<_ChildSessionTile> {
         dense: true,
         contentPadding: const EdgeInsets.only(left: 40, right: 16),
         leading: Icon(widget.icon,
-            size: 20, color: theme.colorScheme.onSurfaceVariant),
+            size: 20, color: theme.colorScheme.onSurfaceVariant,),
         title: Text(
           widget.label,
           style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
@@ -420,7 +424,7 @@ class _ChildSessionTileState extends State<_ChildSessionTile> {
               ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
         ),
         onTap: () => unawaited(
-          pushPlatformViewPage<void>(
+          pushAdaptivePage<void>(
             context,
             builder: (_) =>
                 const ThirdPartyBindPage(platform: ThirdPartyPlatform.cpdaily),
@@ -440,7 +444,7 @@ class _ChildSessionTileState extends State<_ChildSessionTile> {
       contentPadding: const EdgeInsets.only(left: 40, right: 16),
       leading: _dottedIcon(
           context, widget.icon, theme.colorScheme.primary, health,
-          size: 20),
+          size: 20,),
       title: Text(widget.label),
       subtitle: Text(widget.node.displayName),
       onTap: () => unawaited(_openDetails(context)),
@@ -604,7 +608,7 @@ Future<void> _showAccountDetailSheet(
                         ),
                         Expanded(
                           child: Text(row.value,
-                              style: theme.textTheme.bodyMedium),
+                              style: theme.textTheme.bodyMedium,),
                         ),
                       ],
                     ),
@@ -687,9 +691,9 @@ Future<void> _showAccountDetailSheet(
                     Expanded(
                       child: OutlinedButton.icon(
                         icon: Icon(Icons.link_off,
-                            color: theme.colorScheme.error),
+                            color: theme.colorScheme.error,),
                         label: Text('解绑',
-                            style: TextStyle(color: theme.colorScheme.error)),
+                            style: TextStyle(color: theme.colorScheme.error),),
                         onPressed: () {
                           Navigator.pop(sheetContext);
                           onUnbind();

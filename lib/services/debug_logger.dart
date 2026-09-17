@@ -32,7 +32,7 @@ class DebugLogger extends ChangeNotifier {
   bool get enabled => _enabled;
 
   set enabled(bool value) {
-    _enabled = value;
+    _enabled = value && !kReleaseMode;
     notifyListeners();
   }
 

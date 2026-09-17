@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter/webview_flutter.dart' show WebViewCookie;
 
 import '../models/assignment.dart';
 import '../models/course.dart';
@@ -12,12 +12,16 @@ import '../models/feature.dart';
 import '../services/assignment_service.dart';
 import '../services/schedule_service.dart';
 import '../services/service_provider.dart';
+import '../utils/adaptive_motion.dart';
 import '../utils/platform.dart';
 import '../widgets/adaptive_alert_dialog.dart';
+import '../widgets/adaptive_button.dart';
 import '../widgets/adaptive_feedback.dart';
+import '../widgets/adaptive_page_navigation.dart';
 import '../widgets/app_card.dart';
+import '../widgets/app_shell/app_shell_metrics.dart';
 import '../widgets/blurred_app_bar.dart';
-import '../widgets/ios_liquid/ios_native_navigation_bar.dart';
+import '../widgets/ios/ios_native_navigation_bar.dart';
 import 'generic_webview_page.dart';
 import 'login_page.dart';
 
@@ -34,6 +38,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   List<Course> _todayCourses = [];
   List<Period> _periods = defaultPeriods.toList();
   bool _initialized = false;
+  bool _animationsEnabled = true;
 
   // Refresh every minute to update course now/past state and day changes
   Timer? _refreshTimer;
@@ -54,6 +59,16 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final animationsEnabled = appAnimationsEnabled(context);
+    if (_animationsEnabled != animationsEnabled) {
+      _animationsEnabled = animationsEnabled;
+      if (!animationsEnabled) {
+        _staggerController?.dispose();
+        _staggerController = null;
+        _itemSlides = [];
+        _itemFades = [];
+      }
+    }
     if (!_initialized) {
       _initialized = true;
       _schedule = ServiceProvider.of(context).scheduleService;
@@ -131,6 +146,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   void _runStaggerAnimation(int count) {
     _staggerController?.dispose();
+    if (!_animationsEnabled) {
+      _staggerController = null;
+      _itemSlides = [];
+      _itemFades = [];
+      return;
+    }
     _staggerController = AnimationController(
       vsync: this,
       duration: Duration(milliseconds: 300 + count * 60),
@@ -141,7 +162,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     for (int i = 0; i < count; i++) {
       final start = (i * 0.12).clamp(0.0, 0.6);
       final end = (start + 0.5).clamp(start + 0.1, 1.0);
-      final interval = Interval(start, end, curve: Curves.easeOutCubic);
+      final interval = Interval(
+        start,
+        end,
+        curve: appAnimationCurve(Curves.easeOutCubic),
+      );
       _itemSlides.add(
         Tween<double>(begin: 24.0, end: 0.0).animate(
           CurvedAnimation(parent: _staggerController!, curve: interval),
@@ -278,7 +303,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           16,
           topInset,
           16,
-          120,
+          AppShellMetrics.bottomContentPaddingOf(context),
         ),
         children: [
           Card.filled(
@@ -329,8 +354,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     return Card.outlined(
       clipBehavior: Clip.antiAlias,
       child: AnimatedSize(
-        duration: const Duration(milliseconds: 350),
-        curve: Curves.easeOutCubic,
+        duration: appAnimationDuration(
+          context,
+          const Duration(milliseconds: 350),
+        ),
+        curve: appAnimationCurve(Curves.easeOutCubic),
         alignment: Alignment.topCenter,
         child: Column(
           key: ValueKey('apps-${features.length}-$rows'),
@@ -366,21 +394,24 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   void _handleFeatureTap(Feature feature) {
+    if (!ServiceProvider.of(context).authService.isLoggedIn) {
+      unawaited(presentLoginPage(context));
+      return;
+    }
     switch (feature.mode) {
       case FeatureMode.native:
         feature.nativeEntry?.call(context);
         break;
       case FeatureMode.webviewWithCookie:
-        final cookies = _buildCookiesForFeature(feature.cookieType);
         if (feature.url != null) {
+          final cookies = _buildCookiesForFeature(feature.cookieType);
           unawaited(
-            Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => GenericWebViewPage(
-                  title: feature.description,
-                  url: feature.url!,
-                  cookies: cookies,
-                ),
+            pushAdaptivePage<void>(
+              context,
+              builder: (_) => GenericWebViewPage(
+                title: feature.description,
+                url: feature.url!,
+                cookies: cookies,
               ),
             ),
           );
@@ -440,6 +471,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         icon: Icons.login_rounded,
         title: '登录以查看今日课程',
         subtitle: '连接你的教务系统账号',
+        actionLabel: '登录',
+        actionSfSymbol: 'person.crop.circle.badge.checkmark',
         onTap: () async {
           await presentLoginPage(context);
           if (!mounted) return;
@@ -464,13 +497,22 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     return Card.outlined(
       clipBehavior: Clip.antiAlias,
       child: AnimatedSize(
-        duration: const Duration(milliseconds: 350),
-        curve: Curves.easeOutCubic,
+        duration: appAnimationDuration(
+          context,
+          const Duration(milliseconds: 350),
+        ),
+        curve: appAnimationCurve(Curves.easeOutCubic),
         alignment: Alignment.topCenter,
         child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 300),
-          switchInCurve: Curves.easeOutCubic,
-          switchOutCurve: Curves.easeInCubic,
+          duration: appAnimationDuration(
+            context,
+            const Duration(milliseconds: 300),
+          ),
+          switchInCurve: appAnimationCurve(Curves.easeOutCubic),
+          switchOutCurve: appAnimationCurve(
+            Curves.easeInCubic,
+            iosCurve: Curves.easeInOut,
+          ),
           transitionBuilder: (child, animation) {
             return FadeTransition(opacity: animation, child: child);
           },
@@ -556,13 +598,22 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     return Card.outlined(
       clipBehavior: Clip.antiAlias,
       child: AnimatedSize(
-        duration: const Duration(milliseconds: 350),
-        curve: Curves.easeOutCubic,
+        duration: appAnimationDuration(
+          context,
+          const Duration(milliseconds: 350),
+        ),
+        curve: appAnimationCurve(Curves.easeOutCubic),
         alignment: Alignment.topCenter,
         child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 300),
-          switchInCurve: Curves.easeOutCubic,
-          switchOutCurve: Curves.easeInCubic,
+          duration: appAnimationDuration(
+            context,
+            const Duration(milliseconds: 300),
+          ),
+          switchInCurve: appAnimationCurve(Curves.easeOutCubic),
+          switchOutCurve: appAnimationCurve(
+            Curves.easeInCubic,
+            iosCurve: Curves.easeInOut,
+          ),
           transitionBuilder: (child, animation) =>
               FadeTransition(opacity: animation, child: child),
           layoutBuilder: (currentChild, previousChildren) {
@@ -688,6 +739,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     required IconData icon,
     required String title,
     required String subtitle,
+    String? actionLabel,
+    String? actionSfSymbol,
     VoidCallback? onTap,
   }) {
     final inner = SizedBox(
@@ -718,18 +771,22 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
+            if (onTap != null && actionLabel != null) ...[
+              const SizedBox(height: 16),
+              AdaptiveButton(
+                label: actionLabel,
+                icon: icon,
+                sfSymbol: actionSfSymbol ?? 'arrow.right',
+                role: AdaptiveButtonRole.prominent,
+                width: 180,
+                onPressed: onTap,
+                accessibilityLabel: actionLabel,
+              ),
+            ],
           ],
         ),
       ),
     );
-
-    if (onTap != null) {
-      return InkWell(
-        key: key,
-        onTap: onTap,
-        child: inner,
-      );
-    }
 
     return Container(key: key, child: inner);
   }
@@ -797,13 +854,19 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
 
     return AnimatedOpacity(
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeOutCubic,
+      duration: appAnimationDuration(
+        context,
+        const Duration(milliseconds: 300),
+      ),
+      curve: appAnimationCurve(Curves.easeOutCubic),
       opacity: isPast ? 0.5 : 1.0,
       child: ListTile(
         title: AnimatedDefaultTextStyle(
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOutCubic,
+          duration: appAnimationDuration(
+            context,
+            const Duration(milliseconds: 300),
+          ),
+          curve: appAnimationCurve(Curves.easeOutCubic),
           style: titleStyle,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
@@ -879,7 +942,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             }),
           ),
           AnimatedCrossFade(
-            duration: const Duration(milliseconds: 250),
+            duration: appAnimationDuration(
+              context,
+              const Duration(milliseconds: 250),
+            ),
             crossFadeState: _debugPanelExpanded
                 ? CrossFadeState.showSecond
                 : CrossFadeState.showFirst,
@@ -987,9 +1053,15 @@ class _CourseBadge extends StatelessWidget {
         status == _CourseStatus.soon || status == _CourseStatus.ongoing;
 
     return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 350),
-      switchInCurve: Curves.easeOutCubic,
-      switchOutCurve: Curves.easeInCubic,
+      duration: appAnimationDuration(
+        context,
+        const Duration(milliseconds: 350),
+      ),
+      switchInCurve: appAnimationCurve(Curves.easeOutCubic),
+      switchOutCurve: appAnimationCurve(
+        Curves.easeInCubic,
+        iosCurve: Curves.easeInOut,
+      ),
       transitionBuilder: (child, animation) {
         return FadeTransition(
           opacity: animation,

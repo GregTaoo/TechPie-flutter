@@ -9,14 +9,6 @@ typedef DesktopPopoverBuilder = Widget Function(
   VoidCallback close,
 );
 
-// Matches AppShell._desktopShellEnabled being temporarily false: every
-// window width now uses MobileShell, so this must report mobile too, or
-// callers (e.g. SettingsPage's nested Navigator) would assume a DesktopShell
-// content pane that no longer exists. Flip both back together.
-bool isDesktopLayout(BuildContext context) {
-  return false;
-}
-
 void showDesktopPopover({
   required BuildContext anchorContext,
   required DesktopPopoverBuilder builder,

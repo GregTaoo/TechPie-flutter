@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../pages/egate_app_page.dart';
+import '../pages/elrc_recordings_page.dart';
 import '../pages/oa_gym_page.dart';
+import '../widgets/adaptive_page_navigation.dart';
 
 enum FeatureMode {
   native,
@@ -36,6 +38,16 @@ class Feature {
 
 final featureEntries = <Feature>[
   Feature(
+    id: 'elrc_recordings',
+    description: '课程录播',
+    mode: FeatureMode.native,
+    nativeEntry: (context) => pushAdaptivePage<void>(
+      context,
+      builder: (_) => const ElrcRecordingsPage(),
+    ),
+    icon: const Icon(Icons.video_library_outlined),
+  ),
+  Feature(
     id: 'ecourse',
     description: 'E云课堂',
     mode: FeatureMode.webviewWithCookie,
@@ -55,8 +67,9 @@ final featureEntries = <Feature>[
     id: 'oa_gym',
     description: '场馆预约',
     mode: FeatureMode.native,
-    nativeEntry: (context) => Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const OaGymPage()),
+    nativeEntry: (context) => pushAdaptivePage<void>(
+      context,
+      builder: (_) => const OaGymPage(),
     ),
     icon: const Icon(Icons.sports_tennis),
   ),
@@ -64,11 +77,12 @@ final featureEntries = <Feature>[
     id: 'egate_xshd',
     description: '学生活动',
     mode: FeatureMode.native,
-    nativeEntry: (context) => Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const EgateAppPage()),
+    nativeEntry: (context) => pushAdaptivePage<void>(
+      context,
+      builder: (_) => const EgateAppPage(),
     ),
     icon: const Icon(Icons.qr_code_scanner),
-    ),
+  ),
 ];
 
 final moreFeature = Feature(

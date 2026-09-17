@@ -7,7 +7,7 @@ import '../services/egate_app_service.dart';
 import '../services/service_provider.dart';
 import '../utils/platform.dart';
 import '../widgets/blurred_app_bar.dart';
-import '../widgets/ios_liquid/ios_native_navigation_bar.dart';
+import '../widgets/ios/ios_native_navigation_bar.dart';
 import 'login_page.dart';
 import 'third_party_accounts_page.dart';
 

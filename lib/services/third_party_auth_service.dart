@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import '../models/renew_status.dart';
 import '../models/third_party_account.dart';
 import 'api_base_url.dart';
+import 'campus_web_session.dart';
 import 'http_client.dart';
 import 'session/session_node.dart';
 import 'session/session_tree.dart';
@@ -45,6 +46,9 @@ class ThirdPartyAuthService extends ChangeNotifier {
   Map<String, dynamic>? _cpdailySmsContext;
 
   late final SessionTree _tree;
+  CampusWebSession? _webSession;
+  CampusWebSession get campusWebSession =>
+      _webSession ??= CampusWebSession(cpdailyNode, _storage);
   // Stable per-device id, loaded in [initialize]. Stamped onto every locally
   // mutated account so the cloud-sync LWW merge converges.
   String _deviceId = '';
@@ -649,6 +653,7 @@ class ThirdPartyAuthService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _webSession?.dispose();
     _tree.removeListener(_onTreeChanged);
     _tree.dispose();
     super.dispose();
