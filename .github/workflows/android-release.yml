@@ -68,6 +68,12 @@ jobs:
           prerelease="${BASH_REMATCH[5]}"
           build_number="${BASH_REMATCH[6]}"
 
+          # The release name: what the artifact file names carry and what the
+          # release page is titled, `1.0.1` or `1.0.1-rc.2`. The build number is
+          # in neither — it is global history, and a name has to say which
+          # version this is, not which build (see CLAUDE.md → Artifact names).
+          release_name="${build_name}${prerelease}"
+
           # pubspec.yaml is the single source of the app version; the tag only
           # names an already-versioned commit. Refuse to publish a build whose
           # store version and source version disagree.
@@ -109,6 +115,7 @@ jobs:
             echo "TAG_NAME=$REQUESTED_TAG"
             echo "BUILD_NAME=$build_name"
             echo "BUILD_NUMBER=$build_number"
+            echo "RELEASE_NAME=$release_name"
             echo "PRERELEASE=$([[ -n "$prerelease" ]] && echo true || echo false)"
           } >> "$GITHUB_ENV"
 
@@ -206,7 +213,11 @@ jobs:
 
           for architecture in arm64 arm32; do
             abi=arm64-v8a
-            [[ "$architecture" == arm32 ]] && abi=armeabi-v7a
+            token=arm64v8
+            if [[ "$architecture" == arm32 ]]; then
+              abi=armeabi-v7a
+              token=arm32v7
+            fi
             apk="build/app/outputs/flutter-apk/app-${abi}-release.apk"
             badging="$("$aapt" dump badging "$apk")"
             apk_application_id="$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" <<< "$badging")"
@@ -224,13 +235,17 @@ jobs:
               echo "::error::APK signing certificate does not match the production certificate."
               exit 1
             fi
-            cp "$apk" "dist/TechPie-${TAG_NAME}-${architecture}-only.apk"
+            # TechPie-<version>-platform-arch.apk, where <version> is the release
+            # name — 1.0.1, or 1.0.1-rc.2 for a candidate (CLAUDE.md → Artifact
+            # names). Two candidates of one version must not produce two files a
+            # user cannot tell apart.
+            cp "$apk" "dist/TechPie-${RELEASE_NAME}-android-${token}.apk"
           done
 
       - name: Upload signed APKs
         uses: actions/upload-artifact@v7
         with:
-          name: TechPie-${{ env.TAG_NAME }}
+          name: TechPie-${{ env.RELEASE_NAME }}-android
           path: dist/*.apk
           if-no-files-found: error
           retention-days: 30

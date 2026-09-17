@@ -144,8 +144,10 @@ jobs:
           # The annotation *is* the changelog: its subject becomes the release
           # title and its body the release page, so what a user reads there is
           # what the release actually shipped. release-plan.mjs already refused
-          # the same lookup, so this cannot come up empty.
-          subject="TechPie ${RELEASE_NAME}"
+          # the same lookup, so this cannot come up empty. The subject is the
+          # release name with a `v` in front of it (`v1.0.1-rc.1`, `v1.0.1`),
+          # which is what the release page is titled.
+          subject="v${RELEASE_NAME}"
           message="$RUNNER_TEMP/tag-message.md"
           {
             echo "$subject"

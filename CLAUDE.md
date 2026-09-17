@@ -116,6 +116,10 @@ hand corrupts the record the next release is computed from:
    `version:` line.
 6. **Merging the release PR is the release.** Do not push a version-line change
    onto a release branch unless that is exactly what you mean.
+7. **Every published artifact is named by one grammar** —
+   `TechPie-<version>-<platform>-<arch>[-unsigned].<ext>`, where `<version>` is
+   the release name (`1.0.1`, `1.0.1-rc.2`) and never the build number, and the
+   release *title* is `v<version>`. See [Artifact names](#artifact-names).
 
 ### The numbers
 
@@ -362,6 +366,52 @@ The `ios-vX.Y.Z+B` tag is transitional, and the plan is to end up with the singl
 `needs.plan.outputs.tag` instead of `tag_ios`, `tag_ios` disappears from the
 plan, and `highestIosCode` goes with it, because the global build number already
 satisfies App Store Connect's per-train rule.
+
+### Artifact names
+
+One grammar for everything a release publishes:
+
+```text
+TechPie-<version>-<platform>-<arch>[-unsigned].<ext>
+
+<version>  the release name — what the title says after its `v`. A stable
+           release is `1.0.1`, a candidate is `1.0.1-rc.2`, so two candidates of
+           one version ship files a downloader can tell apart. The build number
+           is in no file name: `+B` is global history, not a version, and the tag
+           is where it lives.
+platform   android | linux | ohos | ios | macos | windows
+arch       universal | x86-64 | arm-64 | arm32v7 | arm64v8
+           Android and OHOS use ABI tokens (arm64-v8a -> arm64v8,
+           armeabi-v7a -> arm32v7); desktop 64-bit ARM is arm-64; universal is
+           one file for every architecture of that platform.
+-unsigned  only when nothing signed it: our OHOS hap today, and any iOS build the
+           private signing repo hands back unsigned.
+ext        android   apk | aab
+           linux     AppImage | deb | rpm | tar.gz | zip
+           ohos      hap | hsp
+           ios       ipa | app
+           macos     dmg | app | tar.gz | zip
+           windows   exe | msi | zip
+```
+
+Published today: `TechPie-1.0.1-rc.2-android-arm64v8.apk` and
+`TechPie-1.0.1-rc.2-android-arm32v7.apk`, plus the hap
+`TechPie-1.0.1-rc.2-ohos-arm64v8-unsigned.hap` and its `.sha256` that
+`scripts/build-unsigned-hap.sh` writes and `ohos-release.yml` attaches when that
+job runs (see OHOS below). Nothing is published for Linux, macOS, Windows or iOS
+yet; adding one means adding a row above, not inventing a name.
+
+Where each name comes from, so workflow and script cannot drift: `release.yml`
+derives the release name once, the Android job recomputes it from the tag it was
+handed, and `scripts/build-unsigned-hap.sh` reads `RELEASE_NAME`, then the release
+tag it is checked out at, then pubspec. Three sources, one string — the same one
+the release is titled with.
+
+The release **title** is that release name with a `v` in front — `v1.0.1-rc.2`,
+`v1.0.1` — taken from the tag annotation's subject, so the title, the annotation's
+first line and what `gh release view` reports are one string. The **tags** keep
+the build number (`v1.0.1-rc.2+5`): two builds of one version have to stay
+distinguishable in git, and the file names deliberately do not try to.
 
 ### Operating the pipeline
 
