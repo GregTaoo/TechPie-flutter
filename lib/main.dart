@@ -20,6 +20,7 @@ import 'services/sync_service.dart';
 import 'services/theme_service.dart';
 import 'services/third_party_auth_service.dart';
 import 'services/uni_auth_service.dart';
+import 'services/update_service.dart';
 import 'widgets/adaptive_feedback.dart';
 import 'widgets/app_shell/app_shell.dart';
 void main(List<String> args) async {
@@ -85,6 +86,9 @@ Future<void> _realMain(SharedPreferences prefs) async {
     scheduleService,
   );
   final syncService = SyncService(authService, thirdPartyAuthService, storageService);
+  // It talks to GitHub rather than our backend, so it keeps its own client
+  // instead of the logging one the API services share.
+  final updateService = UpdateService();
 
   authService.onLogout = () async {
     // Third-party bindings persist across logouts — they will be used by the
@@ -138,6 +142,7 @@ Future<void> _realMain(SharedPreferences prefs) async {
       egateAppService: egateAppService,
       uniAuthService: uniAuthService,
       syncService: syncService,
+      updateService: updateService,
     ),
   );
 
@@ -244,6 +249,7 @@ class TechPieApp extends StatefulWidget {
   final EgateAppService egateAppService;
   final UniAuthService uniAuthService;
   final SyncService syncService;
+  final UpdateService updateService;
 
   const TechPieApp({
     super.key,
@@ -258,6 +264,7 @@ class TechPieApp extends StatefulWidget {
     required this.egateAppService,
     required this.uniAuthService,
     required this.syncService,
+    required this.updateService,
   });
 
   @override
@@ -295,6 +302,7 @@ class _TechPieAppState extends State<TechPieApp> {
         egateAppService: widget.egateAppService,
         uniAuthService: widget.uniAuthService,
         syncService: widget.syncService,
+        updateService: widget.updateService,
         child: MaterialApp(
           scaffoldMessengerKey: rootMessengerKey,
           navigatorObservers: [FeedbackRouteObserver()],

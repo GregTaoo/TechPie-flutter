@@ -9,8 +9,10 @@ import 'package:url_launcher/url_launcher.dart';
 import '../services/service_provider.dart';
 import '../services/sync_service.dart';
 import '../services/theme_service.dart';
+import '../services/update_service.dart';
 import '../utils/adaptive_layout.dart';
 import '../utils/platform.dart';
+import '../utils/product_version.dart';
 import '../widgets/adaptive_alert_dialog.dart';
 import '../widgets/adaptive_button.dart';
 import '../widgets/adaptive_confirmation_button.dart';
@@ -36,6 +38,7 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   String _appVersion = '';
+  bool _checkingUpdate = false;
 
   @override
   void initState() {
@@ -65,6 +68,71 @@ class _SettingsPageState extends State<SettingsPage> {
     } catch (error) {
       // Never let the tile's failure take the page down, but do say why.
       debugPrint('PackageInfo.fromPlatform failed: $error');
+    }
+  }
+
+  /// Checks GitHub for a release newer than the one running, and offers it.
+  ///
+  /// The answer comes from the releases page rather than our backend, so it
+  /// keeps working when the backend does not and needs no account. Cancelling
+  /// the offer changes nothing; accepting it opens the release page, where the
+  /// build for this platform lives.
+  Future<void> _checkForUpdate() async {
+    final updateService = ServiceProvider.of(context).updateService;
+    final current = ProductVersion.tryParse(_appVersion);
+    if (current == null) {
+      await showAdaptiveAlertDialog<void>(
+        context: context,
+        title: '无法检查更新',
+        message: '当前版本号（$_appVersion）无法识别，没法与 GitHub 上的版本比较。',
+        actions: const [AdaptiveAlertAction<void>(label: '好')],
+      );
+      return;
+    }
+
+    setState(() => _checkingUpdate = true);
+    try {
+      final release = await updateService.checkForUpdate(current);
+      if (!mounted) return;
+
+      if (release == null) {
+        await showAdaptiveAlertDialog<void>(
+          context: context,
+          title: '已是最新版本',
+          message: '当前版本 $_appVersion 就是 GitHub 上最新的版本。',
+          actions: const [AdaptiveAlertAction<void>(label: '好')],
+        );
+        return;
+      }
+
+      final openReleasePage = await showAdaptiveAlertDialog<bool>(
+        context: context,
+        title: '发现新版本 ${release.name}',
+        message: release.notes,
+        actions: const [
+          AdaptiveAlertAction<bool>(label: '以后再说'),
+          AdaptiveAlertAction<bool>(
+            label: '前往更新',
+            value: true,
+            isDefault: true,
+          ),
+        ],
+      );
+      if (openReleasePage != true || !mounted) return;
+      await launchUrl(
+        Uri.parse(UpdateService.latestReleasePage),
+        mode: LaunchMode.externalApplication,
+      );
+    } on UpdateCheckException catch (error) {
+      if (!mounted) return;
+      await showAdaptiveAlertDialog<void>(
+        context: context,
+        title: '检查更新失败',
+        message: error.message,
+        actions: const [AdaptiveAlertAction<void>(label: '好')],
+      );
+    } finally {
+      if (mounted) setState(() => _checkingUpdate = false);
     }
   }
 
@@ -275,6 +343,18 @@ class _SettingsPageState extends State<SettingsPage> {
                     ? 'Version Unknown'
                     : 'Version $_appVersion',
               ),
+              // Tapping the version is the whole affordance: it is where a user
+              // looks when they wonder whether they are up to date.
+              trailing: _checkingUpdate
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh),
+              onTap: _appVersion.isEmpty || _checkingUpdate
+                  ? null
+                  : () => unawaited(_checkForUpdate()),
             ),
             if (!kReleaseMode) const Divider(),
 

@@ -140,6 +140,9 @@ Future<T?> _showFlutterAlertDialog<T>({
   return showDialog<T>(
     context: context,
     builder: (dialogContext) => AlertDialog(
+      // A release changelog can be longer than a dialog is tall; without this
+      // the content is clipped rather than scrolled.
+      scrollable: true,
       title: Text(title),
       content: Text(message),
       actions: [

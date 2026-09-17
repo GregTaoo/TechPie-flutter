@@ -11,6 +11,7 @@ import 'sync_service.dart';
 import 'theme_service.dart';
 import 'third_party_auth_service.dart';
 import 'uni_auth_service.dart';
+import 'update_service.dart';
 
 class ServiceProvider extends InheritedWidget {
   final AuthService authService;
@@ -24,6 +25,7 @@ class ServiceProvider extends InheritedWidget {
   final EgateAppService egateAppService;
   final UniAuthService uniAuthService;
   final SyncService syncService;
+  final UpdateService updateService;
 
   const ServiceProvider({
     super.key,
@@ -38,6 +40,7 @@ class ServiceProvider extends InheritedWidget {
     required this.egateAppService,
     required this.uniAuthService,
     required this.syncService,
+    required this.updateService,
     required super.child,
   });
 
@@ -60,5 +63,6 @@ class ServiceProvider extends InheritedWidget {
       oaGymService != oldWidget.oaGymService ||
       egateAppService != oldWidget.egateAppService ||
       uniAuthService != oldWidget.uniAuthService ||
-      syncService != oldWidget.syncService;
+      syncService != oldWidget.syncService ||
+      updateService != oldWidget.updateService;
 }

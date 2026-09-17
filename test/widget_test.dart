@@ -15,6 +15,7 @@ import 'package:techpie/services/sync_service.dart';
 import 'package:techpie/services/theme_service.dart';
 import 'package:techpie/services/third_party_auth_service.dart';
 import 'package:techpie/services/uni_auth_service.dart';
+import 'package:techpie/services/update_service.dart';
 import 'package:techpie/widgets/app_shell/app_shell.dart';
 import 'package:techpie/widgets/app_shell/tg_bottom_nav_bar.dart';
 
@@ -99,6 +100,7 @@ void main() {
         egateAppService: egateApp,
         uniAuthService: uniAuth,
         syncService: sync,
+        updateService: UpdateService(),
       ),
     );
 
@@ -142,6 +144,7 @@ void main() {
         egateAppService: egateApp,
         uniAuthService: uniAuth,
         syncService: sync,
+        updateService: UpdateService(),
       ),
     );
 
