@@ -15,6 +15,7 @@ import 'package:webview_flutter/webview_flutter.dart'
         WebViewCookieManager;
 
 import '../services/auth_service.dart';
+import '../services/campus_web_session.dart';
 import '../services/service_provider.dart';
 import '../services/third_party_auth_service.dart';
 import '../services/webview_bridge.dart';
@@ -188,7 +189,7 @@ class _GenericWebViewPageState extends State<GenericWebViewPage>
       // session, then stack the cookies of the derived session this feature
       // authenticates against (ecourse runs on it directly, egate on its own
       // MOD_AUTH_CAS/_WEU session derived from it).
-      await _tpAuth!.campusWebSession.useIdsSession();
+      final primedIds = await _tpAuth!.campusWebSession.useIdsSession();
       if (!mounted ||
           !_authorized ||
           _owner != _tpAuth!.campusWebSession.owner) {
@@ -197,6 +198,12 @@ class _GenericWebViewPageState extends State<GenericWebViewPage>
 
       final cookieManager = WebViewCookieManager();
       for (final c in hostCookies) {
+        // Where the native store already carries the IDS login — including a
+        // browser session newer than the saved binding, which useIdsSession()
+        // deliberately keeps — writing the saved copy again would shadow it.
+        if (primedIds && CampusWebSession.isIdsSessionCookie(c.name, c.domain)) {
+          continue;
+        }
         await cookieManager.setCookie(c);
       }
 

@@ -14,6 +14,16 @@ class CampusWebSession {
     node.addListener(_onBindingChanged);
   }
 
+  /// Host the IDS session lives on. A copy of these cookies injected into the
+  /// same store would only shadow what [useIdsSession] put there.
+  static const String idsHost = 'ids.shanghaitech.edu.cn';
+
+  /// Whether `name`/`domain` name one of the IDS session cookies
+  /// [useIdsSession] owns.
+  static bool isIdsSessionCookie(String name, String domain) =>
+      domain.toLowerCase() == idsHost &&
+      (name == 'CASTGC' || name == 'AUTHTGC');
+
   final SessionNode node;
   final StorageService storage;
   AuthService? _auth;
@@ -130,7 +140,7 @@ class CampusWebSession {
       checkOwner();
       if (node.account == null) return false;
       final manager = CookieManager.instance();
-      final ids = WebUri('https://ids.shanghaitech.edu.cn/authserver/');
+      final ids = WebUri('https://$idsHost/authserver/');
       // A browser login can be newer than the saved CpDaily binding. Preserve
       // it and let IDS validate the session through the service's SSO redirect.
       final existing = await manager.getCookie(url: ids, name: 'CASTGC');
