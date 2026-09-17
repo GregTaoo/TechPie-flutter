@@ -287,10 +287,19 @@ jobs:
             fi
           fi
 
-          gh release edit "$TAG" --draft=false --prerelease="$PRERELEASE" --latest="$latest"
+          # Print what is about to be published *before* publishing it, so a bad
+          # field or a wrong flag fails while the release is still a draft.
           gh release view "$TAG" \
-            --json tagName,isPrerelease,isLatest,assets \
-            --jq '"\(.tagName): published, prerelease=\(.isPrerelease), latest=\(.isLatest), assets=\([.assets[].name] | join(", "))"'
+            --json tagName,isDraft,isPrerelease,assets \
+            --jq '"\(.tagName): draft=\(.isDraft) prerelease=\(.isPrerelease) assets=\([.assets[].name] | join(", "))"'
+
+          gh release edit "$TAG" --draft=false --prerelease="$PRERELEASE" --latest="$latest"
+
+          # Everything below is a report, not a gate: the release is public by now,
+          # and a failure here would mark a successful release red — which is what
+          # 1.0.1-rc.1 did, by asking `gh release view` for an `isLatest` field that
+          # a release object does not have. The label lives at `releases/latest`.
+          echo "latest is now: $(gh api "repos/$GH_REPO/releases/latest" --jq '.tag_name' 2>/dev/null || echo unknown)"
 
           # The proposal branch has done its job now that the release is out, and
           # one dead branch per release would add up. Best effort: a release
