@@ -1,12 +1,11 @@
 import 'dart:async';
-import 'dart:io' show Platform;
 
-import 'package:desktop_webview_window/desktop_webview_window.dart'
-    show CreateConfiguration, WebviewWindow;
+import 'package:desktop_webview_window/desktop_webview_window.dart' show Webview;
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../services/webview_bridge.dart';
+import 'webview_host.dart';
 
 /// A debug-only webview page that accepts a custom URL.
 class DebugWebViewPage extends StatefulWidget {
@@ -18,16 +17,31 @@ class DebugWebViewPage extends StatefulWidget {
   State<DebugWebViewPage> createState() => _DebugWebViewPageState();
 }
 
-class _DebugWebViewPageState extends State<DebugWebViewPage> {
+class _DebugWebViewPageState extends State<DebugWebViewPage>
+    with BhWebViewHost<DebugWebViewPage>, WidgetsBindingObserver {
   late final WebViewController _controller;
   final TextEditingController _urlController = TextEditingController();
+  Webview? _desktopWebview;
   String? _bridgeMessage;
+
+  @override
+  Webview? get desktopWebview => _desktopWebview;
+
+  @override
+  Future<void> runPageJavaScript(String script) async {
+    if (isDesktopWebView) {
+      await _desktopWebview?.evaluateJavaScript(script);
+      return;
+    }
+    await _controller.runJavaScript(script);
+  }
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _urlController.text = widget.initialUrl ?? '';
-    if (Platform.isLinux || Platform.isWindows) {
+    if (isDesktopWebView) {
       unawaited(_openDesktop());
     } else {
       _controller = WebViewController();
@@ -35,24 +49,29 @@ class _DebugWebViewPageState extends State<DebugWebViewPage> {
     }
   }
 
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _urlController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(notifyBhMobileSdkResume());
+    }
+  }
+
   Future<void> _openDesktop() async {
-    final webview = await WebviewWindow.create(
-      configuration: const CreateConfiguration(
-        title: 'Debug WebView', windowWidth: 900, windowHeight: 700,
-      ),
-    );
+    final url = _urlController.text.trim();
+    if (url.isEmpty) return;
+    final webview = await openDesktopWebview(title: 'Debug WebView', url: url);
+    if (webview == null) return;
     webview.addOnWebMessageReceivedCallback((message) {
-      unawaited(
-        handleBhMobileSdkMessage(
-          message,
-          (script) => webview.evaluateJavaScript(script),
-        ),
-      );
       if (mounted) setState(() => _bridgeMessage = message);
     });
-    webview.addScriptToExecuteOnDocumentCreated(techPieDocumentStartScript);
-    final url = _urlController.text.trim();
-    if (url.isNotEmpty) webview.launch(url);
+    _desktopWebview = webview;
   }
 
   Future<void> _initController() async {
@@ -62,15 +81,11 @@ class _DebugWebViewPageState extends State<DebugWebViewPage> {
         onNavigationRequest: (request) => NavigationDecision.navigate,
       ),
     );
+    installBhMobileSdkBridge();
     await _controller.addJavaScriptChannel(
       'TechPieBridge',
       onMessageReceived: (JavaScriptMessage message) {
-        unawaited(
-          handleBhMobileSdkMessage(
-            message.message,
-            (script) => _controller.runJavaScript(script),
-          ),
-        );
+        unawaited(handleBhMobileSdkMessage(message.message));
         if (mounted) setState(() => _bridgeMessage = message.message);
       },
     );
@@ -84,13 +99,16 @@ class _DebugWebViewPageState extends State<DebugWebViewPage> {
 
   Future<void> _load() async {
     final url = _urlController.text.trim();
-    if (url.isNotEmpty) {
-      if (Platform.isLinux || Platform.isWindows) {
-        await _openDesktop();
-      } else {
-        await _controller.loadRequest(Uri.parse(url));
-      }
+    if (url.isEmpty) return;
+    if (isDesktopWebView) {
+      final webview = await openDesktopWebview(
+        title: 'Debug WebView',
+        url: url,
+      );
+      if (webview != null) _desktopWebview = webview;
+      return;
     }
+    await _controller.loadRequest(Uri.parse(url));
   }
 
   @override
@@ -126,8 +144,10 @@ class _DebugWebViewPageState extends State<DebugWebViewPage> {
             ),
           ];
     return Scaffold(
-      appBar: AppBar(title: const Text('Debug WebView'), centerTitle: true),
-      body: Platform.isLinux || Platform.isWindows
+      appBar: hostNavBarVisible
+          ? AppBar(title: Text(hostPageTitle ?? 'Debug WebView'), centerTitle: true)
+          : null,
+      body: isDesktopWebView
           ? Column(children: [urlRow, ...bridgeText, const Text('Desktop WebView opened in separate window')])
           : Column(children: [urlRow, ...bridgeText, Expanded(child: WebViewWidget(controller: _controller))]),
     );

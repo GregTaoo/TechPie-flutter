@@ -4,9 +4,25 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>BH_MOBILE_SDK Test</title>
+  <script>
+    // In the app the host injects the SDK itself and answers the bridge. In a
+    // plain browser (python3 -m http.server) nothing is injected, so load the
+    // analysis stubs here: they answer picks with a 1x1 PNG and record every
+    // upload instead of sending it (`window.__netLog` / `window.__hostLog`).
+    if (!window.TechPieBridge) {
+      document.write('<script src="host_stub.js?v=2"><\/script>');
+      document.write('<script src="techpie_inject.js?v=2"><\/script>');
+    }
+  </script>
+  <!-- Optional: the page-side SDK the campus pages ship. Without it the test
+       drives window.mamp directly, which is what that bundle wraps. Get it with
+       `npm pack bh-mobile-sdk` and copy package/lib/index.js here. A hard
+       reload (Ctrl+Shift+R) picks up refreshed stubs. -->
+  <script src="sdk.js?v=2" onload="window.__sdkBundleLoaded = true" onerror="window.__sdkBundleMissing = true"></script>
   <style>
     body { font-family: system-ui, sans-serif; max-width: 720px; margin: 20px auto; padding: 0 16px; }
     button { margin: 4px 4px 4px 0; padding: 8px 12px; }
+    input[type=text] { width: 100%; padding: 6px; box-sizing: border-box; }
     .status { padding: 10px; background: #f3f4f6; border-radius: 6px; }
     .ok { color: #137333; }
     .bad { color: #b3261e; }
@@ -21,9 +37,21 @@
   <button onclick="takeCamera()">拍照</button>
   <button onclick="takePhoto()">从相册选择</button>
   <button onclick="previewImages()">预览测试图片</button>
+  <button onclick="pickDate()">日期</button>
+  <button onclick="pickDateTime()">日期时间</button>
   <button onclick="openWebView()">打开 WebView</button>
   <button onclick="toggleNavBar()">隐藏原生导航栏</button>
   <button onclick="closeWebView()">关闭当前 WebView</button>
+
+  <h3>上传流程</h3>
+  <div>
+    上传地址（留空为当前站点）：
+    <input type="text" id="uploadHost" placeholder="https://egate.shanghaitech.edu.cn/xsfw">
+  </div>
+  <button onclick="uploadToEmap()">拍照/相册 → uploadToEMAP</button>
+  <button onclick="uploadToServer()">页面自带 input → uploadToServer</button>
+  <input type="file" id="pageInput" accept="image/*" multiple>
+  <button onclick="dumpLogs()">导出桥接日志</button>
 
   <h3>生命周期</h3>
   <button onclick="registerResume()">注册 webviewOnResume</button>
@@ -33,35 +61,29 @@
   <pre id="log"></pre>
 
   <script>
-    (function () {
-      var sdk = window.BH_MOBILE_SDK;
-      var status = document.getElementById('status');
+    // The host namespace (`mamp`) is what the campus SDK bundle wraps, so the
+    // tests work with or without sdk.js.
+    function sdk() {
+      return window.BH_MOBILE_SDK || window.mamp;
+    }
 
-      if (sdk && sdk.systemAbility) {
-        status.className = 'status ok';
-        status.textContent = 'BH_MOBILE_SDK 已注入，systemAbility 可用';
+    function status() {
+      const node = document.getElementById('status');
+      const api = sdk();
+      if (api && api.systemAbility && api.UI && api.file && api.wisedu) {
+        node.className = 'status ok';
+        node.textContent = window.__sdkBundleLoaded
+          ? 'SDK 已注入（BH_MOBILE_SDK，页面自带 sdk.js）'
+          : 'SDK 已注入（直接驱动 window.mamp，未加载 sdk.js）';
       } else {
-        status.className = 'status bad';
-        status.textContent = 'BH_MOBILE_SDK 未注入。请在原生宿主 WebView 中打开此页面';
+        node.className = 'status bad';
+        node.textContent = 'SDK 未注入。请在原生宿主 WebView 中打开此页面（或在 assets/www 下用 http.server 打开）';
       }
-
-      log('页面加载完成');
-      log('ENV: ' + (sdk && sdk.ENV ? sdk.ENV : 'unknown'));
-      log('SDK: ' + (sdk ? 'available' : 'missing'));
-    })();
-
-    function getSdk() {
-      var sdk = window.BH_MOBILE_SDK;
-      if (!sdk) {
-        log('错误: window.BH_MOBILE_SDK 不存在');
-        return null;
-      }
-      return sdk;
     }
 
     function log(message, value) {
-      var output = document.getElementById('log');
-      var line = new Date().toLocaleTimeString() + '  ' + message;
+      const output = document.getElementById('log');
+      let line = new Date().toLocaleTimeString() + '  ' + message;
       if (typeof value !== 'undefined') {
         try {
           line += '\n' + JSON.stringify(value, null, 2);
@@ -73,15 +95,32 @@
       output.scrollTop = output.scrollHeight;
     }
 
+    function uploadHost() {
+      return document.getElementById('uploadHost').value.trim() || location.origin;
+    }
+
+    (function () {
+      status();
+      log('页面加载完成');
+      if (window.__sdkBundleMissing) log('未加载 assets/www/sdk.js，直接使用 window.mamp');
+      // The date buttons follow the host: the in-app host shows its own picker,
+      // the browser stub returns a fixed value unless it is told to stand down.
+      if (/[?&]engineDate=1/.test(location.search)) {
+        log('日期按钮：使用 webview 引擎自带选择器（engineDate=1）');
+      } else if (typeof window.__hostPicked === 'function') {
+        log('日期按钮：stub 宿主直接回固定值；加 ?engineDate=1 改为引擎选择器');
+      }
+    })();
+
     function takeCamera() {
-      var sdk = getSdk();
-      if (!sdk || !sdk.systemAbility || typeof sdk.systemAbility.takeCamera !== 'function') {
+      const api = sdk();
+      if (!api.systemAbility || typeof api.systemAbility.takeCamera !== 'function') {
         log('takeCamera 不可用');
         return;
       }
-      log('调用 BH_MOBILE_SDK.systemAbility.takeCamera()');
+      log('调用 systemAbility.takeCamera()');
       try {
-        sdk.systemAbility.takeCamera(function (result) {
+        api.systemAbility.takeCamera(function (result) {
           log('takeCamera 回调', result);
         });
       } catch (error) {
@@ -90,128 +129,182 @@
     }
 
     function takePhoto() {
-      var sdk = getSdk();
-      if (!sdk || !sdk.systemAbility || typeof sdk.systemAbility.takePhoto !== 'function') {
+      const api = sdk();
+      if (!api.systemAbility || typeof api.systemAbility.takePhoto !== 'function') {
         log('takePhoto 不可用');
         return;
       }
-      log('调用 BH_MOBILE_SDK.systemAbility.takePhoto(callback, 3)');
+      log('调用 systemAbility.takePhoto(callback, 3)');
       try {
-        sdk.systemAbility.takePhoto(function (result) {
+        api.systemAbility.takePhoto(function (result) {
           log('takePhoto 回调', result);
-          uploadImages(result);
         }, 3);
       } catch (error) {
         log('takePhoto 抛出异常', String(error));
       }
     }
 
-    function uploadImages(result) {
-      var sdk = getSdk();
-      var uploader = sdk && sdk.wisedu && sdk.wisedu.uploadToEMAP;
-      if (!uploader) {
-        log('未自动上传: BH_MOBILE_SDK.wisedu.uploadToEMAP 不可用');
+    // The campus image component: pick, then upload under the file token the
+    // EMAP attachment endpoint returns. A failed upload is what breaks 请假提交,
+    // so this prints the token (success) or the raw result (failure).
+    function uploadToEmap() {
+      const api = sdk();
+      if (!api.wisedu || typeof api.wisedu.uploadToEMAP !== 'function') {
+        log('wisedu.uploadToEMAP 不可用');
         return;
       }
-
-      var files = Array.isArray(result) ? result : [result];
-      var urls = files.filter(function (file) {
-        return file && (typeof file === 'string' || file.url);
-      }).map(function (file) {
-        return typeof file === 'string' ? file : file.url;
-      });
-
-      if (!urls.length) {
-        log('未自动上传: 回调中没有图片 URL');
-        return;
-      }
-
-      log('自动上传图片', urls);
-      Promise.resolve(uploader.call(sdk.wisedu, location.origin, urls, {}))
-        .then(function (response) {
+      const host = uploadHost();
+      log('调用 uploadToEMAP', host);
+      api.systemAbility.takePhoto(function (picked) {
+        log('takePhoto 回调', (picked || []).map(function (item) {
+          return { name: item.name, size: item.size, url: item.url };
+        }));
+        if (!picked || !picked.length) {
+          log('未选择文件，跳过上传');
+          return;
+        }
+        Promise.resolve(api.wisedu.uploadToEMAP(host, picked.map(function (item) {
+          return item.url;
+        }), {})).then(function (response) {
           log('uploadToEMAP 成功', response);
-        })
-        .catch(function (error) {
+        }, function (error) {
           log('uploadToEMAP 失败', error);
         });
+      }, 3);
+    }
+
+    // The attachment path: the SDK nests its body fields under `params`, and
+    // the picked bytes have to still be reachable here, long after the picker.
+    function uploadToServer() {
+      const api = sdk();
+      if (!api.file || typeof api.file.uploadToServer !== 'function') {
+        log('file.uploadToServer 不可用');
+        return;
+      }
+      const input = document.getElementById('pageInput');
+      input.onchange = function () {
+        log('页面 input 选择', Array.from(input.files).map(function (file) {
+          return { name: file.name, size: file.size };
+        }));
+        api.file.uploadToServer(
+          uploadHost() + '/sys/emapcomponent/file/uploadTempFileAsAttachment.do',
+          Array.from(input.files),
+          { params: { scope: 'debug-scope', fileToken: 'debug-scope1', storeId: 'image' } },
+          function (results) {
+            log('uploadToServer 回调', results);
+          },
+        );
+      };
+      input.click();
+    }
+
+    function dumpLogs() {
+      log('host messages', window.__hostLog || '(none)');
+      log('recorded requests', window.__netLog || '(none)');
+    }
+
+    // The campus date fields call the host's native picker; without one the
+    // page falls back to the browser's own <input type=date> picker.
+    function pickDate() {
+      const api = sdk();
+      if (!api.UI || typeof api.UI.datePicker !== 'function') {
+        log('UI.datePicker 不可用');
+        return;
+      }
+      log('调用 UI.datePicker(value, callback)');
+      api.UI.datePicker('2026-09-01', function (value) {
+        log('datePicker 回调', value);
+      });
+    }
+
+    function pickDateTime() {
+      const api = sdk();
+      if (!api.UI || typeof api.UI.dateTimePicker !== 'function') {
+        log('UI.dateTimePicker 不可用');
+        return;
+      }
+      log('调用 UI.dateTimePicker(value, callback)');
+      api.UI.dateTimePicker('2026-09-01 08:30', function (value) {
+        log('dateTimePicker 回调', value);
+      });
     }
 
     function previewImages() {
-      var sdk = getSdk();
-      if (!sdk || !sdk.UI || typeof sdk.UI.preViewImages !== 'function') {
+      const api = sdk();
+      if (!api.UI || typeof api.UI.preViewImages !== 'function') {
         log('UI.preViewImages 不可用');
         return;
       }
-      var images = [{
+      const images = [{
         url: 'https://dummyimage.com/600x400/1976d2/ffffff.png&text=BH+SDK',
         desc: 'BH_MOBILE_SDK 测试图片'
       }];
       log('调用 UI.preViewImages()', images);
       try {
-        sdk.UI.preViewImages(images, 0);
+        api.UI.preViewImages(images, 0);
       } catch (error) {
         log('preViewImages 抛出异常', String(error));
       }
     }
 
     function openWebView() {
-      var sdk = getSdk();
-      if (!sdk || !sdk.UI || typeof sdk.UI.openWebView !== 'function') {
+      const api = sdk();
+      if (!api.UI || typeof api.UI.openWebView !== 'function') {
         log('UI.openWebView 不可用');
         return;
       }
       log('调用 UI.openWebView()');
       try {
-        sdk.UI.openWebView('https://example.com');
+        api.UI.openWebView('https://example.com');
       } catch (error) {
         log('openWebView 抛出异常', String(error));
       }
     }
 
     function toggleNavBar() {
-      var sdk = getSdk();
-      if (!sdk || !sdk.UI) {
+      const api = sdk();
+      if (!api.UI) {
         log('UI 不可用');
         return;
       }
-      var method = sdk.UI.toggleNavBar || sdk.UI.setNavHeader;
+      const method = api.UI.toggleNavBar || api.UI.setNavHeader;
       if (typeof method !== 'function') {
         log('toggleNavBar/setNavHeader 均不可用');
         return;
       }
-      log('调用导航栏隐藏 API');
+      log('调用导航栏隐藏 API（宿主原生栏应隐藏）');
       try {
-        method.call(sdk.UI, false);
+        method.call(api.UI, false);
       } catch (error) {
         log('导航栏 API 抛出异常', String(error));
       }
     }
 
     function closeWebView() {
-      var sdk = getSdk();
-      if (!sdk || !sdk.UI || typeof sdk.UI.closeWebView !== 'function') {
+      const api = sdk();
+      if (!api.UI || typeof api.UI.closeWebView !== 'function') {
         log('UI.closeWebView 不可用');
         return;
       }
       log('调用 UI.closeWebView()');
       try {
-        sdk.UI.closeWebView();
+        api.UI.closeWebView();
       } catch (error) {
         log('closeWebView 抛出异常', String(error));
       }
     }
 
     function registerResume() {
-      var sdk = getSdk();
-      if (!sdk || !sdk.UI || typeof sdk.UI.webviewOnResume !== 'function') {
+      const api = sdk();
+      if (!api.UI || typeof api.UI.webviewOnResume !== 'function') {
         log('UI.webviewOnResume 不可用');
         return;
       }
       try {
-        sdk.UI.webviewOnResume(function () {
+        api.UI.webviewOnResume(function () {
           log('webviewOnResume 回调触发');
         });
-        log('webviewOnResume 注册成功');
+        log('webviewOnResume 注册成功（切后台再回来应触发）');
       } catch (error) {
         log('webviewOnResume 抛出异常', String(error));
       }

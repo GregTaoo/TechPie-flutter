@@ -1,8 +1,6 @@
 import 'dart:async';
-import 'dart:io' show Platform;
 
-import 'package:desktop_webview_window/desktop_webview_window.dart'
-    show WebviewWindow, CreateConfiguration;
+import 'package:desktop_webview_window/desktop_webview_window.dart' show Webview;
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart'
     show
@@ -17,6 +15,7 @@ import 'package:webview_flutter/webview_flutter.dart'
         WebViewCookieManager;
 
 import '../services/webview_bridge.dart';
+import 'webview_host.dart';
 
 /// A page that hosts a webview.
 ///
@@ -43,14 +42,33 @@ class GenericWebViewPage extends StatefulWidget {
   State<GenericWebViewPage> createState() => _GenericWebViewPageState();
 }
 
-class _GenericWebViewPageState extends State<GenericWebViewPage> {
+class _GenericWebViewPageState extends State<GenericWebViewPage>
+    with BhWebViewHost<GenericWebViewPage>, WidgetsBindingObserver {
   late final WebViewController _controller;
+  Webview? _desktopWebview;
   String? _desktopError;
+
+  @override
+  Webview? get desktopWebview => _desktopWebview;
+
+  @override
+  List<WebViewCookie> get hostCookies =>
+      widget.cookies ?? const <WebViewCookie>[];
+
+  @override
+  Future<void> runPageJavaScript(String script) async {
+    if (isDesktopWebView) {
+      await _desktopWebview?.evaluateJavaScript(script);
+      return;
+    }
+    await _controller.runJavaScript(script);
+  }
 
   @override
   void initState() {
     super.initState();
-    if (Platform.isLinux || Platform.isWindows) {
+    WidgetsBinding.instance.addObserver(this);
+    if (isDesktopWebView) {
       unawaited(_openDesktop());
     } else {
       _controller = WebViewController();
@@ -58,46 +76,38 @@ class _GenericWebViewPageState extends State<GenericWebViewPage> {
     }
   }
 
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(notifyBhMobileSdkResume());
+    }
+  }
+
   // -- Desktop path (desktop_webview_window popup) --
 
   Future<void> _openDesktop() async {
-    try {
-      final cookies = widget.cookies ?? const <WebViewCookie>[];
-      final webview = await WebviewWindow.create(
-        configuration: CreateConfiguration(
-          title: widget.title,
-          windowWidth: 900,
-          windowHeight: 700,
-        ),
-      );
-      webview.addOnWebMessageReceivedCallback((message) {
-        unawaited(
-          handleBhMobileSdkMessage(
-            message,
-            (script) => webview.evaluateJavaScript(script),
-          ),
-        );
-      });
-      webview.addScriptToExecuteOnDocumentCreated(techPieDocumentStartScript);
-      for (final script in widget.initialUserScripts) {
-        webview.addScriptToExecuteOnDocumentCreated(script.source);
+    final webview = await openDesktopWebview(
+      title: widget.title,
+      url: widget.url,
+      cookies: hostCookies,
+      initialScripts: <String>[
+        for (final script in widget.initialUserScripts) script.source,
+      ],
+    );
+    if (webview == null) {
+      if (mounted) {
+        setState(() => _desktopError = 'The WebView window could not be opened');
       }
-      for (final c in cookies) {
-        webview.setCookie(
-          url: widget.url,
-          name: c.name,
-          value: c.value,
-          domain: c.domain,
-          path: c.path,
-          isHttpOnly: true,
-        );
-      }
-      webview.launch(widget.url);
-      if (mounted) Navigator.of(context).pop();
-    } catch (error) {
-      debugPrint('Desktop WebView bridge setup failed: $error');
-      if (mounted) setState(() => _desktopError = error.toString());
+      return;
     }
+    _desktopWebview = webview;
+    if (mounted) Navigator.of(context).pop();
   }
 
   // -- Mobile / webview_flutter in-app widget --
@@ -110,15 +120,11 @@ class _GenericWebViewPageState extends State<GenericWebViewPage> {
       ),
     );
 
+    installBhMobileSdkBridge();
     await _controller.addJavaScriptChannel(
       'TechPieBridge',
       onMessageReceived: (JavaScriptMessage message) {
-        unawaited(
-          handleBhMobileSdkMessage(
-            message.message,
-            (script) => _controller.runJavaScript(script),
-          ),
-        );
+        unawaited(handleBhMobileSdkMessage(message.message));
       },
     );
 
@@ -129,7 +135,7 @@ class _GenericWebViewPageState extends State<GenericWebViewPage> {
 
     final cookieManager = WebViewCookieManager();
     await cookieManager.clearCookies();
-    for (final c in widget.cookies ?? const <WebViewCookie>[]) {
+    for (final c in hostCookies) {
       await cookieManager.setCookie(c);
     }
 
@@ -138,9 +144,12 @@ class _GenericWebViewPageState extends State<GenericWebViewPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (Platform.isLinux || Platform.isWindows) {
+    final appBar = hostNavBarVisible
+        ? AppBar(title: Text(hostPageTitle ?? widget.title), centerTitle: true)
+        : null;
+    if (isDesktopWebView) {
       return Scaffold(
-        appBar: AppBar(title: Text(widget.title), centerTitle: true),
+        appBar: appBar,
         body: Center(
           child: _desktopError == null
               ? const CircularProgressIndicator()
@@ -150,7 +159,7 @@ class _GenericWebViewPageState extends State<GenericWebViewPage> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: Text(widget.title), centerTitle: true),
+      appBar: appBar,
       body: WebViewWidget(controller: _controller),
     );
   }
