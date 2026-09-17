@@ -83,31 +83,284 @@ Campus web services (ecourse, student leave, etc.) are opened in an in-app WebVi
 
 ## Releasing
 
-`pubspec.yaml` is the single version source: `version: X.Y.Z[-pre.N]+B`. Nothing
+`pubspec.yaml` is the single version source: `version: X.Y.Z[-rc.N]+B`. Nothing
 else declares a version — the OHOS `AppScope/app.json5` is generated from it at
 build time, Android/iOS/Windows/Linux derive their stamps from it, and a release
 tag must agree with it or the release workflow refuses to publish.
+`scripts/release-plan.mjs` implements the policy below and runs standalone
+(`node scripts/release-plan.mjs --ref master`) to show what a dispatch would
+release — the same thing the workflow prints into its run summary before it
+tags anything.
 
-- **Changing the version on `master`** publishes a pre-release: `release.yml`
-  plans it, tags `android-v<name>+B` / `ios-v<name>+B`, then calls the Android
-  build and the iOS dispatch. The build number *is* the pre-release ordinal, so
-  `1.0.0+4` releases as `1.0.0-rc.4` — one number pins everything, and nothing is
-  inferred from tag history. A suffix written in pubspec is accepted only when it
-  says exactly that (`1.0.0-rc.4+4`); anything else is refused. The suffix never
-  reaches the platform version stamps, because iOS rejects a
-  `CFBundleShortVersionString` like `1.0.0-rc.4`.
-- **Cutting a `release/X.Y.Z` branch** publishes the stable release for `X.Y.Z`.
-  The branch must carry exactly that version, with no pre-release suffix.
-- `+B` must be above the released Android build (Play requires an increase) and
-  above the released iOS build for the same version. Bump it for every release.
-- Tags are created by CI. Do not tag a release by hand; a tag that disagrees
-  with pubspec is refused. Nothing is tagged until the commit being released
-  passes `flutter analyze` and `flutter test` inside the release run itself
-  (`analyze.yml` passing on the same commit proves nothing — GitHub does not
-  order workflow runs).
-- The repository variable `RELEASE_FREEZE=true` merges a version change without
-  publishing: the plan still lands in the run summary, tagging and every
-  platform build are skipped.
+### Hard rules
+
+Not preferences — the pipeline refuses work that breaks them, and breaking one by
+hand corrupts the record the next release is computed from:
+
+1. **`pubspec.yaml` is the only version source.** Never declare a version, a build
+   number or an `-rc.N` anywhere else (no hand-made tags, no `--build-name` that
+   disagrees, no store-side override).
+2. **A build number is never reused and never reset** — not at a major bump, not
+   per version line, not per year. Play requires the versionCode to increase for
+   the application as a whole and App Store Connect requires CFBundleVersion to
+   increase inside a train, so the counter only ever goes up.
+3. **Never create or delete a release tag by hand.** Tags are the ledger the plan
+   reads to decide what comes next; a hand-made tag is either refused by the
+   platform workflows or, worse, taken as history. Deleting a release *object* is
+   fine; deleting its tag is not.
+4. **A release always ships notes.** `CHANGELOG.md` must carry a non-empty
+   `## [X.Y.Z]` section before anything is tagged: the tag annotation is built
+   from it and the release page from the annotation.
+5. **Releases come from `master` (candidates) or `release/X.Y.Z` (stable), and
+   nothing else.** A push to a release branch publishes only when it moves the
+   `version:` line.
+6. **Merging the release PR is the release.** Do not push a version-line change
+   onto a release branch unless that is exactly what you mean.
+
+### The numbers
+
+- `X.Y.Z` is the product version, and the only number a user ever sees.
+  **MAJOR** — a change users cannot ride through on their own: an account must be
+  re-bound or re-authenticated, the cloud-sync envelope breaks, a platform floor
+  moves up. **MINOR** — a new user-visible capability: a campus service, a
+  screen, a platform. **PATCH** — fixes and maintenance that add nothing a user
+  can do. The 0.x line is over: `1.0.0` is the first version that promises this.
+- `+B` is the build number: one counter for every platform, strictly greater than
+  every build ever shipped. Play requires the versionCode to increase across the
+  application and App Store Connect requires CFBundleVersion to increase inside a
+  version train, so this single counter satisfies both. It is never reused and
+  never reset at a major bump.
+- `-rc.N` is derived, never invented: `N` is **which candidate of this version
+  line this is**, counted from the tags, so `1.0.0+4` on `master` releases as
+  `1.0.0-rc.2` when one `1.0.0` candidate already shipped. It is independent of
+  `+B`: the build number is a global counter, the ordinal is per version line. A
+  suffix written in pubspec is accepted only when it says exactly what the plan
+  derived (`1.0.0-rc.2+4`); anything else is refused, so pubspec and the release
+  name cannot disagree.
+- The suffix never reaches a platform version stamp: iOS rejects a
+  `CFBundleShortVersionString` like `1.0.0-rc.4`, and Android is kept identical
+  so that one release has one version everywhere. Stores and the in-app settings
+  tile show `X.Y.Z`; `+B` tells two builds of it apart.
+- `release-plan.mjs` enforces all of the above before anything is tagged: a build
+  number that is not above the highest released one (the refusal names the number
+  to write), a leading zero anywhere in the version, a number above Play's
+  2100000000 ceiling, an `-rc.N` that disagrees with the derived ordinal, and a
+  `version:` line with anything after the number all stop the run.
+
+### What publishes a release
+
+Two entries, both deliberate:
+
+| Entry | What decides | Channel | Release name |
+| --- | --- | --- | --- |
+| merging the release PR (`prepare-release.yml` → PR → merge) | that merge's push, and only when it *moves* `version:` | stable | `X.Y.Z` |
+| `gh workflow run release.yml --ref master` | the dispatch itself | pre-release | `X.Y.Z-rc.N` |
+
+That gate is the difference. A push to `release/**` publishes only when it moves
+the `version:` line: merging the release PR does, cutting the release branch does
+not, and neither does a later fix pushed to a frozen line. A base that is missing,
+all zeros or unreadable also answers "did not move" — the safe way round, since a
+release that did not happen can be asked for again and an unintended one cannot be
+taken back.
+
+A ref that is neither `master` nor `release/X.Y.Z` is refused, so a mistyped
+branch cannot publish from an arbitrary commit. Releasing the same commit twice is
+a no-op (the tags already point there); a build number that shipped before is
+refused.
+
+`release.yml` only plans and tags; the platform builds are reusable workflows it
+calls, because a tag pushed with `GITHUB_TOKEN` does not trigger tag-based
+workflows. Nothing is tagged until the commit being released passes
+`flutter analyze` and `flutter test` inside that run (`analyze.yml` passing on
+the same commit proves nothing — GitHub does not order workflow runs).
+
+A release branch declares exactly the version it freezes: `release/1.0.1` must
+carry `1.0.1+B`, with no suffix, and a mismatch is refused rather than guessed.
+It is therefore one version train — a higher `+B` on the same branch republishes
+`1.0.1` as a new build (the path for a store resubmission), and the next patch
+line is a new branch (cut from the old one, so the fixes travel with it). A build
+number is never reused, so a stable release lands one above the last candidate
+that actually shipped.
+
+### Choosing the channel
+
+| You want | Do | CI publishes |
+| --- | --- | --- |
+| nothing yet — docs, CI, refactors | leave `version:` alone | nothing |
+| a candidate testers can install | bump `+B` on `master`, write the notes, dispatch on `master` | `X.Y.Z-rc.N` |
+| another candidate | bump `+B` again, dispatch again | `X.Y.Z-rc.(N+1)` |
+| the version users get | `prepare-release.yml` on `master`, review the PR, merge it | `X.Y.Z` |
+| a rebuild of the same stable version | `prepare-release.yml` on the release branch, merge | `X.Y.Z`, new build |
+| the next patch line | `prepare-release.yml` on the old release branch, with the new `X.Y.Z'` | `X.Y.Z'` |
+
+Tags are never part of the decision and never made by hand: every release —
+candidates included — is planned, verified (`flutter analyze`, `flutter test`),
+tagged `v<name>+B` / `ios-vX.Y.Z+B`, built, and published by CI in that order.
+A candidate is an rc only because it is a build number of a version line that has
+not been frozen yet; freezing it is what makes the same numbers a release.
+
+```bash
+# a candidate, on master. The plan names it (candidate N of this version line),
+# so the build number is the only number you write here.
+$EDITOR pubspec.yaml          # version: 1.0.0+5
+$EDITOR CHANGELOG.md          # what changed — a release without it is refused
+git commit -m "chore(release): 1.0.0 candidate"
+git push origin master
+gh workflow run release.yml --repo HeZeBang/TechPie-flutter --ref master
+
+# the stable release: CI cuts the branch and proposes the bump, you merge it
+gh workflow run prepare-release.yml --repo HeZeBang/TechPie-flutter \
+  --ref master -f version=1.0.0
+#  → cuts release/1.0.0 at master, opens release-prep/1.0.0 → release/1.0.0
+#  → merging that PR is the release: that push moves `version:`
+```
+
+The release PR carries the version line, not the notes: the notes are reviewed
+where they live, in `CHANGELOG.md`, and `prepare-release.yml` refuses to open a
+pull request for a version with no (or an empty) section. Re-running it rewrites
+the same branches and updates the same PR, so the loop for "the notes are wrong"
+is: fix `CHANGELOG.md` on master, run it again.
+
+When the line's version already equals what is being released — releasing a line
+whose candidates were skipped — there is nothing to bump: the branch is still cut
+and the run tells you to publish it with `gh workflow run release.yml --ref
+release/X.Y.Z`.
+
+Preview a dispatch with `-f dry_run=true` (it still runs `flutter analyze` and
+`flutter test`, but tags and builds nothing), and re-run a single platform for an
+existing tag with `gh workflow run android-release.yml -f tag=v1.0.0+5`
+(`ohos-release.yml` takes `release_tag` instead of `tag`).
+
+### Release notes
+
+`CHANGELOG.md` is where a release says what changed, and it is a gate rather than
+a nicety: `release-plan.mjs` looks up `## [<product version>]` before anything is
+tagged and refuses the release when that section is missing or empty.
+
+- Sections are keyed by **product version**, not by release name: every candidate
+  of a line and the stable release that ends it share one section, because the rc
+  ordinal is derived at release time and nobody could write its heading in
+  advance.
+- The lookup is exact. Taking "the newest section" would publish the wrong notes
+  the first time the file is out of order, so a missing section is a refusal —
+  which is also why `## [Unreleased]` does not work: notes belong under the version
+  they ship as.
+- The tag job copies the section into the tag annotation's body (its subject stays
+  `TechPie X.Y.Z[-rc.N]`), and the GitHub release page is built from that
+  annotation. The notes a user reads are therefore the ones that were reviewed,
+  and the tag keeps them even if the release page is edited later.
+
+### When it does not happen
+
+- **Refused at the plan** (missing notes, a build number that already shipped, a
+  branch that does not match its version): nothing is tagged and nothing is built.
+  Fix the cause first — and for a merge that already landed, run
+  `gh workflow run release.yml --ref release/X.Y.Z` afterwards, because the fixing
+  push moves no version line and would publish nothing on its own.
+- **A platform build failed after the tag was made**: the tag stays (the ledger,
+  and the build number is spent). Re-run that platform with
+  `gh workflow run android-release.yml -f tag=<tag>` — the draft is refreshed, not
+  recreated.
+- **A published release is wrong**: supersede it with a higher build number.
+  Deleting the release object is fine; deleting its tag is not, because the next
+  release would then be free to reuse the number.
+- **A dispatch that asks for nothing** (`skip=true`: the tags already point at that
+  commit) is a no-op by design.
+
+### Triggers
+
+`release.yml` has exactly two entries: a push to `release/**` (the merged release
+PR) and `workflow_dispatch` (candidates, and anything that has to be asked for
+again). `prepare-release.yml` is dispatch-only and only ever opens a pull request
+— it builds and publishes nothing. `analyze.yml` stays the push/PR gate that keeps
+master green; it never publishes.
+
+Every other workflow is called, never tag-triggered: `android-release.yml`,
+`dispatch-ios-release.yml` and `ohos-release.yml` expose `workflow_call` (the
+release run drives them) and `workflow_dispatch` (replay one platform for an
+existing tag). Two reasons. A tag pushed with `GITHUB_TOKEN` cannot start a
+workflow run at all, which is why `release.yml` calls them instead of waiting for
+the tags it just pushed. And a tag pushed by hand is exactly what this policy
+forbids — it must not be able to start a release.
+
+The release object is opened as a **draft before any platform builds**, and
+`publish` flips it public last. That ordering is what lets Android, iOS and OHOS
+build in parallel while each attaches what it produced, and it is GitHub's own
+recommendation once immutable releases are enabled (a published release refuses
+new assets). It also keeps a half-assembled release from notifying watchers. A
+release is published in whatever repository runs the workflow
+(`HeZeBang/TechPie-flutter` today), so a run in a fork publishes there.
+
+Repository settings these workflows do not enforce but that the policy assumes:
+required reviewers on the `android-release` environment (it exists, with no
+protection rules today), so a human approves a run that signs with the release
+key; and leaving immutable releases off until the draft order above has shipped
+one release, after which it can be switched on.
+
+One thing to know before enabling required status checks on `master` or
+`release/**`: `prepare-release.yml` opens its pull request with `GITHUB_TOKEN`,
+and a pull request opened with that token starts no `pull_request` runs (the same
+recursion rule that stops CI-pushed tags from triggering workflows). Today that
+costs nothing — neither branch is protected and no checks are required — but the
+moment a check is required, the release PR could never go green. The fix is to
+open it with the GitHub App the iOS dispatch already uses
+(`RELEASE_APP_CLIENT_ID` / `RELEASE_APP_PRIVATE_KEY`), granted `contents: write`
+and `pull_requests: write` on this repository.
+
+### Tags
+
+CI creates two annotated tags per release, both carrying the changelog:
+
+| Tag | Names | Consumed by |
+| --- | --- | --- |
+| `v1.0.0-rc.2+5`, `v1.0.0+6` | the release | the Android build, the GitHub release (APKs, then the OHOS hap) |
+| `ios-v1.0.0+5` | the same release in iOS's shape | the dispatch to `CNDY1390/TechPie-release` |
+
+The release tag has no platform prefix because its artifacts are the Android APKs
+and the OHOS hap — iOS is signed and shipped to TestFlight by the private
+workflow — and it keeps the release name, so the tag alone says which candidate
+shipped. The iOS tag keeps its prefix because that private workflow validates
+exactly `ios-vX.Y.Z+B`, and it cannot carry the suffix because
+`CFBundleShortVersionString` forbids it — so that tag alone does not say whether
+the build was a candidate; the release tag does. Do not create either tag by
+hand: a tag that disagrees with pubspec is refused, and the plan reads tag
+history (the older `android-v…` tags included) to keep `+B` above every build
+already shipped.
+
+The platform workflows check the tag once more before building: it must name a
+commit reachable from `master` or a `release/*` branch. Master alone is not
+enough — a stable release's version bump lives only on its release branch, and a
+commit on neither ref must not be publishable.
+
+The `ios-vX.Y.Z+B` tag is transitional, and the plan is to end up with the single
+`v…` tag. Nothing here can finish that: the private signing workflow validates
+`ios-vX.Y.Z+B` today, so the second tag stays until that validator accepts
+`vX.Y.Z+B`. The switchover is then small — the `ios` job passes
+`needs.plan.outputs.tag` instead of `tag_ios`, `tag_ios` disappears from the
+plan, and `highestIosCode` goes with it, because the global build number already
+satisfies App Store Connect's per-train rule.
+
+### Operating the pipeline
+
+- CI signs and publishes the APKs (and the unsigned hap), and stops there:
+  **uploading to Play, AppGallery and the App Store is manual**, from those
+  artifacts. The Android signing material lives in the `android-release`
+  environment; the iOS dispatch needs `RELEASE_APP_*` and the signing repo.
+- The `publish` job owns the "Latest" label: a candidate never takes it, and
+  neither does a maintenance line published after a newer one. A release is
+  labelled latest only when it is stable and its `X.Y.Z` is not older than the
+  release GitHub currently calls latest.
+- **F-Droid**, should we ever ship there: F-Droid builds from the tagged commit
+  with its own `flutter build apk --release` and takes the version from
+  `pubspec.yaml`, so its metadata wants
+  `UpdateCheckMode: Tags v[0-9.]*\+[0-9]+$` — plain `Tags` would read a
+  candidate's build number as the current version — and no `subdir:` (our
+  pubspec.yaml is at the root). Its rebuild is unsplit, so its versionCode is
+  `+B` while ours are `ABI×1000 + B` (arm32 `1000+B`, arm64 `2000+B`, measured on
+  the shipped APKs), and the two channels sign with different keys anyway, so a
+  user cannot move between them without reinstalling.
+- There is no freeze switch: a release waits for its dispatch, so merging a
+  version bump publishes nothing on its own.
 - **OHOS**: each release also publishes an unsigned hap
   (`techpie-<version>-unsigned.hap` plus its sha256) attached to the GitHub
   release, built by `scripts/build-unsigned-hap.sh` with `OHOS_UNSIGNED=1` (the
@@ -121,9 +374,9 @@ tag must agree with it or the release workflow refuses to publish.
   have produced. The script judges the build by the artifact instead.
   Also note: the OHOS toolchain rewrites `AppScope/app.json5`'s version fields
   itself and hvigor flattens a pre-release name, so a declared `1.0.0-rc.4+5`
-  packs as versionName `1.0.0.4` with versionCode 5. Android and iOS get the
-  pre-release name stripped instead (iOS forbids it in
-  `CFBundleShortVersionString`), which is why the release name lives in the tag.
+  packs as versionName `1.0.0.4` with versionCode 5. Android and iOS strip the
+  suffix instead (iOS forbids it in `CFBundleShortVersionString`), so `+B` is
+  what identifies a build on every platform.
 
 ## OHOS-Specific Gotchas
 
