@@ -124,9 +124,11 @@ packages:
   desktop_webview_window:
     dependency: "direct main"
     description:
-      path: "packages/desktop_webview_window"
-      relative: true
-    source: path
+      path: "."
+      ref: "feature/techpie-bridge"
+      resolved-ref: d8443059ba096456be8ebd0848d81fc7a99d72ef
+      url: "https://github.com/HeZeBang/desktop_webview_window_fork.git"
+    source: git
     version: "0.2.3"
   dynamic_color:
     dependency: "direct main"
@@ -619,6 +621,15 @@ packages:
       url: "https://pub.flutter-io.cn"
     source: hosted
     version: "2.2.1"
+  path_provider_ohos:
+    dependency: "direct overridden"
+    description:
+      path: "packages/path_provider/path_provider_ohos"
+      ref: "br_path_provider-v2.1.4_ohos"
+      resolved-ref: d8bf2cf9d726cce4d308521f4fb500d832523002
+      url: "https://gitee.com/openharmony-sig/flutter_packages.git"
+    source: git
+    version: "2.2.9"
   path_provider_platform_interface:
     dependency: transitive
     description:
@@ -893,37 +904,47 @@ packages:
   webview_flutter:
     dependency: "direct main"
     description:
-      path: "../br_webview_flutter_ohos/webview_flutter"
-      relative: true
-    source: path
+      path: webview_flutter
+      ref: main
+      resolved-ref: "5be2544d8502cecf63ebb86b8f79407f79b27833"
+      url: "https://github.com/HeZeBang/br_webview_flutter_ohos.git"
+    source: git
     version: "4.13.0"
   webview_flutter_android:
     dependency: transitive
     description:
-      path: "../br_webview_flutter_ohos/webview_flutter_android"
-      relative: true
-    source: path
+      path: webview_flutter_android
+      ref: main
+      resolved-ref: "5be2544d8502cecf63ebb86b8f79407f79b27833"
+      url: "https://github.com/HeZeBang/br_webview_flutter_ohos.git"
+    source: git
     version: "4.7.0"
   webview_flutter_ohos:
     dependency: transitive
     description:
-      path: "../br_webview_flutter_ohos/webview_flutter_ohos"
-      relative: true
-    source: path
+      path: webview_flutter_ohos
+      ref: main
+      resolved-ref: "5be2544d8502cecf63ebb86b8f79407f79b27833"
+      url: "https://github.com/HeZeBang/br_webview_flutter_ohos.git"
+    source: git
     version: "4.7.0"
   webview_flutter_platform_interface:
     dependency: "direct overridden"
     description:
-      path: "../br_webview_flutter_ohos/webview_flutter_platform_interface"
-      relative: true
-    source: path
+      path: webview_flutter_platform_interface
+      ref: main
+      resolved-ref: "5be2544d8502cecf63ebb86b8f79407f79b27833"
+      url: "https://github.com/HeZeBang/br_webview_flutter_ohos.git"
+    source: git
     version: "2.13.1"
   webview_flutter_wkwebview:
     dependency: transitive
     description:
-      path: "../br_webview_flutter_ohos/webview_flutter_wkwebview"
-      relative: true
-    source: path
+      path: webview_flutter_wkwebview
+      ref: main
+      resolved-ref: "5be2544d8502cecf63ebb86b8f79407f79b27833"
+      url: "https://github.com/HeZeBang/br_webview_flutter_ohos.git"
+    source: git
     version: "3.22.0"
   win32:
     dependency: transitive

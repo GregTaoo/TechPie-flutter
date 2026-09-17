@@ -267,6 +267,9 @@ class TechPieApp extends StatefulWidget {
 class _TechPieAppState extends State<TechPieApp> {
   @override
   Widget build(BuildContext context) {
+    // The plugin has no implementation on iOS, web or OHOS, where asking for
+    // the palette throws a MissingPluginException the builder does not catch.
+    if (!supportsSystemDynamicColor()) return _buildApp();
     return DynamicColorBuilder(
       builder: (lightDynamic, darkDynamic) {
         WidgetsBinding.instance.addPostFrameCallback((_) {

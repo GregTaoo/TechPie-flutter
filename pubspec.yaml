@@ -61,14 +61,22 @@ dependencies:
   url_launcher: ^6.3.0
   web: ^1.1.1
   webview_flutter:
-    path: ../br_webview_flutter_ohos/webview_flutter
+    # HeZeBang/br_webview_flutter_ohos: the OHOS fork, plus document-start
+    # user-script injection on every platform.
+    git:
+      url: https://github.com/HeZeBang/br_webview_flutter_ohos.git
+      path: webview_flutter
+      ref: main
 
 dependency_overrides:
   # Linux: use forked desktop_webview_window (WebKitGTK) for webview
   # popup, avoiding WPE WebKit EGL issues on Wayland. The fork adds
-  # native setCookie via webkit_cookie_manager_add_cookie.
+  # native setCookie via webkit_cookie_manager_add_cookie and forwards
+  # WebKit script messages to Flutter; on Windows, WebView2's CookieManager.
   desktop_webview_window:
-    path: packages/desktop_webview_window
+    git:
+      url: https://github.com/HeZeBang/desktop_webview_window_fork.git
+      ref: feature/techpie-bridge
 
   # OpenHarmony-SIG forks add OHOS platform implementations for plugins
   # whose upstream pub.dev releases don't ship them. Without these, the
@@ -82,6 +90,11 @@ dependency_overrides:
     git:
       url: https://gitee.com/openharmony-sig/flutter_plus_plugins.git
       path: packages/package_info_plus/package_info_plus
+  path_provider_ohos:
+    git:
+      url: https://gitee.com/openharmony-sig/flutter_packages.git
+      path: packages/path_provider/path_provider_ohos
+      ref: br_path_provider-v2.1.4_ohos
   shared_preferences_ohos:
     git:
       url: https://gitee.com/openharmony-sig/flutter_packages.git
@@ -91,7 +104,10 @@ dependency_overrides:
       url: https://gitee.com/openharmony-sig/flutter_packages.git
       path: packages/url_launcher/url_launcher_ohos
   webview_flutter_platform_interface:
-    path: ../br_webview_flutter_ohos/webview_flutter_platform_interface
+    git:
+      url: https://github.com/HeZeBang/br_webview_flutter_ohos.git
+      path: webview_flutter_platform_interface
+      ref: main
   # flutter_secure_storage:
   #   git:
   #     url: https://gitcode.com/openharmony-sig/fluttertpc_flutter_secure_storage.git

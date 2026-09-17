@@ -38,3 +38,17 @@ double adaptiveTopBarHeight() => usesIosLiquidGlass() ? 64.0 : kToolbarHeight;
 
 /// Check if the current platform is Android and not web.
 bool isAndroid() => !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
+/// Whether `dynamic_color` ships an implementation here — it covers Android,
+/// Linux, macOS and Windows only.
+///
+/// Its builder swallows `PlatformException`, but a platform without the plugin
+/// throws `MissingPluginException`, which would surface as an unhandled async
+/// error at startup (iOS, web, OHOS). Skipping the builder leaves the app on its
+/// static colour scheme instead.
+bool supportsSystemDynamicColor() =>
+    !kIsWeb &&
+    (isAndroid() ||
+        defaultTargetPlatform == TargetPlatform.linux ||
+        defaultTargetPlatform == TargetPlatform.macOS ||
+        defaultTargetPlatform == TargetPlatform.windows);
