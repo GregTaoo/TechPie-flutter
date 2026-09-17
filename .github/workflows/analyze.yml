@@ -42,6 +42,16 @@ jobs:
         shell: bash
         run: git diff --exit-code -- pubspec.lock
 
+      - name: Lint the workflows
+        # The release pipeline is wiring, so lint it: this catches a
+        # `needs.<job>.outputs.<name>` nobody declared (which reads as an empty
+        # string at runtime, so it breaks the release rather than the lint) and
+        # shellcheck findings inside step scripts. Pinned by digest so the lint
+        # cannot change under us.
+        uses: docker://rhysd/actionlint:1.7.7@sha256:887a259a5a534f3c4f36cb02dca341673c6089431057242cdc931e9f133147e9
+        with:
+          args: -color
+
       - name: Analyze
         run: flutter analyze --no-pub
 
