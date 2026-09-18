@@ -22,7 +22,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: ${{ inputs.tag || github.ref }}
+  group: linux-${{ inputs.tag || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -67,9 +67,17 @@ jobs:
           echo "Building Linux $release_name from $REQUESTED_TAG."
 
       - name: Install Linux desktop build dependencies
-        # What `flutter doctor` asks for on a Linux desktop target: a C++ and
-        # CMake toolchain plus GTK 3 headers. liblzma-dev is there for the
-        # bundled engine's dependency on it.
+        # What `flutter doctor` asks for on a Linux desktop target — a C++ and
+        # CMake toolchain plus GTK 3 headers — and then what this app's plugins
+        # ask for on top, which is what 1.0.1-rc.2's first release build died on:
+        #
+        #   libwebkit2gtk-4.1-dev  the desktop WebView fork's WebKitGTK backend
+        #                          (CMake: "The following required packages were
+        #                          not found: webkit2gtk-4.1")
+        #   libsecret-1-dev        flutter_secure_storage_linux
+        #   libjsoncpp-dev         and its jsoncpp dependency
+        #
+        # liblzma-dev is there for the bundled engine's dependency on it.
         run: |
           set -euo pipefail
 
@@ -80,7 +88,10 @@ jobs:
             ninja-build \
             pkg-config \
             libgtk-3-dev \
-            liblzma-dev
+            liblzma-dev \
+            libwebkit2gtk-4.1-dev \
+            libsecret-1-dev \
+            libjsoncpp-dev
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -134,5 +145,5 @@ jobs:
           # (workflow_dispatch on a tag whose release does not exist yet)
           # therefore fails at this step by design — `gh` refuses an upload to a
           # release that is not there, rather than inventing one.
-          gh release upload "$TAG_NAME" dist/*.tar.gz --clobber
+          scripts/attach-release-asset.sh "$TAG_NAME" dist/*.tar.gz
           echo "Attached the Linux artifact to release $TAG_NAME."

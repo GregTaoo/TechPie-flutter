@@ -269,6 +269,13 @@ tagged and refuses the release when that section is missing or empty.
   `gh release edit <tag> --draft=false --prerelease=<true|false> --latest=<true|false>`
   (a candidate is `prerelease=true latest=false`). Re-dispatching `release.yml`
   instead is a no-op: the plan sees the tags already at that commit and skips.
+  **A re-run rebuilds that tag's commit, so it can only recover a transient
+  failure.** A fix to a workflow — a missing build dependency, a wrong apt
+  package — cannot reach a tag that is already cut: bump `+B`, fix, and release
+  again. That is what 1.0.1-rc.2 cost: its Linux build died on a missing
+  `libwebkit2gtk-4.1-dev`, its Windows job on a shared concurrency group, and its
+  OHOS attach on an HTTP 500 from the upload service, all three of which are
+  fixed for the next candidate rather than for it.
 - **A published release is wrong**: supersede it with a higher build number.
   Deleting the release object is fine; deleting its tag is not, because the next
   release would then be free to reuse the number.
@@ -393,11 +400,11 @@ ext        android   apk | aab
            windows   exe | msi | zip
 ```
 
-Published today: the two split APKs `TechPie-1.0.1-rc.2-android-arm64v8.apk` and
-`TechPie-1.0.1-rc.2-android-arm32v7.apk`, the `TechPie-1.0.1-rc.2-android-universal.apk`
-that carries every ABI, the `TechPie-1.0.1-rc.2-ohos-arm64v8-unsigned.hap` with its
-`.sha256`, `TechPie-1.0.1-rc.2-linux-x86-64.tar.gz` (the Linux bundle, which
-extracts to a single `bundle/` directory) and `TechPie-1.0.1-rc.2-windows-x86-64.zip`.
+Published today: the two split APKs `TechPie-1.0.1-rc.3-android-arm64v8.apk` and
+`TechPie-1.0.1-rc.3-android-arm32v7.apk`, the `TechPie-1.0.1-rc.3-android-universal.apk`
+that carries every ABI, the `TechPie-1.0.1-rc.3-ohos-arm64v8-unsigned.hap` with its
+`.sha256`, `TechPie-1.0.1-rc.3-linux-x86-64.tar.gz` (the Linux bundle, which
+extracts to a single `bundle/` directory) and `TechPie-1.0.1-rc.3-windows-x86-64.zip`.
 macOS and iOS attach nothing to a release — iOS goes to TestFlight through the
 private signing repo. Adding a platform means adding a row above, not inventing a
 name.
@@ -430,6 +437,13 @@ distinguishable in git, and the file names deliberately do not try to.
   once, over every asset, since a platform job only knows its own files. The
   Android signing material lives in the `android-release` environment; the iOS
   dispatch needs `RELEASE_APP_*` and the signing repo.
+- **One concurrency group per platform.** Group names are repository-wide and a
+  group holds only one *pending* entry, so platform workflows that share a group
+  cancel each other's queued jobs: 1.0.1-rc.2's Windows job was cancelled one
+  second after it started, before any step ran, because Linux and Android were
+  queued in the same group. Hence `android-` / `linux-` / `windows-` / `ohos-` /
+  `ios-` prefixes, and `cancel-in-progress: false` — which protects a *running*
+  job, not a pending one.
 - The `publish` job owns the "Latest" label: a candidate never takes it, and
   neither does a maintenance line published after a newer one. A release is
   labelled latest only when it is stable and its `X.Y.Z` is not older than the

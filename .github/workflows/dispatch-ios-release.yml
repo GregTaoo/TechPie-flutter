@@ -23,7 +23,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ inputs.tag || github.ref }}
+  group: ios-${{ inputs.tag || github.ref }}
   cancel-in-progress: false
 
 jobs:

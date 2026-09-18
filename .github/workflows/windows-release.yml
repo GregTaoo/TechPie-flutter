@@ -22,7 +22,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: ${{ inputs.tag || github.ref }}
+  group: windows-${{ inputs.tag || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -138,4 +138,4 @@ jobs:
           # nothing here creates a release. A standalone dispatch run before that
           # release exists therefore fails at this step, which is the intended
           # refusal — release.yml is what publishes a release.
-          gh release upload "$TAG_NAME" dist/*.zip --clobber
+          scripts/attach-release-asset.sh "$TAG_NAME" dist/*.zip

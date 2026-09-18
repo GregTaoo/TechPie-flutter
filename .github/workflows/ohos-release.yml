@@ -36,6 +36,10 @@ permissions:
   contents: write
   packages: read
 
+concurrency:
+  group: ohos-${{ inputs.release_tag || github.ref }}
+  cancel-in-progress: false
+
 jobs:
   unsigned-hap:
     name: Build unsigned hap
@@ -121,4 +125,4 @@ jobs:
             exit 1
           fi
 
-          gh release upload "$RELEASE_TAG" dist/*.hap dist/*.sha256 --clobber
+          scripts/attach-release-asset.sh "$RELEASE_TAG" dist/*.hap dist/*.sha256

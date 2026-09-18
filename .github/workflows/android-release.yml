@@ -22,7 +22,12 @@ permissions:
   contents: write
 
 concurrency:
-  group: ${{ inputs.tag || github.ref }}
+  # The platform name is part of the group on purpose: concurrency groups are
+  # repository-wide and a group holds one *pending* entry, so a shared name makes
+  # sibling platform jobs cancel each other — 1.0.1-rc.2's Windows job was
+  # cancelled 1 second after it started, before any step ran, because Linux and
+  # Android were queued in the same group. See the note in CLAUDE.md → Releasing.
+  group: android-${{ inputs.tag || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -290,7 +295,7 @@ jobs:
             # intended refusal — its assets are what the tag published. The
             # checksums for *every* platform's assets are the publish job's,
             # written once the last of them has attached.
-            gh release upload "$TAG_NAME" dist/*.apk --clobber
+            scripts/attach-release-asset.sh "$TAG_NAME" dist/*.apk
             echo "Attached the APKs to the existing release $TAG_NAME."
           else
             # Standalone replay of this workflow (workflow_dispatch with a tag
