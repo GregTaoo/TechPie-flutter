@@ -29,6 +29,11 @@ class _AppShellState extends State<AppShell> {
   int _selectedIndex = 0;
   int _previousSelectedIndex = 0;
   bool _sidebarCollapsed = false;
+
+  /// One stack per destination, and a key for each: the content navigator is
+  /// rebuilt when the destination changes, and two live navigators must not
+  /// share one GlobalKey.
+  final _contentNavigatorKeys = <int, GlobalKey<NavigatorState>>{};
   static const List<AppDestination> _destinations = [
     AppDestination(
       label: 'Home',
@@ -85,11 +90,22 @@ class _AppShellState extends State<AppShell> {
   }
 
   Widget _buildDesktopContentNavigator(Widget pageView) {
-    return Navigator(
-      key: ValueKey('desktop-content-$_selectedIndex'),
-      onGenerateRoute: (settings) => MaterialPageRoute<void>(
-        settings: settings,
-        builder: (context) => pageView,
+    final navigatorKey = _contentNavigatorKeys.putIfAbsent(
+      _selectedIndex,
+      GlobalKey<NavigatorState>.new,
+    );
+
+    // The same reason the settings page needs it: this stack holds the pages a
+    // destination pushed, so the system back has to reach it rather than the
+    // root navigator, which only has the shell on it.
+    return NavigatorPopHandler(
+      onPopWithResult: (_) => navigatorKey.currentState?.pop(),
+      child: Navigator(
+        key: navigatorKey,
+        onGenerateRoute: (settings) => MaterialPageRoute<void>(
+          settings: settings,
+          builder: (context) => pageView,
+        ),
       ),
     );
   }

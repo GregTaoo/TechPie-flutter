@@ -40,6 +40,10 @@ class _SettingsPageState extends State<SettingsPage> {
   String _appVersion = '';
   bool _checkingUpdate = false;
 
+  /// The stack a settings subpage is pushed onto in a wide window. A field, not
+  /// a local: a GlobalKey rebuilt every frame would drop the stack with it.
+  final _nestedNavigatorKey = GlobalKey<NavigatorState>();
+
   @override
   void initState() {
     super.initState();
@@ -139,10 +143,19 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   Widget build(BuildContext context) {
     if (usesSidebarLayout(context)) {
-      return Navigator(
-        onGenerateRoute: (settings) => MaterialPageRoute<void>(
-          settings: settings,
-          builder: (context) => _buildSettingsScaffold(context),
+      // A wide window gives the settings subpages their own stack, which is what
+      // makes them feel like pages rather than a full-screen push. The system back
+      // has to be told about that stack: without NavigatorPopHandler the gesture
+      // goes to the root navigator, which shows the shell and has nothing to pop,
+      // so it closes the app instead of leaving the subpage.
+      return NavigatorPopHandler(
+        onPopWithResult: (_) => _nestedNavigatorKey.currentState?.pop(),
+        child: Navigator(
+          key: _nestedNavigatorKey,
+          onGenerateRoute: (settings) => MaterialPageRoute<void>(
+            settings: settings,
+            builder: (context) => _buildSettingsScaffold(context),
+          ),
         ),
       );
     }
