@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 
 import '../../domain/ports/platform_ports.dart';
 import '../icons/platform_icons.dart';
-import '../localization/geekpay_localizations.dart';
 import '../theme/colors.dart';
 
 final class SixDigitPasswordPanel extends StatefulWidget {
@@ -44,7 +43,7 @@ class _SixDigitPasswordPanelState extends State<SixDigitPasswordPanel> {
   @override
   Widget build(BuildContext context) {
     return Semantics(
-      label: '${context.l10n.t('password')}, ${_digits.length}/6',
+      label: '消费密码, ${_digits.length}/6',
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -56,16 +55,16 @@ class _SixDigitPasswordPanelState extends State<SixDigitPasswordPanel> {
               ),
               const Spacer(),
               IconButton(
-                tooltip: context.l10n.t('cancel'),
+                tooltip: '取消',
                 onPressed: widget.onCancel,
                 icon: Icon(GpPlatformIcons.closeCircleFilled(context)),
               ),
             ],
           ),
           const SizedBox(height: 8),
-          Text(
-            context.l10n.t('enterPassword'),
-            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+          const Text(
+            '输入 6 位消费密码',
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 18),
           Row(

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../localization/geekpay_localizations.dart';
 import '../scanner/scanner_modal.dart';
 import '../theme/glass.dart';
 import '../theme/tokens.dart';
@@ -11,7 +10,7 @@ Future<void> openGpScanner(BuildContext context) async {
   await showGeneralDialog<void>(
     context: context,
     useRootNavigator: false,
-    barrierLabel: context.l10n.t('close'),
+    barrierLabel: '关闭',
     barrierDismissible: false,
     barrierColor: Colors.black54,
     transitionDuration: GpTokens.scanModalDuration,

@@ -4,13 +4,13 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 
 import '../../app/app_providers.dart';
 import '../../domain/models/offline_models.dart';
 import '../../domain/ports/platform_ports.dart';
 import '../icons/geekpay_icons.dart';
 import '../icons/platform_icons.dart';
-import '../localization/geekpay_localizations.dart';
 import '../theme/colors.dart';
 import '../widgets/apple_wallet_components.dart';
 import '../widgets/gp_state.dart';
@@ -21,7 +21,6 @@ final class OfflineAuthorizationScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final card = ref.watch(cardControllerProvider).valueOrNull;
-    final l10n = context.l10n;
     return Scaffold(
       body: AppleWalletPage(
         child: ApplePinnedHeaderLayout(
@@ -29,10 +28,10 @@ final class OfflineAuthorizationScreen extends ConsumerWidget {
             id: 'back',
             sfSymbol: 'chevron.left',
             icon: GpPlatformIcons.back(context),
-            label: l10n.t('back'),
+            label: '返回',
             onPressed: () => context.pop(),
           ),
-          title: l10n.t('offlineAuthorization'),
+          title: '离线授权',
           child: ListView(
             physics: const BouncingScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(
@@ -43,10 +42,10 @@ final class OfflineAuthorizationScreen extends ConsumerWidget {
             ),
             children: [
               if (card == null)
-                GpStateView(
+                const GpStateView(
                   icon: GpIcons.card,
-                  title: l10n.t('bindCard'),
-                  description: l10n.t('cardUnavailable'),
+                  title: '绑定卡片',
+                  description: '当前卡片状态无法付款',
                 )
               else ...[
                 Center(
@@ -75,13 +74,13 @@ final class _AuthorizationBody extends ConsumerWidget {
 
   final String cardId;
 
-  String _date(BuildContext context, DateTime? value) =>
-      value == null ? '—' : context.l10n.fullDateTime(value);
+  String _date(BuildContext context, DateTime? value) => value == null
+      ? '—'
+      : DateFormat('yyyy-MM-dd HH:mm:ss').format(value.toLocal());
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(offlineAuthorizationProvider(cardId));
-    final l10n = context.l10n;
     return switch (state) {
       AsyncError(:final error) => _PlainAuthorizationError(
           error,
@@ -100,16 +99,16 @@ final class _AuthorizationBody extends ConsumerWidget {
                           value.state == OfflineAuthorizationState.renewalDue
                       ? GpPlatformIcons.successCircle(context)
                       : GpPlatformIcons.errorCircle(context),
-                  label: l10n.t('status'),
+                  label: '账户状态',
                   value: _stateLabel(context, value.state),
                 ),
                 if (value.authorization?.isLimited == true)
                   AppleListRow(
-                    label: l10n.t('remainingUses'),
+                    label: '剩余次数',
                     value: value.authorization!.remaining.toString(),
                   ),
                 AppleListRow(
-                  label: l10n.t('expiresOn'),
+                  label: '到期日',
                   value: _date(context, value.authorization?.expiresOn),
                 ),
               ],
@@ -132,15 +131,15 @@ final class _AuthorizationBody extends ConsumerWidget {
                   minimumSize: const Size.fromHeight(54),
                   shape: const StadiumBorder(),
                 ),
-                child: Text(l10n.t('activate')),
+                child: const Text('立即开通'),
               )
             else ...[
               AppleSection(
-                footer: l10n.t('clientOnlyRemoveNotice'),
+                footer: '此操作只删除本机离线授权，不会在服务端吊销。',
                 children: [
                   AppleListRow(
                     icon: GpPlatformIcons.refresh(context),
-                    label: l10n.t('renew'),
+                    label: '续期',
                     onTap: () => unawaited(
                       _runAction(context, ref, () async {
                         await ref
@@ -156,7 +155,7 @@ final class _AuthorizationBody extends ConsumerWidget {
                   ),
                   AppleListRow(
                     icon: GpPlatformIcons.delete(context),
-                    label: l10n.t('removeFromDevice'),
+                    label: '移除此设备',
                     destructive: true,
                     onTap: () => unawaited(_remove(context, ref)),
                   ),
@@ -175,10 +174,10 @@ final class _AuthorizationBody extends ConsumerWidget {
         OfflineAuthorizationState.renewalDue ||
         OfflineAuthorizationState.expired ||
         OfflineAuthorizationState.exhausted =>
-          context.l10n.t('opened'),
+          '已开通',
         OfflineAuthorizationState.missingCredential ||
         OfflineAuthorizationState.unavailable =>
-          context.l10n.t('notOpened'),
+          '未开通',
       };
 
   Future<void> _remove(BuildContext context, WidgetRef ref) async {
@@ -186,16 +185,16 @@ final class _AuthorizationBody extends ConsumerWidget {
       context: context,
       useRootNavigator: false,
       builder: (dialogContext) => AlertDialog.adaptive(
-        title: Text(context.l10n.t('removeFromDevice')),
-        content: Text(context.l10n.t('clientOnlyRemoveNotice')),
+        title: const Text('移除此设备'),
+        content: const Text('此操作只删除本机离线授权，不会在服务端吊销。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
-            child: Text(context.l10n.t('cancel')),
+            child: const Text('取消'),
           ),
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: Text(context.l10n.t('delete')),
+            child: const Text('删除'),
           ),
         ],
       ),
@@ -222,12 +221,12 @@ final class _AuthorizationBody extends ConsumerWidget {
         context: context,
         useRootNavigator: false,
         builder: (dialogContext) => AlertDialog.adaptive(
-          title: Text(context.l10n.t('offlineAuthorization')),
+          title: const Text('离线授权'),
           content: Text(GpStateView.safeUiError(error)),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext),
-              child: Text(context.l10n.t('done')),
+              child: const Text('完成'),
             ),
           ],
         ),
@@ -261,7 +260,7 @@ final class _PlainAuthorizationError extends StatelessWidget {
             const SizedBox(height: 12),
             TextButton(
               onPressed: onRetry,
-              child: Text(context.l10n.t('retry')),
+              child: const Text('重试'),
             ),
           ],
         ),

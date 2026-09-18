@@ -7,7 +7,6 @@ import 'package:go_router/go_router.dart';
 import '../../app/app_providers.dart';
 import '../app/routes.dart';
 import '../icons/platform_icons.dart';
-import '../localization/geekpay_localizations.dart';
 import '../widgets/apple_wallet_components.dart';
 
 final class SecurityHubScreen extends ConsumerWidget {
@@ -16,7 +15,6 @@ final class SecurityHubScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final caps = ref.watch(appRuntimeProvider).capabilities;
-    final l10n = context.l10n;
     return Scaffold(
       body: AppleWalletPage(
         child: ApplePinnedHeaderLayout(
@@ -24,10 +22,10 @@ final class SecurityHubScreen extends ConsumerWidget {
             id: 'back',
             sfSymbol: 'chevron.left',
             icon: GpPlatformIcons.back(context),
-            label: l10n.t('back'),
+            label: '返回',
             onPressed: () => context.pop(),
           ),
-          title: l10n.t('security'),
+          title: '安全中心',
           child: ListView(
             physics: const BouncingScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(
@@ -41,10 +39,10 @@ final class SecurityHubScreen extends ConsumerWidget {
                 children: [
                   AppleListRow(
                     icon: GpPlatformIcons.password(context),
-                    label: l10n.t('changePassword'),
+                    label: '修改消费密码',
                     value: caps.changeSpendingPassword
                         ? null
-                        : l10n.t('notAvailable'),
+                        : '服务暂未开放',
                     onTap: caps.changeSpendingPassword
                         ? () => unawaited(
                               context.push('${GpRoutes.me}/security/password'),
@@ -53,8 +51,8 @@ final class SecurityHubScreen extends ConsumerWidget {
                   ),
                   AppleListRow(
                     icon: GpPlatformIcons.limits(context),
-                    label: l10n.t('limits'),
-                    value: caps.spendingLimits ? null : l10n.t('notAvailable'),
+                    label: '消费限额',
+                    value: caps.spendingLimits ? null : '服务暂未开放',
                     onTap: caps.spendingLimitsRead
                         ? () => unawaited(
                               context.push('${GpRoutes.me}/security/limit'),

@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -13,10 +14,15 @@ void main() {
       final runtime = await buildDemoRuntime();
       addTearDown(runtime.dispose);
 
+      // Mounted the way the app does it: the feature is a subtree of the host's
+      // MaterialApp, which supplies Directionality and the framework's own
+      // localization defaults.
       await tester.pumpWidget(
-        ProviderScope(
-          overrides: [appRuntimeProvider.overrideWithValue(runtime)],
-          child: const CampusCardFeature(),
+        MaterialApp(
+          home: ProviderScope(
+            overrides: [appRuntimeProvider.overrideWithValue(runtime)],
+            child: const CampusCardFeature(),
+          ),
         ),
       );
       for (var i = 0; i < 30; i++) {

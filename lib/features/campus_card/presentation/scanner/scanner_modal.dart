@@ -11,7 +11,6 @@ import '../../domain/models/card_models.dart';
 import '../../domain/models/scan_models.dart';
 import '../../domain/ports/platform_ports.dart';
 import '../icons/platform_icons.dart';
-import '../localization/geekpay_localizations.dart';
 import '../theme/colors.dart';
 import '../theme/glass.dart';
 import '../theme/tokens.dart';
@@ -130,7 +129,7 @@ class _ScannerModalState extends ConsumerState<ScannerModal> {
       if (mounted) {
         setState(() {
           _scanning = false;
-          _error = context.l10n.t('scannerUnavailable');
+          _error = '相机不可用';
         });
       }
     }
@@ -155,7 +154,7 @@ class _ScannerModalState extends ConsumerState<ScannerModal> {
       await ref.read(appRuntimeProvider).feedback.play(FeedbackEvent.selection);
       if (mounted) setState(() => _torchOn = next);
     } catch (_) {
-      if (mounted) setState(() => _error = context.l10n.t('torch'));
+      if (mounted) setState(() => _error = '手电筒');
     }
   }
 
@@ -166,7 +165,7 @@ class _ScannerModalState extends ConsumerState<ScannerModal> {
       final code = await scanner.scanImage();
       if (code != null && mounted) _handleCode(code);
     } catch (_) {
-      if (mounted) setState(() => _error = context.l10n.t('photoLibrary'));
+      if (mounted) setState(() => _error = '相册');
     }
   }
 
@@ -246,13 +245,13 @@ class _ScannerModalState extends ConsumerState<ScannerModal> {
         children: [
           Positioned.fill(
             child: runtime.scanner == null
-                ? Center(
+                ? const Center(
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 32),
+                      padding: EdgeInsets.symmetric(horizontal: 32),
                       child: Text(
-                        context.l10n.t('scannerUnavailable'),
+                        '相机不可用',
                         textAlign: TextAlign.center,
-                        style: const TextStyle(color: Colors.white),
+                        style: TextStyle(color: Colors.white),
                       ),
                     ),
                   )
@@ -268,16 +267,16 @@ class _ScannerModalState extends ConsumerState<ScannerModal> {
                     children: [
                       _ScannerCloseButton(
                         icon: GpPlatformIcons.close(context),
-                        label: context.l10n.t('close'),
+                        label: '关闭',
                         onPressed: widget.onClose,
                       ),
                       const Spacer(),
                     ],
                   ),
                   const Spacer(),
-                  Text(
-                    context.l10n.t('alignQrCode'),
-                    style: const TextStyle(
+                  const Text(
+                    '将二维码放入框内',
+                    style: TextStyle(
                       color: Colors.white,
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
@@ -292,14 +291,14 @@ class _ScannerModalState extends ConsumerState<ScannerModal> {
                         icon: _torchOn
                             ? GpPlatformIcons.flashOn(context)
                             : GpPlatformIcons.flashOff(context),
-                        label: context.l10n.t('torch'),
+                        label: '手电筒',
                         active: _torchOn,
                         onTap: _toggleTorch,
                       ),
                       const SizedBox(width: 32),
                       _ScannerControl(
                         icon: GpPlatformIcons.photoLibrary(context),
-                        label: context.l10n.t('photoLibrary'),
+                        label: '相册',
                         onTap: _openGallery,
                       ),
                     ],
@@ -326,16 +325,16 @@ class _ScannerModalState extends ConsumerState<ScannerModal> {
                             color: Colors.black.withValues(alpha: 0.70),
                             borderRadius: BorderRadius.circular(22),
                           ),
-                          child: Row(
+                          child: const Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const CupertinoActivityIndicator(
+                              CupertinoActivityIndicator(
                                 color: Colors.white,
                               ),
-                              const SizedBox(width: 10),
+                              SizedBox(width: 10),
                               Text(
-                                context.l10n.t('loading'),
-                                style: const TextStyle(color: Colors.white),
+                                '正在加载',
+                                style: TextStyle(color: Colors.white),
                               ),
                             ],
                           ),
@@ -366,7 +365,7 @@ class _ScannerModalState extends ConsumerState<ScannerModal> {
                     key: const ValueKey('failure'),
                     child: ScanFailureContent(
                       message:
-                          scan.message ?? context.l10n.t('paymentCodeFailed'),
+                          scan.message ?? '付款码生成失败',
                       onRescan: _rescan,
                       feedback: runtime.feedback,
                     ),
@@ -495,7 +494,6 @@ final class _ScanConfirmationOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = context.l10n;
     return ColoredBox(
       color: Colors.black.withValues(alpha: 0.52),
       child: SafeArea(
@@ -523,17 +521,17 @@ final class _ScanConfirmationOverlay extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 20),
-                Text(
-                  l10n.t('confirmScanPayment'),
+                const Text(
+                  '是否继续扫码交易？',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  l10n.t('confirmScanPaymentDescription'),
+                  '继续后才会向校园支付服务提交二维码。',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: context.gpColors.textSecondary),
                 ),
@@ -556,10 +554,10 @@ final class _ScanConfirmationOverlay extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(width: 12),
-                        Expanded(
+                        const Expanded(
                           child: Text(
-                            l10n.t('campusCard'),
-                            style: const TextStyle(
+                            '上海科技大学 eCard',
+                            style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
                             ),
@@ -578,7 +576,7 @@ final class _ScanConfirmationOverlay extends StatelessWidget {
                         color: context.gpColors.surface,
                         onPressed: onCancel,
                         child: Text(
-                          l10n.t('cancel'),
+                          '取消',
                           style: TextStyle(color: context.gpColors.textPrimary),
                         ),
                       ),
@@ -588,9 +586,9 @@ final class _ScanConfirmationOverlay extends StatelessWidget {
                       child: CupertinoButton(
                         color: context.gpColors.action,
                         onPressed: onContinue,
-                        child: Text(
-                          l10n.t('continue'),
-                          style: const TextStyle(color: Colors.white),
+                        child: const Text(
+                          '继续',
+                          style: TextStyle(color: Colors.white),
                         ),
                       ),
                     ),
@@ -776,10 +774,10 @@ final class _PayAuthorizationOverlay extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(width: 12),
-                        Expanded(
+                        const Expanded(
                           child: Text(
-                            context.l10n.t('campusCard'),
-                            style: const TextStyle(fontWeight: FontWeight.w600),
+                            '上海科技大学 eCard',
+                            style: TextStyle(fontWeight: FontWeight.w600),
                           ),
                         ),
                         MaskedCardNumberText(maskedNumber: card!.maskedNumber),

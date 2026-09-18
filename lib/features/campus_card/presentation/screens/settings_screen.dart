@@ -11,7 +11,6 @@ import '../../core/config/payment_code_preferences.dart';
 import '../../core/config/scan_payment_preferences.dart';
 import '../../domain/models/feedback_models.dart';
 import '../icons/platform_icons.dart';
-import '../localization/geekpay_localizations.dart';
 import '../widgets/apple_wallet_components.dart';
 
 final class SettingsScreen extends ConsumerWidget {
@@ -23,7 +22,6 @@ final class SettingsScreen extends ConsumerWidget {
     final skipScanConfirmation = ref.watch(skipScanConfirmationProvider);
     final maximizeBrightness =
         ref.watch(maximizePaymentCodeBrightnessProvider).valueOrNull;
-    final l10n = context.l10n;
     return Scaffold(
       body: AppleWalletPage(
         child: ApplePinnedHeaderLayout(
@@ -31,10 +29,10 @@ final class SettingsScreen extends ConsumerWidget {
             id: 'back',
             sfSymbol: 'chevron.left',
             icon: GpPlatformIcons.back(context),
-            label: l10n.t('back'),
+            label: '返回',
             onPressed: () => context.pop(),
           ),
-          title: l10n.t('settings'),
+          title: '设置',
           child: ListView(
             physics: const BouncingScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(
@@ -45,11 +43,11 @@ final class SettingsScreen extends ConsumerWidget {
             ),
             children: [
               AppleSection(
-                footer: l10n.t('maximizePaymentCodeBrightnessHint'),
+                footer: '开启后，显示付款码时使用最大亮度，离开后恢复。默认关闭，使用系统亮度。',
                 children: [
                   AppleListRow(
                     icon: GpPlatformIcons.brightness(context),
-                    label: l10n.t('maximizePaymentCodeBrightness'),
+                    label: '付款码最大亮度',
                     verticalPadding: 4,
                     trailing: _SettingsSwitch(
                       key: const Key('maximize-payment-code-brightness'),
@@ -71,11 +69,11 @@ final class SettingsScreen extends ConsumerWidget {
               const SizedBox(height: 24),
               AppleSection(
                 footer:
-                    debugModeFeaturesAvailable ? l10n.t('debugModeHint') : null,
+                    debugModeFeaturesAvailable ? '开启后会添加用于测试的模拟活动记录。' : null,
                 children: [
                   AppleListRow(
                     icon: GpPlatformIcons.scan(context),
-                    label: l10n.t('skipScanConfirmation'),
+                    label: '小额免密扫码跳过确认',
                     verticalPadding: 4,
                     trailing: _SettingsSwitch(
                       value: skipScanConfirmation,
@@ -89,7 +87,7 @@ final class SettingsScreen extends ConsumerWidget {
                   if (debugModeFeaturesAvailable)
                     AppleListRow(
                       icon: GpPlatformIcons.debug(context),
-                      label: l10n.t('debugMode'),
+                      label: '调试模式',
                       verticalPadding: 4,
                       trailing: _SettingsSwitch(
                         value: debugMode,
@@ -123,17 +121,16 @@ final class _FeedbackSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final l10n = context.l10n;
     final options = ref.watch(feedbackSettingsProvider(scenario)).valueOrNull;
     final header = switch (scenario) {
-      FeedbackScenario.paymentSuccess => 'feedbackPaymentSuccess',
-      FeedbackScenario.networkDisconnected => 'feedbackNetworkDisconnected',
-      FeedbackScenario.interaction => 'feedbackInteraction',
+      FeedbackScenario.paymentSuccess => '支付成功',
+      FeedbackScenario.networkDisconnected => '确认断网',
+      FeedbackScenario.interaction => '其他操作',
     };
     return AppleSection(
-      header: l10n.t(header),
+      header: header,
       footer: scenario == FeedbackScenario.interaction
-          ? l10n.t('interactionFeedbackHint')
+          ? '按钮、扫码识别等操作的震动反馈。'
           : null,
       children: [
         for (final channel in FeedbackChannel.values)
@@ -143,9 +140,7 @@ final class _FeedbackSection extends ConsumerWidget {
               icon: channel == FeedbackChannel.vibration
                   ? GpPlatformIcons.vibration(context)
                   : GpPlatformIcons.sound(context),
-              label: l10n.t(
-                channel == FeedbackChannel.vibration ? 'vibration' : 'sound',
-              ),
+              label: channel == FeedbackChannel.vibration ? '震动' : '音效',
               verticalPadding: 4,
               trailing: _SettingsSwitch(
                 key: ValueKey('feedback-${scenario.name}-${channel.name}'),

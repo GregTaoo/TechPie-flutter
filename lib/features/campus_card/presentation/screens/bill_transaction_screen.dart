@@ -2,11 +2,11 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 
 import '../../app/app_providers.dart';
 import '../../domain/models/bill_models.dart';
 import '../icons/platform_icons.dart';
-import '../localization/geekpay_localizations.dart';
 import '../theme/colors.dart';
 import '../widgets/apple_wallet_components.dart';
 import '../widgets/gp_state.dart';
@@ -26,10 +26,10 @@ final class BillTransactionScreen extends ConsumerWidget {
             id: 'back',
             sfSymbol: 'chevron.left',
             icon: GpPlatformIcons.back(context),
-            label: context.l10n.t('back'),
+            label: '返回',
             onPressed: () => context.pop(),
           ),
-          title: context.l10n.t('transactionDetails'),
+          title: '交易详情',
           child: CustomScrollView(
             physics: const BouncingScrollPhysics(),
             slivers: [
@@ -71,7 +71,9 @@ final class _Detail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final amount = formatTransactionAmount(record);
-    final date = context.l10n.fullDateTime(record.occurredAt);
+    final date = DateFormat('yyyy-MM-dd HH:mm:ss').format(
+      record.occurredAt.toLocal(),
+    );
     final extraDetails = record.details.entries.where(
       (entry) => !_canonicalTransactionFields.contains(entry.key.toLowerCase()),
     );
@@ -110,22 +112,22 @@ final class _Detail extends StatelessWidget {
         AppleSection(
           children: [
             AppleListRow(
-              label: context.l10n.t('transactionType'),
+              label: '交易类型',
               value: record.title,
             ),
             AppleListRow(
-              label: context.l10n.t('transactionId'),
+              label: '交易流水号',
               value: record.id,
               valueMaxLines: null,
             ),
             if (record.location != null)
               AppleListRow(
-                label: context.l10n.t('department'),
+                label: '所属单位',
                 value: record.location,
               ),
             if (record.balance != null)
               AppleListRow(
-                label: context.l10n.t('balance'),
+                label: '余额',
                 value: formatMoneyFen(record.balance!.value),
               ),
             for (final entry in extraDetails)
@@ -141,18 +143,16 @@ final class _Detail extends StatelessWidget {
   }
 
   String _detailLabel(BuildContext context, String key) {
-    final normalized = key.toLowerCase();
-    final translationKey = switch (normalized) {
-      'merchantno' || 'merno' => 'merchantNumber',
-      'poscode' => 'posCode',
-      'terminal' || 'terminalno' => 'terminal',
-      'room' => 'room',
-      'location' || 'address' || 'tradestation' => 'location',
-      'channel' => 'channel',
+    final label = switch (key.toLowerCase()) {
+      'merchantno' || 'merno' => '商户号',
+      'poscode' => 'POS 代码',
+      'terminal' || 'terminalno' => '终端',
+      'room' => '场所',
+      'location' || 'address' || 'tradestation' => '交易地点',
+      'channel' => '交易渠道',
       _ => null,
     };
-    if (translationKey != null) return context.l10n.t(translationKey);
-    return '${context.l10n.t('additionalInformation')} ($key)';
+    return label ?? '附加信息 ($key)';
   }
 }
 

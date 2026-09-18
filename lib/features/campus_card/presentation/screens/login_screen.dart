@@ -4,7 +4,6 @@ import 'package:techpie/widgets/adaptive_button.dart';
 
 import '../../app/app_providers.dart';
 import '../icons/platform_icons.dart';
-import '../localization/geekpay_localizations.dart';
 import '../theme/colors.dart';
 import '../widgets/apple_wallet_components.dart';
 import '../widgets/gp_state.dart';
@@ -19,7 +18,6 @@ final class LoginScreen extends ConsumerWidget {
     final auth = ref.watch(authControllerProvider);
     final hostExit = ref.watch(geekPayHostExitProvider);
     final openAccount = ref.watch(campusCardAccountProvider);
-    final l10n = context.l10n;
 
     return Scaffold(
       body: AppleWalletPage(
@@ -30,10 +28,10 @@ final class LoginScreen extends ConsumerWidget {
                   id: 'back',
                   sfSymbol: 'chevron.left',
                   icon: GpPlatformIcons.back(context),
-                  label: l10n.t('back'),
+                  label: '返回',
                   onPressed: hostExit,
                 ),
-          title: l10n.t('campusCardShort'),
+          title: 'eCard',
           child: ListView(
             physics: const BouncingScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(
@@ -60,7 +58,7 @@ final class LoginScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 28),
               Text(
-                l10n.t('accountSetupTitle'),
+                '连接 eCard',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                       fontWeight: FontWeight.w700,
@@ -68,7 +66,7 @@ final class LoginScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 12),
               Text(
-                l10n.t('accountSetupBody'),
+                '请在 TechPie 的 Account 设置中配置 OPENID。eCard 会自动使用该账号建立会话。',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: context.gpColors.textSecondary,
@@ -88,11 +86,11 @@ final class LoginScreen extends ConsumerWidget {
                 onPressed: auth.isLoading ? null : openAccount,
                 icon: Icons.manage_accounts_outlined,
                 sfSymbol: 'person.crop.circle.badge.plus',
-                label: l10n.t('openAccountSettings'),
+                label: '打开 Account 设置',
                 role: AdaptiveButtonRole.prominent,
                 loading: auth.isLoading,
                 width: double.infinity,
-                accessibilityLabel: l10n.t('openAccountSettings'),
+                accessibilityLabel: '打开 Account 设置',
               ),
             ],
           ),

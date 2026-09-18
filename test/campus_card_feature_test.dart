@@ -20,7 +20,6 @@ void main() {
   ) async {
     SharedPreferences.setMockInitialValues({
       'geekpay.onboarding_complete': true,
-      'geekpay.preferred_locale': 'zh',
     });
     final runtime = await buildDemoRuntime();
     addTearDown(runtime.dispose);
@@ -39,7 +38,6 @@ void main() {
   ) async {
     SharedPreferences.setMockInitialValues({
       'geekpay.onboarding_complete': true,
-      'geekpay.preferred_locale': 'zh',
     });
     final runtime = await buildDemoRuntime();
     addTearDown(runtime.dispose);
@@ -72,10 +70,10 @@ void main() {
 
     expect(find.text('eCard 初始化失败'), findsNothing);
     expect(find.byType(LoginScreen), findsOneWidget);
-    expect(find.text('Open Account Settings'), findsOneWidget);
-    expect(find.byTooltip('Back'), findsOneWidget);
+    expect(find.text('打开 Account 设置'), findsOneWidget);
+    expect(find.byTooltip('返回'), findsOneWidget);
 
-    await tester.tap(find.byTooltip('Back'));
+    await tester.tap(find.byTooltip('返回'));
     await tester.pumpAndSettle();
 
     expect(find.byType(CampusCardPage), findsNothing);
@@ -119,9 +117,9 @@ void main() {
     }
     expect(find.byType(CardManageScreen), findsOneWidget);
     final router = GoRouter.of(tester.element(find.byType(CardManageScreen)));
-    await tester.ensureVisible(find.text('Settings'));
+    await tester.ensureVisible(find.text('设置'));
     await tester.pump();
-    await tester.tap(find.text('Settings'));
+    await tester.tap(find.text('设置'));
     for (var i = 0; i < 40; i++) {
       await tester.pump(const Duration(milliseconds: 30));
     }

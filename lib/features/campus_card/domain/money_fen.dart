@@ -1,4 +1,4 @@
-import 'package:meta/meta.dart';
+import 'package:flutter/foundation.dart';
 
 @immutable
 final class MoneyFen implements Comparable<MoneyFen> {

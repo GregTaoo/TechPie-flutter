@@ -6,7 +6,6 @@ import 'package:go_router/go_router.dart';
 import '../../app/app_providers.dart';
 import '../../domain/ports/platform_ports.dart';
 import '../icons/platform_icons.dart';
-import '../localization/geekpay_localizations.dart';
 import '../theme/colors.dart';
 import '../widgets/apple_wallet_components.dart';
 import '../widgets/gp_state.dart';
@@ -44,7 +43,7 @@ class _SecurityPasswordScreenState
       _confirm,
     ].every((controller) => RegExp(r'^\d{6}$').hasMatch(controller.text));
     if (!valid || _next.text != _confirm.text) {
-      await _showMessage(context.l10n.t('enterPassword'));
+      await _showMessage('输入 6 位消费密码');
       if (!mounted) return;
       await ref.read(appRuntimeProvider).feedback.play(FeedbackEvent.error);
       return;
@@ -59,7 +58,7 @@ class _SecurityPasswordScreenState
       if (!mounted) return;
       await ref.read(appRuntimeProvider).feedback.play(FeedbackEvent.success);
       if (!mounted) return;
-      await _showMessage(context.l10n.t('passwordChanged'));
+      await _showMessage('消费密码修改成功');
       if (mounted) context.pop();
     } catch (error) {
       if (mounted) await _showMessage(GpStateView.safeUiError(error));
@@ -81,7 +80,7 @@ class _SecurityPasswordScreenState
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext),
-              child: Text(context.l10n.t('done')),
+              child: const Text('完成'),
             ),
           ],
         ),
@@ -90,7 +89,6 @@ class _SecurityPasswordScreenState
   @override
   Widget build(BuildContext context) {
     final initialization = ref.watch(spendingPasswordInitializationProvider);
-    final l10n = context.l10n;
     return Scaffold(
       body: AppleWalletPage(
         child: ApplePinnedHeaderLayout(
@@ -98,10 +96,10 @@ class _SecurityPasswordScreenState
             id: 'back',
             sfSymbol: 'chevron.left',
             icon: GpPlatformIcons.back(context),
-            label: l10n.t('back'),
+            label: '返回',
             onPressed: () => context.pop(),
           ),
-          title: l10n.t('changePassword'),
+          title: '修改消费密码',
           child: ListView(
             physics: const BouncingScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(
@@ -117,15 +115,15 @@ class _SecurityPasswordScreenState
                       AppleSection(
                         children: [
                           _PasswordRow(
-                            label: l10n.t('oldPassword'),
+                            label: '原密码',
                             controller: _old,
                           ),
                           _PasswordRow(
-                            label: l10n.t('newPassword'),
+                            label: '新密码',
                             controller: _next,
                           ),
                           _PasswordRow(
-                            label: l10n.t('confirmPassword'),
+                            label: '再次输入新密码',
                             controller: _confirm,
                           ),
                         ],
@@ -142,12 +140,12 @@ class _SecurityPasswordScreenState
                             ? const CupertinoActivityIndicator(
                                 color: Colors.white,
                               )
-                            : Text(l10n.t('save')),
+                            : const Text('保存'),
                       ),
                     ],
                   ),
-                AsyncData() => GpStateView(
-                    title: l10n.t('cardUnavailable'),
+                AsyncData() => const GpStateView(
+                    title: '当前卡片状态无法付款',
                   ),
                 AsyncError(:final error) => GpStateView.error(
                     error,

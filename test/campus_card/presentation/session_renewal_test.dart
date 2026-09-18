@@ -75,9 +75,11 @@ void main() {
       lifecycle: base.lifecycle,
       feedback: base.feedback,
     );
-    Widget app() => ProviderScope(
-          overrides: [appRuntimeProvider.overrideWithValue(runtime)],
-          child: const CampusCardFeature(),
+    Widget app() => MaterialApp(
+          home: ProviderScope(
+            overrides: [appRuntimeProvider.overrideWithValue(runtime)],
+            child: const CampusCardFeature(),
+          ),
         );
     await tester.pumpWidget(app());
     for (var i = 0; i < 40; i++) {
@@ -152,9 +154,11 @@ void main() {
       lifecycle: base.lifecycle,
       feedback: base.feedback,
     );
-    Widget app() => ProviderScope(
-          overrides: [appRuntimeProvider.overrideWithValue(runtime)],
-          child: const CampusCardFeature(),
+    Widget app() => MaterialApp(
+          home: ProviderScope(
+            overrides: [appRuntimeProvider.overrideWithValue(runtime)],
+            child: const CampusCardFeature(),
+          ),
         );
     await tester.pumpWidget(app());
     for (var i = 0; i < 40; i++) {
@@ -232,9 +236,11 @@ void main() {
       lifecycle: base.lifecycle,
       feedback: base.feedback,
     );
-    Widget app() => ProviderScope(
-          overrides: [appRuntimeProvider.overrideWithValue(runtime)],
-          child: const CampusCardFeature(),
+    Widget app() => MaterialApp(
+          home: ProviderScope(
+            overrides: [appRuntimeProvider.overrideWithValue(runtime)],
+            child: const CampusCardFeature(),
+          ),
         );
     await tester.pumpWidget(app());
     for (var i = 0; i < 40; i++) {
@@ -314,9 +320,11 @@ void main() {
       lifecycle: base.lifecycle,
       feedback: base.feedback,
     );
-    Widget app() => ProviderScope(
-          overrides: [appRuntimeProvider.overrideWithValue(runtime)],
-          child: const CampusCardFeature(),
+    Widget app() => MaterialApp(
+          home: ProviderScope(
+            overrides: [appRuntimeProvider.overrideWithValue(runtime)],
+            child: const CampusCardFeature(),
+          ),
         );
     await tester.pumpWidget(app());
     for (var i = 0; i < 40; i++) {
@@ -406,9 +414,11 @@ void main() {
       lifecycle: base.lifecycle,
       feedback: base.feedback,
     );
-    Widget app() => ProviderScope(
-          overrides: [appRuntimeProvider.overrideWithValue(runtime)],
-          child: const CampusCardFeature(),
+    Widget app() => MaterialApp(
+          home: ProviderScope(
+            overrides: [appRuntimeProvider.overrideWithValue(runtime)],
+            child: const CampusCardFeature(),
+          ),
         );
     await tester.pumpWidget(app());
     for (var i = 0; i < 40; i++) {

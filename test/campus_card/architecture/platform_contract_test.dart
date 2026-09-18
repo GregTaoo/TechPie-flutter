@@ -122,7 +122,7 @@ void main() {
     expect(project, contains('EcardPayWidget.appex'));
   });
 
-  test('campus-card language and theme are owned by TechPie', () {
+  test('campus-card theme and localization are owned by TechPie', () {
     final app = File(
       'lib/features/campus_card/presentation/app/app.dart',
     ).readAsStringSync();
@@ -131,8 +131,10 @@ void main() {
     ).readAsStringSync();
 
     expect(app, contains('GeekPayTheme.inherit(hostTheme)'));
-    expect(app, contains('Localizations.maybeLocaleOf(context)'));
     expect(app, isNot(contains('MaterialApp.router')));
+    // The feature installs no localization of its own: the host's MaterialApp
+    // supplies the framework's, and the feature's copy is hardcoded Chinese.
+    expect(app, isNot(contains('Localizations')));
     expect(settings, isNot(contains('appLocaleProvider')));
   });
 

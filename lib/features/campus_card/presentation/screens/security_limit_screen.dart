@@ -10,7 +10,6 @@ import '../../app/app_providers.dart';
 import '../../domain/models/security_models.dart';
 import '../../domain/money_fen.dart';
 import '../icons/platform_icons.dart';
-import '../localization/geekpay_localizations.dart';
 import '../theme/colors.dart';
 import '../widgets/apple_wallet_components.dart';
 import '../widgets/gp_state.dart';
@@ -26,7 +25,7 @@ final class SecurityLimitScreen extends ConsumerStatefulWidget {
 class _SecurityLimitScreenState extends ConsumerState<SecurityLimitScreen> {
   Future<void> _editCard(SpendingLimits current) async {
     final edit = await _showEditor(
-      title: context.l10n.t('cardSpendingLimits'),
+      title: '卡消费限额',
       perTransaction: current.cardPerTransaction,
       perDay: current.cardPerDay,
       needsPassword: false,
@@ -39,7 +38,7 @@ class _SecurityLimitScreenState extends ConsumerState<SecurityLimitScreen> {
               cardPerDay: edit.perDay,
             ),
           );
-      if (mounted) await _showMessage(context.l10n.t('limitsChanged'));
+      if (mounted) await _showMessage('消费限额修改成功');
     } catch (error) {
       if (mounted) await _showMessage(GpStateView.safeUiError(error));
     }
@@ -47,7 +46,7 @@ class _SecurityLimitScreenState extends ConsumerState<SecurityLimitScreen> {
 
   Future<void> _editQr(SpendingLimits current) async {
     final edit = await _showEditor(
-      title: context.l10n.t('qrSpendingLimits'),
+      title: '二维码消费限额',
       perTransaction: current.qrPerTransaction,
       perDay: current.qrPerDay,
       needsPassword: true,
@@ -61,7 +60,7 @@ class _SecurityLimitScreenState extends ConsumerState<SecurityLimitScreen> {
             ),
             transactionPassword: edit.password!,
           );
-      if (mounted) await _showMessage(context.l10n.t('limitsChanged'));
+      if (mounted) await _showMessage('消费限额修改成功');
     } catch (error) {
       if (mounted) await _showMessage(GpStateView.safeUiError(error));
     }
@@ -94,7 +93,7 @@ class _SecurityLimitScreenState extends ConsumerState<SecurityLimitScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext),
-              child: Text(context.l10n.t('done')),
+              child: const Text('完成'),
             ),
           ],
         ),
@@ -103,7 +102,6 @@ class _SecurityLimitScreenState extends ConsumerState<SecurityLimitScreen> {
   @override
   Widget build(BuildContext context) {
     final limits = ref.watch(spendingLimitsControllerProvider);
-    final l10n = context.l10n;
     return Scaffold(
       body: AppleWalletPage(
         child: ApplePinnedHeaderLayout(
@@ -111,10 +109,10 @@ class _SecurityLimitScreenState extends ConsumerState<SecurityLimitScreen> {
             id: 'back',
             sfSymbol: 'chevron.left',
             icon: GpPlatformIcons.back(context),
-            label: l10n.t('back'),
+            label: '返回',
             onPressed: () => context.pop(),
           ),
-          title: l10n.t('limits'),
+          title: '消费限额',
           child: ListView(
             physics: const BouncingScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(
@@ -128,19 +126,19 @@ class _SecurityLimitScreenState extends ConsumerState<SecurityLimitScreen> {
                 AsyncData(:final value) => Column(
                     children: [
                       AppleSection(
-                        header: l10n.t('cardSpendingLimits'),
+                        header: '卡消费限额',
                         children: [
                           AppleListRow(
-                            label: l10n.t('perTransaction'),
+                            label: '单笔限额',
                             value:
                                 formatMoneyFen(value.cardPerTransaction.value),
                           ),
                           AppleListRow(
-                            label: l10n.t('perDay'),
+                            label: '单日限额',
                             value: formatMoneyFen(value.cardPerDay.value),
                           ),
                           AppleListRow(
-                            label: l10n.t('edit'),
+                            label: '修改',
                             onTap: value.haveCard
                                 ? () => unawaited(_editCard(value))
                                 : null,
@@ -149,18 +147,18 @@ class _SecurityLimitScreenState extends ConsumerState<SecurityLimitScreen> {
                       ),
                       const SizedBox(height: 18),
                       AppleSection(
-                        header: l10n.t('qrSpendingLimits'),
+                        header: '二维码消费限额',
                         children: [
                           AppleListRow(
-                            label: l10n.t('perTransaction'),
+                            label: '单笔限额',
                             value: formatMoneyFen(value.qrPerTransaction.value),
                           ),
                           AppleListRow(
-                            label: l10n.t('perDay'),
+                            label: '单日限额',
                             value: formatMoneyFen(value.qrPerDay.value),
                           ),
                           AppleListRow(
-                            label: l10n.t('edit'),
+                            label: '修改',
                             onTap: value.haveQrCode
                                 ? () => unawaited(_editQr(value))
                                 : null,
@@ -280,7 +278,7 @@ final class _LimitEditorSheetState extends State<_LimitEditorSheet> {
         ),
       );
     } catch (_) {
-      setState(() => _error = context.l10n.t('invalidLimits'));
+      setState(() => _error = '请输入有效金额，单日限额不能低于单笔限额；二维码限额还需要 6 位消费密码。');
     }
   }
 
@@ -301,11 +299,11 @@ final class _LimitEditorSheetState extends State<_LimitEditorSheet> {
             ),
             const SizedBox(height: 18),
             _AmountField(
-              label: context.l10n.t('perTransaction'),
+              label: '单笔限额',
               controller: _single,
             ),
             const SizedBox(height: 12),
-            _AmountField(label: context.l10n.t('perDay'), controller: _daily),
+            _AmountField(label: '单日限额', controller: _daily),
             if (widget.needsPassword) ...[
               const SizedBox(height: 12),
               TextField(
@@ -314,8 +312,8 @@ final class _LimitEditorSheetState extends State<_LimitEditorSheet> {
                 maxLength: 6,
                 keyboardType: TextInputType.number,
                 inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                decoration: InputDecoration(
-                  labelText: context.l10n.t('password'),
+                decoration: const InputDecoration(
+                  labelText: '消费密码',
                   counterText: '',
                 ),
               ),
@@ -334,7 +332,7 @@ final class _LimitEditorSheetState extends State<_LimitEditorSheet> {
                 minimumSize: const Size.fromHeight(52),
                 backgroundColor: context.gpColors.action,
               ),
-              child: Text(context.l10n.t('save')),
+              child: const Text('保存'),
             ),
           ],
         ),

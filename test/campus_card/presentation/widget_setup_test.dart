@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:techpie/features/campus_card/app/app_providers.dart';
 import 'package:techpie/features/campus_card/domain/ports/platform_ports.dart';
-import 'package:techpie/features/campus_card/presentation/localization/geekpay_localizations.dart';
 import 'package:techpie/features/campus_card/presentation/screens/widget_setup_screen.dart';
 
 void main() {
@@ -17,7 +16,7 @@ void main() {
     await tester.tap(find.byKey(const Key('request-pin-widget')));
     await tester.pumpAndSettle();
     expect(port.requests, 1);
-    expect(find.text('Confirm Add in the system dialog.'), findsOneWidget);
+    expect(find.text('请在系统弹窗中确认添加。'), findsOneWidget);
   });
 
   testWidgets('iOS shows a complete manual guide without a pin button',
@@ -26,8 +25,8 @@ void main() {
     await tester.pumpWidget(_app(port, TargetPlatform.iOS));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('request-pin-widget')), findsNothing);
-    expect(find.textContaining('search for TechPie'), findsOneWidget);
-    expect(find.textContaining('then tap Done'), findsOneWidget);
+    expect(find.textContaining('搜索 TechPie'), findsOneWidget);
+    expect(find.textContaining('点“完成”'), findsOneWidget);
     expect(port.requests, 0);
   });
 
@@ -40,8 +39,8 @@ void main() {
     await tester.tap(find.byKey(const Key('request-pin-widget')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('request-pin-widget')), findsNothing);
-    expect(find.textContaining('launcher did not accept'), findsOneWidget);
-    expect(find.textContaining('Find TechPie'), findsOneWidget);
+    expect(find.textContaining('未接受添加请求'), findsOneWidget);
+    expect(find.textContaining('找到 TechPie'), findsOneWidget);
   });
 }
 
@@ -49,8 +48,6 @@ Widget _app(HomeWidgetPort port, TargetPlatform platform) => ProviderScope(
       overrides: [homeWidgetPortProvider.overrideWithValue(port)],
       child: MaterialApp(
         theme: ThemeData(platform: platform),
-        locale: const Locale('en'),
-        localizationsDelegates: const [GeekPayLocalizations.delegate],
         home: const WidgetSetupScreen(),
       ),
     );

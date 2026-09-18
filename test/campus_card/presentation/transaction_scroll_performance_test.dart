@@ -15,7 +15,7 @@ void main() {
   testWidgets('activity keeps long histories lazy and opens the selected row',
       (tester) async {
     final rig = await _mount(tester, CampusCardEntry.cardManagement);
-    await tester.tap(find.text('Activity'));
+    await tester.tap(find.text('使用明细'));
     await tester.pumpAndSettle();
     debugPrint('ACTIVITY_INITIAL_ROWS=${_merchantLabels.evaluate().length}');
     expect(_merchantLabels.evaluate().length, lessThan(30));

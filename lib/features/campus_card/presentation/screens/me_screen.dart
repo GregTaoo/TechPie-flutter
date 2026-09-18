@@ -9,7 +9,6 @@ import 'package:go_router/go_router.dart';
 import '../../app/app_providers.dart';
 import '../app/routes.dart';
 import '../icons/platform_icons.dart';
-import '../localization/geekpay_localizations.dart';
 import '../theme/colors.dart';
 import '../widgets/apple_wallet_components.dart';
 import '../widgets/gp_state.dart';
@@ -21,7 +20,6 @@ final class MeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final profile = ref.watch(profileControllerProvider);
     final card = ref.watch(cardControllerProvider).valueOrNull;
-    final l10n = context.l10n;
     return Scaffold(
       body: AppleWalletPage(
         child: ApplePinnedHeaderLayout(
@@ -29,7 +27,7 @@ final class MeScreen extends ConsumerWidget {
             id: 'back',
             sfSymbol: 'chevron.left',
             icon: GpPlatformIcons.back(context),
-            label: l10n.t('back'),
+            label: '返回',
             onPressed: () =>
                 context.canPop() ? context.pop() : context.go(GpRoutes.pay),
           ),
@@ -98,18 +96,18 @@ final class MeScreen extends ConsumerWidget {
                 children: [
                   AppleListRow(
                     icon: GpPlatformIcons.card(context),
-                    label: l10n.t('cardDetails'),
+                    label: '卡片信息',
                     onTap: () => unawaited(context.push('/card/manage')),
                   ),
                   AppleListRow(
                     icon: GpPlatformIcons.security(context),
-                    label: l10n.t('security'),
+                    label: '安全中心',
                     onTap: () =>
                         unawaited(context.push('${GpRoutes.me}/security')),
                   ),
                   AppleListRow(
                     icon: GpPlatformIcons.settings(context),
-                    label: l10n.t('settings'),
+                    label: '设置',
                     onTap: () =>
                         unawaited(context.push('${GpRoutes.me}/settings')),
                   ),

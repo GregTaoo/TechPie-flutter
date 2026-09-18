@@ -8,7 +8,6 @@ import '../../domain/models/card_models.dart';
 import '../../domain/ports/platform_ports.dart';
 import '../app/routes.dart';
 import '../icons/platform_icons.dart';
-import '../localization/geekpay_localizations.dart';
 import '../theme/colors.dart';
 import '../widgets/apple_wallet_components.dart';
 import '../widgets/gp_state.dart';
@@ -43,7 +42,7 @@ class _BindCardScreenState extends ConsumerState<BindCardScreen> {
         _document.text.trim().isEmpty ||
         !RegExp(r'^\d{6}$').hasMatch(_password.text) ||
         !RegExp(r'^1[3-9]\d{9}$').hasMatch(_phone.text)) {
-      setState(() => _error = context.l10n.t('fieldRequired'));
+      setState(() => _error = '请填写完整信息');
       await ref.read(appRuntimeProvider).feedback.play(FeedbackEvent.error);
       return;
     }
@@ -77,7 +76,6 @@ class _BindCardScreenState extends ConsumerState<BindCardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = context.l10n;
     return Scaffold(
       body: AppleWalletPage(
         child: ApplePinnedHeaderLayout(
@@ -85,7 +83,7 @@ class _BindCardScreenState extends ConsumerState<BindCardScreen> {
             id: 'back',
             sfSymbol: 'chevron.left',
             icon: GpPlatformIcons.back(context),
-            label: l10n.t('back'),
+            label: '返回',
             onPressed: () {
               if (context.canPop()) {
                 context.pop();
@@ -94,7 +92,7 @@ class _BindCardScreenState extends ConsumerState<BindCardScreen> {
               }
             },
           ),
-          title: l10n.t('bindCard'),
+          title: '绑定卡片',
           child: ListView(
             physics: const BouncingScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(
@@ -121,13 +119,13 @@ class _BindCardScreenState extends ConsumerState<BindCardScreen> {
               AppleSection(
                 children: [
                   _Field(
-                    label: l10n.t('cardNumberField'),
+                    label: '卡号',
                     controller: _card,
                     keyboardType: TextInputType.number,
                     maxLength: 19,
                   ),
                   _Field(
-                    label: l10n.t('queryPassword'),
+                    label: '查询密码（6 位数字）',
                     controller: _password,
                     keyboardType: TextInputType.number,
                     maxLength: 6,
@@ -142,26 +140,26 @@ class _BindCardScreenState extends ConsumerState<BindCardScreen> {
                       // Flutter 3.27 uses value; newer SDKs call it initialValue.
                       // ignore: deprecated_member_use
                       value: _type,
-                      decoration: InputDecoration(
-                        labelText: l10n.t('documentType'),
+                      decoration: const InputDecoration(
+                        labelText: '证件类型',
                         border: InputBorder.none,
                       ),
-                      items: [
+                      items: const [
                         DropdownMenuItem(
                           value: IdentityDocumentType.nationalId,
-                          child: Text(l10n.t('nationalId')),
+                          child: Text('居民身份证'),
                         ),
                         DropdownMenuItem(
                           value: IdentityDocumentType.militaryId,
-                          child: Text(l10n.t('militaryId')),
+                          child: Text('军人证件'),
                         ),
                         DropdownMenuItem(
                           value: IdentityDocumentType.passport,
-                          child: Text(l10n.t('passport')),
+                          child: Text('护照'),
                         ),
                         DropdownMenuItem(
                           value: IdentityDocumentType.workId,
-                          child: Text(l10n.t('workId')),
+                          child: Text('工作证'),
                         ),
                       ],
                       onChanged: (value) =>
@@ -169,12 +167,12 @@ class _BindCardScreenState extends ConsumerState<BindCardScreen> {
                     ),
                   ),
                   _Field(
-                    label: l10n.t('documentNumber'),
+                    label: '证件号',
                     controller: _document,
                     maxLength: 20,
                   ),
                   _Field(
-                    label: l10n.t('phoneNumber'),
+                    label: '手机号',
                     controller: _phone,
                     keyboardType: TextInputType.phone,
                     maxLength: 11,
@@ -200,7 +198,7 @@ class _BindCardScreenState extends ConsumerState<BindCardScreen> {
                 ),
                 child: _loading
                     ? const CupertinoActivityIndicator(color: Colors.white)
-                    : Text(l10n.t('confirmBind')),
+                    : const Text('确认绑定'),
               ),
             ],
           ),

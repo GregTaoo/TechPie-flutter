@@ -6,6 +6,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../app/app_providers.dart';
@@ -21,7 +22,6 @@ import '../app/routes.dart';
 import '../app/shell.dart';
 import '../icons/geekpay_icons.dart';
 import '../icons/platform_icons.dart';
-import '../localization/geekpay_localizations.dart';
 import '../theme/colors.dart';
 import '../theme/tokens.dart';
 import '../widgets/apple_wallet_components.dart';
@@ -310,7 +310,6 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
       });
     }
     final transactions = ref.watch(transactionFeedProvider(_allTransactions));
-    final l10n = context.l10n;
     final hostExit = ref.watch(geekPayHostExitProvider);
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
     final manualOffline = ref.watch(manualOfflineModeProvider);
@@ -404,21 +403,21 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
           ? const ColoredBox(color: Colors.black)
           : AppleWalletPage(
               child: ApplePinnedHeaderLayout(
-                title: l10n.t('showPaymentCode'),
+                title: '付款码',
                 leading: hostExit == null
                     ? null
                     : CampusCardHeaderAction(
                         id: 'back',
                         sfSymbol: 'chevron.left',
                         icon: GpPlatformIcons.back(context),
-                        label: l10n.t('back'),
+                        label: '返回',
                         onPressed: hostExit,
                       ),
                 actions: [
                   CampusCardHeaderAction(
                     id: 'scan',
                     sfSymbol: 'qrcode.viewfinder',
-                    label: l10n.t('scanToPay'),
+                    label: '扫一扫',
                     onPressed: _openScanner,
                     icon: GpPlatformIcons.scan(context),
                     iconSize: 25,
@@ -427,7 +426,7 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
                     id: 'info',
                     sfSymbol: 'info.circle',
                     key: const Key('payment-header-info'),
-                    label: l10n.t('cardDetails'),
+                    label: '卡片信息',
                     onPressed: () => unawaited(context.push('/card/manage')),
                     icon: GpPlatformIcons.info(context),
                   ),
@@ -487,10 +486,10 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
                                         .refresh(),
                                   ),
                                 ),
-                              AsyncData() => GpStateView(
+                              AsyncData() => const GpStateView(
                                   icon: GpIcons.card,
-                                  title: l10n.t('bindCard'),
-                                  description: l10n.t('cardUnavailable'),
+                                  title: '绑定卡片',
+                                  description: '当前卡片状态无法付款',
                                 ),
                               _ => const _PaymentCardLoading(),
                             },
@@ -505,7 +504,7 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
                                     )
                                     .debugComplete(),
                                 icon: Icon(GpPlatformIcons.debug(context)),
-                                label: Text(l10n.t('debugPaymentSuccess')),
+                                label: const Text('调试：触发支付成功'),
                               ),
                             ),
                           ],
@@ -541,7 +540,7 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
                                     onPressed: () => unawaited(
                                       context.push(GpRoutes.offline),
                                     ),
-                                    child: Text(l10n.t('offlineAuthorization')),
+                                    child: const Text('离线授权'),
                                   ),
                                 ],
                               ),
@@ -549,7 +548,7 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
                           ],
                           const SizedBox(height: 30),
                           Text(
-                            l10n.t('recentActivity'),
+                            '最近使用',
                             style: TextStyle(
                               color: context.gpColors.textPrimary,
                               fontSize: 24,
@@ -639,12 +638,11 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
     required PaymentCodeViewState payment,
     required bool manualOffline,
   }) async {
-    final l10n = context.l10n;
     final stateLabel = switch (payment.connectionState) {
-      PaymentConnectionState.online => l10n.t('networkOnline'),
-      PaymentConnectionState.disconnected => l10n.t('networkDisconnected'),
-      PaymentConnectionState.apiError => l10n.t('networkApiError'),
-      PaymentConnectionState.unknown => l10n.t('networkChecking'),
+      PaymentConnectionState.online => '网络正常',
+      PaymentConnectionState.disconnected => '网络已断开',
+      PaymentConnectionState.apiError => '服务响应异常',
+      PaymentConnectionState.unknown => '正在检测',
     };
     final latency = payment.requestLatency == null
         ? '--'
@@ -662,10 +660,10 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
           children: [
             AppleSection(
               children: [
-                AppleListRow(label: l10n.t('onlineStatus'), value: stateLabel),
-                AppleListRow(label: l10n.t('requestLatency'), value: latency),
+                AppleListRow(label: '在线状态', value: stateLabel),
+                AppleListRow(label: '当前延迟', value: latency),
                 AppleListRow(
-                  label: l10n.t('offlineCode'),
+                  label: '离线付款码',
                   verticalPadding: 4,
                   trailing: Switch.adaptive(
                     value: manualOffline ||
@@ -682,8 +680,8 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
             const SizedBox(height: 10),
             Text(
               manualOffline
-                  ? l10n.t('manualOfflineActive')
-                  : l10n.t('automaticOfflineMode'),
+                  ? '手动离线模式会保持到 App 进程退出。'
+                  : '在线码加载期间或网络异常时，先显示可用的离线码；在线码就绪后自动切换。',
               textAlign: TextAlign.center,
               style: TextStyle(color: context.gpColors.textSecondary),
             ),
@@ -737,10 +735,9 @@ final class _OfflineAuthorizationBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = context.l10n;
     return Semantics(
       container: true,
-      label: l10n.t('offlineAuthorizationBannerPrompt'),
+      label: '开通离线付款码，以便在网络不稳定时继续支付。',
       child: Container(
         key: const Key('offline-authorization-banner'),
         padding: const EdgeInsets.fromLTRB(16, 10, 4, 10),
@@ -753,16 +750,16 @@ final class _OfflineAuthorizationBanner extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Expanded(
+            const Expanded(
               child: Text(
-                l10n.t('offlineAuthorizationBannerPrompt'),
-                style: const TextStyle(fontWeight: FontWeight.w500),
+                '开通离线付款码，以便在网络不稳定时继续支付。',
+                style: TextStyle(fontWeight: FontWeight.w500),
               ),
             ),
-            TextButton(onPressed: onActivate, child: Text(l10n.t('activate'))),
+            TextButton(onPressed: onActivate, child: const Text('立即开通')),
             IconButton(
               key: const Key('offline-authorization-banner-close'),
-              tooltip: l10n.t('close'),
+              tooltip: '关闭',
               visualDensity: VisualDensity.compact,
               onPressed: () => unawaited(onDismiss()),
               icon: Icon(GpPlatformIcons.close(context), size: 17),
@@ -805,7 +802,6 @@ final class _ExpandedPaymentPass extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = context.l10n;
     final succeeded = !offline && payment.phase == PaymentCodePhase.succeeded;
     final result = payment.result;
     final payload = offline ? offlinePayload : payment.frame?.qrPayload;
@@ -823,7 +819,7 @@ final class _ExpandedPaymentPass extends StatelessWidget {
             card.ownerName,
             languageCode: Localizations.localeOf(context).languageCode,
           )
-        : l10n.t('campusCardShort');
+        : 'eCard';
 
     return Hero(
       tag: 'campus-card',
@@ -880,7 +876,7 @@ final class _ExpandedPaymentPass extends StatelessWidget {
                                 offset: Offset(0, statusSize * 0.045),
                                 child: Semantics(
                                   button: true,
-                                  label: l10n.t('onlineStatus'),
+                                  label: '在线状态',
                                   child: GestureDetector(
                                     onTap: onShowStatus,
                                     behavior: HitTestBehavior.opaque,
@@ -1020,8 +1016,8 @@ final class _ExpandedPaymentPass extends StatelessWidget {
                                 children: [
                                   Text(
                                     offline
-                                        ? l10n.t('offlineCode')
-                                        : l10n.t('onlineCode'),
+                                        ? '离线付款码'
+                                        : '在线付款码',
                                     style: TextStyle(
                                       color: GpTokens.campusRed,
                                       fontSize: metadataTitleSize,
@@ -1032,7 +1028,7 @@ final class _ExpandedPaymentPass extends StatelessWidget {
                                     SizedBox(height: width * 0.004),
                                     if (offline)
                                       Text(
-                                        '${l10n.t('remainingUses')}: $offlineRemaining',
+                                        '剩余次数: $offlineRemaining',
                                         style: TextStyle(
                                           color: GpTokens.campusRed
                                               .withValues(alpha: 0.62),
@@ -1078,7 +1074,7 @@ final class _ExpandedPaymentPass extends StatelessWidget {
                                       ),
                                       SizedBox(height: width * 0.006),
                                       Text(
-                                        l10n.cardNumber(card.id),
+                                        'No. $card.id',
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                         style: TextStyle(
@@ -1183,7 +1179,7 @@ class _CodeCountdownState extends State<_CodeCountdown> {
         width: double.infinity,
         child: RepaintBoundary(
           child: Text(
-            context.l10n.refreshIn(_remaining),
+            '$_remaining秒后刷新',
             textAlign: TextAlign.center,
             style: widget.style,
           ),
@@ -1266,7 +1262,7 @@ class _QrCodeState extends State<_QrCode> {
   Widget build(BuildContext context) {
     return Semantics(
       button: true,
-      label: context.l10n.t('touchToRefresh'),
+      label: '轻触二维码刷新',
       child: GestureDetector(
         onTap: widget.onTap,
         child: Container(
@@ -1298,7 +1294,7 @@ final class _PaymentSuccess extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return Semantics(
       button: true,
-      label: context.l10n.t('touchToRefresh'),
+      label: '轻触二维码刷新',
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: onRefresh,
@@ -1314,7 +1310,7 @@ final class _PaymentSuccess extends ConsumerWidget {
             const SizedBox(height: 16),
             Text(
               result == null
-                  ? context.l10n.t('paymentSucceeded')
+                  ? '支付成功'
                   : formatMoneyFen(result!.amount.value),
               style: const TextStyle(
                 color: GpTokens.campusRed,
@@ -1327,7 +1323,7 @@ final class _PaymentSuccess extends ConsumerWidget {
             Text(
               result?.merchantName?.trim().isNotEmpty == true
                   ? result!.merchantName!
-                  : context.l10n.t('paymentSucceeded'),
+                  : '支付成功',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
@@ -1338,8 +1334,8 @@ final class _PaymentSuccess extends ConsumerWidget {
             if (result != null) ...[
               const SizedBox(height: 3),
               Text(
-                context.l10n.fullDateTime(
-                  result!.tradeAt ?? result!.confirmedLocallyAt,
+                DateFormat('yyyy-MM-dd HH:mm:ss').format(
+                  (result!.tradeAt ?? result!.confirmedLocallyAt).toLocal(),
                 ),
                 style: TextStyle(
                   color: GpTokens.campusRed.withValues(alpha: 0.62),
@@ -1370,7 +1366,7 @@ final class _ActivationRequired extends StatelessWidget {
           color: context.gpColors.action,
         ),
         const SizedBox(height: 16),
-        Text(context.l10n.t('activationRequired')),
+        const Text('需要先开通付款码'),
         const SizedBox(height: 14),
         FilledButton(
           onPressed: onActivate,
@@ -1378,7 +1374,7 @@ final class _ActivationRequired extends StatelessWidget {
             backgroundColor: context.gpColors.action,
             shape: const StadiumBorder(),
           ),
-          child: Text(context.l10n.t('activate')),
+          child: const Text('立即开通'),
         ),
       ],
     );
@@ -1396,9 +1392,9 @@ final class _CodeFailure extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(message ?? context.l10n.t('paymentCodeFailed')),
+        Text(message ?? '付款码生成失败'),
         const SizedBox(height: 8),
-        TextButton(onPressed: onRetry, child: Text(context.l10n.t('retry'))),
+        TextButton(onPressed: onRetry, child: const Text('重试')),
       ],
     );
   }

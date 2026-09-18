@@ -6,10 +6,23 @@ import 'package:techpie/widgets/adaptive_button.dart';
 import '../../app/app_providers.dart';
 import '../../domain/ports/platform_ports.dart';
 import '../icons/platform_icons.dart';
-import '../localization/geekpay_localizations.dart';
 import '../theme/colors.dart';
 import '../theme/tokens.dart';
 import '../widgets/apple_wallet_components.dart';
+
+/// Manual home-screen-widget steps, per platform. The launcher's picker cannot
+/// be driven from the app, so the fallback path has to spell them out.
+const _iosWidgetSteps = <String>[
+  '回到主屏幕，长按空白处，轻点“编辑”或左上角的“+”。',
+  '选择“添加小组件”，搜索 TechPie，再选择“消费码”。',
+  '轻点“添加小组件”，放到合适的位置后点“完成”。',
+];
+
+const _androidWidgetSteps = <String>[
+  '回到主屏幕，长按空白处，打开“小组件”。',
+  '找到 TechPie，长按“消费码”小组件并拖到主屏幕。',
+  '放到合适的位置；以后轻触小组件即可打开消费码。',
+];
 
 final class WidgetSetupScreen extends ConsumerStatefulWidget {
   const WidgetSetupScreen({super.key});
@@ -21,7 +34,7 @@ final class WidgetSetupScreen extends ConsumerStatefulWidget {
 class _WidgetSetupScreenState extends ConsumerState<WidgetSetupScreen> {
   late Future<HomeWidgetAvailability> _availability;
   bool _pinning = false;
-  String? _messageKey;
+  String? _message;
 
   @override
   void initState() {
@@ -45,7 +58,7 @@ class _WidgetSetupScreenState extends ConsumerState<WidgetSetupScreen> {
     if (!mounted) return;
     setState(() {
       _pinning = false;
-      _messageKey = requested ? 'widgetConfirmAdd' : 'widgetManualFallback';
+      _message = requested ? '请在系统弹窗中确认添加。' : '当前桌面未接受添加请求，请按下方步骤手动添加。';
       if (!requested) {
         _availability = Future.value(HomeWidgetAvailability.manual);
       }
@@ -54,17 +67,16 @@ class _WidgetSetupScreenState extends ConsumerState<WidgetSetupScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = context.l10n;
     final apple = Theme.of(context).platform == TargetPlatform.iOS;
     return Scaffold(
       body: AppleWalletPage(
         child: ApplePinnedHeaderLayout(
-          title: l10n.t('addPayWidget'),
+          title: '添加消费码小组件',
           leading: CampusCardHeaderAction(
             id: 'back',
             sfSymbol: 'chevron.left',
             icon: GpPlatformIcons.back(context),
-            label: l10n.t('back'),
+            label: '返回',
             onPressed: () => context.pop(),
           ),
           child: ListView(
@@ -77,7 +89,7 @@ class _WidgetSetupScreenState extends ConsumerState<WidgetSetupScreen> {
             children: [
               const Center(child: PayWidgetPreview()),
               const SizedBox(height: 24),
-              Text(l10n.t('widgetGuideSummary'), textAlign: TextAlign.center),
+              const Text('将消费码放到主屏幕，轻触小组件即可打开。', textAlign: TextAlign.center),
               const SizedBox(height: 24),
               FutureBuilder<HomeWidgetAvailability>(
                 future: _availability,
@@ -85,11 +97,11 @@ class _WidgetSetupScreenState extends ConsumerState<WidgetSetupScreen> {
                   final availability =
                       snapshot.data ?? HomeWidgetAvailability.manual;
                   if (availability == HomeWidgetAvailability.unsupported) {
-                    return AppleSection(
+                    return const AppleSection(
                       children: [
                         Padding(
-                          padding: const EdgeInsets.all(20),
-                          child: Text(l10n.t('widgetUnsupported')),
+                          padding: EdgeInsets.all(20),
+                          child: Text('此系统暂不支持主屏幕小组件。iPhone 需要 iOS 14 或更新版本。'),
                         ),
                       ],
                     );
@@ -103,19 +115,19 @@ class _WidgetSetupScreenState extends ConsumerState<WidgetSetupScreen> {
                           onPressed: _pinning ? null : _requestPin,
                           icon: GpPlatformIcons.homeWidget(context),
                           sfSymbol: 'square.grid.2x2',
-                          label: l10n.t('addToHomeScreen'),
+                          label: '添加到主屏幕',
                           role: AdaptiveButtonRole.prominent,
                           loading: _pinning,
                           width: double.infinity,
                         ),
                         const SizedBox(height: 18),
                       ],
-                      if (_messageKey != null) ...[
-                        Text(l10n.t(_messageKey!), textAlign: TextAlign.center),
+                      if (_message != null) ...[
+                        Text(_message!, textAlign: TextAlign.center),
                         const SizedBox(height: 18),
                       ],
                       AppleSection(
-                        header: l10n.t('widgetGuideSteps'),
+                        header: '手动添加步骤',
                         children: [
                           for (var step = 1; step <= 3; step++)
                             Padding(
@@ -139,9 +151,9 @@ class _WidgetSetupScreenState extends ConsumerState<WidgetSetupScreen> {
                                   const SizedBox(width: 12),
                                   Expanded(
                                     child: Text(
-                                      l10n.t(
-                                        'widget${apple ? 'Ios' : 'Android'}Step$step',
-                                      ),
+                                      (apple
+                                          ? _iosWidgetSteps
+                                          : _androidWidgetSteps)[step - 1],
                                     ),
                                   ),
                                 ],
@@ -166,9 +178,8 @@ final class PayWidgetPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = context.l10n;
     return Semantics(
-      label: l10n.t('widgetTitle'),
+      label: '消费码',
       image: true,
       child: ExcludeSemantics(
         child: Container(
@@ -198,18 +209,18 @@ final class PayWidgetPreview extends StatelessWidget {
                 color: GpTokens.campusRed,
               ),
               const Spacer(),
-              Text(
-                l10n.t('widgetTitle'),
-                style: const TextStyle(
+              const Text(
+                '消费码',
+                style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w600,
                   color: Color(0xFF242428),
                 ),
               ),
               const SizedBox(height: 3),
-              Text(
-                l10n.t('widgetSubtitle'),
-                style: const TextStyle(fontSize: 12, color: Color(0xFF76656A)),
+              const Text(
+                '支付一触即达',
+                style: TextStyle(fontSize: 12, color: Color(0xFF76656A)),
               ),
             ],
           ),

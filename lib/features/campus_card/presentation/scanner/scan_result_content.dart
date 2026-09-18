@@ -1,10 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import '../../domain/models/scan_models.dart';
 import '../../domain/ports/platform_ports.dart';
 import '../icons/platform_icons.dart';
-import '../localization/geekpay_localizations.dart';
 import '../theme/colors.dart';
 import '../theme/tokens.dart';
 import '../widgets/apple_wallet_components.dart';
@@ -45,9 +45,9 @@ class _ScanFailureContentState extends State<ScanFailureContent> {
           size: 82,
         ),
         const SizedBox(height: 20),
-        Text(
-          context.l10n.t('recognitionFailed'),
-          style: const TextStyle(fontSize: 25, fontWeight: FontWeight.w700),
+        const Text(
+          '识别失败',
+          style: TextStyle(fontSize: 25, fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 10),
         Text(
@@ -67,7 +67,7 @@ class _ScanFailureContentState extends State<ScanFailureContent> {
             minimumSize: const Size.fromHeight(54),
             shape: const StadiumBorder(),
           ),
-          child: Text(context.l10n.t('scanAgain')),
+          child: const Text('重新扫码'),
         ),
       ],
     );
@@ -89,11 +89,11 @@ final class ScanResultContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final title = switch (success.kind) {
-      ScanSuccessKind.payment => context.l10n.t('paymentSucceeded'),
-      ScanSuccessKind.attendance => context.l10n.t('attendanceSucceeded'),
-      ScanSuccessKind.openDevice => context.l10n.t('deviceOpened'),
-      ScanSuccessKind.bindTray => context.l10n.t('trayBound'),
-      ScanSuccessKind.unknown => context.l10n.t('processed'),
+      ScanSuccessKind.payment => '支付成功',
+      ScanSuccessKind.attendance => '签到成功',
+      ScanSuccessKind.openDevice => '开阀成功',
+      ScanSuccessKind.bindTray => '绑盘成功',
+      ScanSuccessKind.unknown => '处理完成',
     };
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -131,7 +131,7 @@ final class ScanResultContent extends StatelessWidget {
         if (success.fee != null && success.fee!.value > 0) ...[
           const SizedBox(height: 8),
           Text(
-            '${context.l10n.t('fee')} ${formatMoneyFen(success.fee!.value)}',
+            '含管理费 ${formatMoneyFen(success.fee!.value)}',
             style: TextStyle(color: context.gpColors.textSecondary),
           ),
         ],
@@ -144,16 +144,20 @@ final class ScanResultContent extends StatelessWidget {
           ),
         ],
         for (final detail in <String, String?>{
-          'paymentTime': success.paidAt == null ? null : context.l10n.fullDateTime(success.paidAt!),
-          'authorizationCode': success.authorizationCode,
-          'transactionId': success.transactionId,
-          'terminalCode': success.terminalCode,
-          'transactionCode': success.transactionCode,
+          '支付时间': success.paidAt == null
+              ? null
+              : DateFormat(
+                  'yyyy-MM-dd HH:mm:ss',
+                ).format(success.paidAt!.toLocal()),
+          '授权码': success.authorizationCode,
+          '交易流水号': success.transactionId,
+          '终端编号': success.terminalCode,
+          '交易代码': success.transactionCode,
         }.entries)
           if (detail.value != null) ...[
             const SizedBox(height: 8),
             Text(
-              '${context.l10n.t(detail.key)} ${detail.value}',
+              '${detail.key} ${detail.value}',
               textAlign: TextAlign.center,
               style: TextStyle(color: context.gpColors.textSecondary),
             ),
@@ -161,7 +165,7 @@ final class ScanResultContent extends StatelessWidget {
         if (success.balance != null) ...[
           const SizedBox(height: 8),
           Text(
-            '${context.l10n.t('postBalance')} '
+            '交易后余额 '
             '${formatMoneyFen(success.balance!.value)}',
             style: TextStyle(color: context.gpColors.textSecondary),
           ),
@@ -174,7 +178,7 @@ final class ScanResultContent extends StatelessWidget {
             minimumSize: const Size.fromHeight(54),
             shape: const StadiumBorder(),
           ),
-          child: Text(context.l10n.t('done')),
+          child: const Text('完成'),
         ),
       ],
     );

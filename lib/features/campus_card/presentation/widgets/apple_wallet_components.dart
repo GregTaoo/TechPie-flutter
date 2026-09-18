@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:techpie/utils/platform.dart';
 import 'package:techpie/widgets/blurred_app_bar.dart';
 import 'package:techpie/widgets/ios/ios_native_navigation_bar.dart';
@@ -10,7 +11,6 @@ import '../../domain/models/bill_models.dart';
 import '../../domain/models/card_models.dart';
 import '../../domain/ports/platform_ports.dart';
 import '../icons/platform_icons.dart';
-import '../localization/geekpay_localizations.dart';
 import '../theme/colors.dart';
 import '../theme/tokens.dart';
 
@@ -235,7 +235,7 @@ final class ApplePinnedHeaderLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final resolvedTitle = title ?? context.l10n.t('campusCardShort');
+    final resolvedTitle = title ?? 'eCard';
     return SafeArea(
       bottom: false,
       child: Stack(
@@ -387,7 +387,7 @@ final class CampusWalletCard extends StatelessWidget {
 
     return Semantics(
       button: onTap != null,
-      label: context.l10n.t('campusCard'),
+      label: '上海科技大学 eCard',
       child: ExcludeSemantics(
         child: DecoratedBox(
           decoration: BoxDecoration(
@@ -670,7 +670,7 @@ final class TransactionList extends StatelessWidget {
             borderRadius: BorderRadius.circular(24),
           ),
           child: Text(
-            emptyLabel ?? context.l10n.t('noTransactions'),
+            emptyLabel ?? '这个时间范围内没有交易',
             textAlign: TextAlign.center,
             style: TextStyle(color: context.gpColors.textSecondary),
           ),
@@ -719,7 +719,9 @@ final class _TransactionRow extends StatelessWidget {
     final c = context.gpColors;
     final incoming = transactionIsIncoming(record);
     final amount = formatTransactionAmount(record);
-    final date = context.l10n.fullDateTime(record.occurredAt);
+    final date = DateFormat('yyyy-MM-dd HH:mm:ss').format(
+      record.occurredAt.toLocal(),
+    );
     final icon = transactionIcon(context, record);
     return _ImmediatePressSurface(
       onTap: onTap == null ? null : () => onTap!(record),

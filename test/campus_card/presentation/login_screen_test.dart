@@ -86,7 +86,7 @@ void main() {
     );
 
     expect(find.byKey(const Key('openid-input')), findsNothing);
-    expect(find.text('Open Account Settings'), findsOneWidget);
+    expect(find.text('打开 Account 设置'), findsOneWidget);
     expect(
       Theme.of(tester.element(find.byType(LoginScreen))).brightness,
       Brightness.dark,
@@ -96,7 +96,7 @@ void main() {
       const Color(0xFF4A67D6),
     );
 
-    await tester.tap(find.text('Open Account Settings'));
+    await tester.tap(find.text('打开 Account 设置'));
     await tester.pump();
     expect(accountOpened, isTrue);
   });
@@ -110,9 +110,9 @@ void main() {
     var exited = false;
     await pumpLogin(tester, runtime, onExit: () => exited = true);
 
-    expect(find.byTooltip('Back'), findsOneWidget);
-    expect(find.byTooltip('Close'), findsNothing);
-    await tester.tap(find.byTooltip('Back'));
+    expect(find.byTooltip('返回'), findsOneWidget);
+    expect(find.byTooltip('关闭'), findsNothing);
+    await tester.tap(find.byTooltip('返回'));
     await tester.pump();
     expect(exited, isTrue);
   });

@@ -6,13 +6,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 
 import '../../app/app_providers.dart';
 import '../../domain/models/card_models.dart';
 import '../../domain/ports/platform_ports.dart';
 import '../app/routes.dart';
 import '../icons/platform_icons.dart';
-import '../localization/geekpay_localizations.dart';
 import '../theme/colors.dart';
 import '../widgets/apple_wallet_components.dart';
 import '../widgets/gp_state.dart';
@@ -124,8 +124,8 @@ class _CardManageScreenState extends ConsumerState<CardManageScreen>
           DateTimeRange(start: DateTime(now.year, now.month, 1), end: now),
       firstDate: DateTime(2020),
       lastDate: DateTime.now().add(const Duration(days: 1)),
-      saveText: context.l10n.t('done'),
-      helpText: context.l10n.t('dateRange'),
+      saveText: '完成',
+      helpText: '日期范围',
       builder: (pickerContext, child) => _AndroidDateRangePickerShell(
         onClear: () => Navigator.of(
           pickerContext,
@@ -167,7 +167,7 @@ class _CardManageScreenState extends ConsumerState<CardManageScreen>
                         sheetContext,
                         const _DateRangeSelection.clear(),
                       ),
-                      child: Text(context.l10n.t('noDateRange')),
+                      child: const Text('不指定日期'),
                     ),
                     const Spacer(),
                     CupertinoButton(
@@ -177,7 +177,7 @@ class _CardManageScreenState extends ConsumerState<CardManageScreen>
                           DateTimeRange(start: start, end: end),
                         ),
                       ),
-                      child: Text(context.l10n.t('done')),
+                      child: const Text('完成'),
                     ),
                   ],
                 ),
@@ -186,14 +186,14 @@ class _CardManageScreenState extends ConsumerState<CardManageScreen>
                 padding: const EdgeInsets.symmetric(horizontal: 18),
                 child: CupertinoSlidingSegmentedControl<bool>(
                   groupValue: editingStart,
-                  children: {
+                  children: const {
                     true: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 18),
-                      child: Text(context.l10n.t('startDate')),
+                      padding: EdgeInsets.symmetric(horizontal: 18),
+                      child: Text('开始日期'),
                     ),
                     false: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 18),
-                      child: Text(context.l10n.t('endDate')),
+                      padding: EdgeInsets.symmetric(horizontal: 18),
+                      child: Text('结束日期'),
                     ),
                   },
                   onValueChanged: (value) {
@@ -235,7 +235,6 @@ class _CardManageScreenState extends ConsumerState<CardManageScreen>
     final cardAsync = ref.watch(cardControllerProvider);
     final card = cardAsync.valueOrNull;
     final profile = ref.watch(profileControllerProvider).valueOrNull;
-    final l10n = context.l10n;
 
     return Scaffold(
       key: const Key('card-manage-page'),
@@ -245,7 +244,7 @@ class _CardManageScreenState extends ConsumerState<CardManageScreen>
             id: 'back',
             sfSymbol: 'chevron.left',
             icon: GpPlatformIcons.back(context),
-            label: l10n.t('back'),
+            label: '返回',
             onPressed: () {
               if (context.canPop()) {
                 context.pop();
@@ -278,7 +277,7 @@ class _CardManageScreenState extends ConsumerState<CardManageScreen>
             _ when card == null => Center(
                 child: FilledButton(
                   onPressed: () => unawaited(context.push(GpRoutes.bindCard)),
-                  child: Text(l10n.t('bindCard')),
+                  child: const Text('绑定卡片'),
                 ),
               ),
             _ => CustomScrollView(
@@ -312,7 +311,7 @@ class _CardManageScreenState extends ConsumerState<CardManageScreen>
                             ),
                             const SizedBox(height: 22),
                             Text(
-                              l10n.t('campusCard'),
+                              '上海科技大学 eCard',
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                 color: context.gpColors.textPrimary,
@@ -323,9 +322,9 @@ class _CardManageScreenState extends ConsumerState<CardManageScreen>
                             ),
                             const SizedBox(height: 26),
                             AppleSegmentedControl(
-                              labels: [
-                                l10n.t('information'),
-                                l10n.t('activity'),
+                              labels: const [
+                                '信息',
+                                '使用明细',
                               ],
                               selectedIndex: _segment,
                               onChanged: _setSegment,
@@ -371,43 +370,43 @@ final class _InformationTab extends ConsumerWidget {
   final CampusCard card;
   final String? profilePosition;
 
-  String _date(BuildContext context, DateTime? value) =>
-      value == null ? '—' : context.l10n.fullDateTime(value);
+  String _date(BuildContext context, DateTime? value) => value == null
+      ? '—'
+      : DateFormat('yyyy-MM-dd HH:mm:ss').format(value.toLocal());
 
   String _status(BuildContext context) => switch (card.status) {
-        CampusCardStatus.normal => context.l10n.t('normal'),
-        CampusCardStatus.lost => context.l10n.t('lost'),
+        CampusCardStatus.normal => '正常',
+        CampusCardStatus.lost => '挂失',
         CampusCardStatus.frozen ||
         CampusCardStatus.manualFrozen =>
-          context.l10n.t('frozen'),
-        CampusCardStatus.closed => context.l10n.t('closed'),
-        CampusCardStatus.preclosed => context.l10n.t('preclosed'),
+          '冻结',
+        CampusCardStatus.closed => '销户',
+        CampusCardStatus.preclosed => '预销户',
         CampusCardStatus.unknown => '—',
       };
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final l10n = context.l10n;
     return Column(
       children: [
         AppleSection(
           children: [
-            AppleListRow(label: l10n.t('name'), value: card.ownerName),
+            AppleListRow(label: '姓名', value: card.ownerName),
             AppleListRow(
-              label: l10n.t('identity'),
+              label: '身份',
               value: profilePosition ?? card.positionName,
             ),
             AppleListRow(
-              label: l10n.t('department'),
+              label: '所属单位',
               value: card.departmentName ?? card.schoolName ?? '—',
             ),
-            AppleListRow(label: l10n.t('status'), value: _status(context)),
+            AppleListRow(label: '账户状态', value: _status(context)),
             AppleListRow(
-              label: l10n.t('validUntil'),
+              label: '有效期',
               value: _date(context, card.validUntil),
             ),
             AppleListRow(
-              label: l10n.t('lastLogin'),
+              label: '最近登录',
               value: _date(context, card.lastTransactionAt),
             ),
           ],
@@ -417,17 +416,17 @@ final class _InformationTab extends ConsumerWidget {
           children: [
             AppleListRow(
               icon: GpPlatformIcons.security(context),
-              label: l10n.t('security'),
+              label: '安全中心',
               onTap: () => unawaited(context.push('${GpRoutes.me}/security')),
             ),
             AppleListRow(
               icon: GpPlatformIcons.offline(context),
-              label: l10n.t('offlineAuthorization'),
+              label: '离线授权',
               onTap: () => unawaited(context.push(GpRoutes.offline)),
             ),
             AppleListRow(
               icon: GpPlatformIcons.settings(context),
-              label: l10n.t('settings'),
+              label: '设置',
               onTap: () => unawaited(context.push('${GpRoutes.me}/settings')),
             ),
           ],
@@ -436,12 +435,12 @@ final class _InformationTab extends ConsumerWidget {
             Theme.of(context).platform == TargetPlatform.iOS) ...[
           const SizedBox(height: 18),
           AppleSection(
-            footer: l10n.t('widgetGuideSummary'),
+            footer: '将消费码放到主屏幕，轻触小组件即可打开。',
             children: [
               AppleListRow(
                 key: const Key('add-pay-widget'),
                 icon: GpPlatformIcons.homeWidget(context),
-                label: l10n.t('addPayWidget'),
+                label: '添加消费码小组件',
                 onTap: () => unawaited(context.push(GpRoutes.widgetSetup)),
               ),
             ],
@@ -486,10 +485,12 @@ final class _ActivitySliver extends ConsumerWidget {
           child: AppleSection(
             children: [
               AppleListRow(
-                label: context.l10n.t('dateRange'),
+                label: '日期范围',
                 value: range == null
-                    ? context.l10n.t('noDateRange')
-                    : context.l10n.dateRangeDays(range!.start, range!.end),
+                    ? '不指定日期'
+                    : '${range!.start.month}月${range!.start.day}日'
+                        ' 至 '
+                        '${range!.end.month}月${range!.end.day}日',
                 icon: GpPlatformIcons.calendar(context),
                 onTap: onPickRange,
               ),
@@ -516,7 +517,7 @@ final class _ActivitySliver extends ConsumerWidget {
                               .read(transactionFeedProvider(query).notifier)
                               .loadMore(),
                         ),
-                        child: Text(context.l10n.t('loadMore')),
+                        child: const Text('加载更多'),
                       ),
                     ),
                   ),
@@ -592,7 +593,7 @@ final class _AndroidDateRangePickerShell extends StatelessWidget {
                   side: BorderSide(color: actionColor.withValues(alpha: 0.28)),
                   shape: const StadiumBorder(),
                 ),
-                child: Text(context.l10n.t('noDateRange')),
+                child: const Text('不指定日期'),
               ),
             ),
           ),

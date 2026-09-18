@@ -36,7 +36,6 @@ void main() {
   ) async {
     SharedPreferences.setMockInitialValues({
       'geekpay.onboarding_complete': true,
-      'geekpay.preferred_locale': 'zh',
     });
     final base = await buildDemoRuntime();
     addTearDown(base.dispose);
@@ -62,9 +61,11 @@ void main() {
     );
 
     await tester.pumpWidget(
-      ProviderScope(
-        overrides: [appRuntimeProvider.overrideWithValue(runtime)],
-        child: const CampusCardFeature(),
+      MaterialApp(
+        home: ProviderScope(
+          overrides: [appRuntimeProvider.overrideWithValue(runtime)],
+          child: const CampusCardFeature(),
+        ),
       ),
     );
     await tester.pump(const Duration(milliseconds: 30));
@@ -90,7 +91,6 @@ void main() {
   ) async {
     SharedPreferences.setMockInitialValues({
       'geekpay.onboarding_complete': true,
-      'geekpay.preferred_locale': 'zh',
     });
     final base = await buildDemoRuntime();
     addTearDown(base.dispose);
@@ -114,9 +114,11 @@ void main() {
     );
 
     await tester.pumpWidget(
-      ProviderScope(
-        overrides: [appRuntimeProvider.overrideWithValue(runtime)],
-        child: const CampusCardFeature(),
+      MaterialApp(
+        home: ProviderScope(
+          overrides: [appRuntimeProvider.overrideWithValue(runtime)],
+          child: const CampusCardFeature(),
+        ),
       ),
     );
     for (var i = 0; i < 80; i++) {
@@ -150,7 +152,6 @@ void main() {
     const primary = GpTokens.appleBlue;
     SharedPreferences.setMockInitialValues({
       'geekpay.onboarding_complete': true,
-      'geekpay.preferred_locale': 'zh',
     });
     final base = await buildDemoRuntime();
     addTearDown(base.dispose);
@@ -249,7 +250,6 @@ void main() {
     (tester) async {
       SharedPreferences.setMockInitialValues({
         'geekpay.onboarding_complete': true,
-        'geekpay.preferred_locale': 'zh',
       });
       final ports = await buildDemoRuntime();
       final auth = _RestoredAuthPort();
@@ -275,15 +275,17 @@ void main() {
       var exitCount = 0;
 
       await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            appRuntimeProvider.overrideWithValue(runtime),
-            campusCardEntryProvider.overrideWithValue(
-              CampusCardEntry.cardManagement,
-            ),
-            geekPayHostExitProvider.overrideWithValue(() => exitCount++),
-          ],
-          child: const CampusCardFeature(),
+        MaterialApp(
+            home: ProviderScope(
+            overrides: [
+              appRuntimeProvider.overrideWithValue(runtime),
+              campusCardEntryProvider.overrideWithValue(
+                CampusCardEntry.cardManagement,
+              ),
+              geekPayHostExitProvider.overrideWithValue(() => exitCount++),
+            ],
+            child: const CampusCardFeature(),
+          ),
         ),
       );
       for (var i = 0; i < 40; i++) {
@@ -305,7 +307,6 @@ void main() {
     (tester) async {
       SharedPreferences.setMockInitialValues({
         'geekpay.onboarding_complete': true,
-        'geekpay.preferred_locale': 'zh',
       });
       final ports = await buildDemoRuntime();
       final auth = _RestoredAuthPort();
@@ -330,9 +331,11 @@ void main() {
       addTearDown(runtime.dispose);
 
       await tester.pumpWidget(
-        ProviderScope(
-          overrides: [appRuntimeProvider.overrideWithValue(runtime)],
-          child: const CampusCardFeature(),
+        MaterialApp(
+            home: ProviderScope(
+            overrides: [appRuntimeProvider.overrideWithValue(runtime)],
+            child: const CampusCardFeature(),
+          ),
         ),
       );
       for (var i = 0; i < 40; i++) {
@@ -396,7 +399,7 @@ void main() {
       expect(find.text('OPENID'), findsNothing);
       expect(find.text('上海科技大学 eCard'), findsOneWidget);
       expect(find.text('退出登录'), findsNothing);
-      expect(find.text('Sign Out'), findsNothing);
+      expect(find.text('退出登录'), findsNothing);
 
       auth.expire();
       for (var i = 0; i < 20; i++) {
@@ -414,7 +417,6 @@ void main() {
     (tester) async {
       SharedPreferences.setMockInitialValues({
         'geekpay.onboarding_complete': true,
-        'geekpay.preferred_locale': 'zh',
       });
       final ports = await buildDemoRuntime();
       await ports.offlinePayments.removeAllFromThisDevice();
@@ -440,9 +442,11 @@ void main() {
       addTearDown(runtime.dispose);
 
       await tester.pumpWidget(
-        ProviderScope(
-          overrides: [appRuntimeProvider.overrideWithValue(runtime)],
-          child: const CampusCardFeature(),
+        MaterialApp(
+            home: ProviderScope(
+            overrides: [appRuntimeProvider.overrideWithValue(runtime)],
+            child: const CampusCardFeature(),
+          ),
         ),
       );
       for (var i = 0; i < 40; i++) {
