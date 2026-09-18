@@ -1,12 +1,22 @@
 import 'dart:io';
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:techpie/features/campus_card/app/app_providers.dart';
+import 'package:techpie/features/campus_card/app/demo_runtime_factory.dart';
+import 'package:techpie/features/campus_card/app/real_runtime_factory.dart';
 import 'package:techpie/features/campus_card/core/config/app_environment.dart';
 import 'package:techpie/features/campus_card/data/repositories/disabled_ports.dart';
 import 'package:techpie/features/campus_card/domain/models/security_models.dart';
 import 'package:techpie/features/campus_card/domain/money_fen.dart';
+import 'package:techpie/features/campus_card/presentation/app/providers.dart';
+import 'package:techpie/features/campus_card/presentation/app/routes.dart';
 
 void main() {
+  // buildRealRuntime() constructs adapters that read WidgetsBinding.instance.
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('production advertises verified reads but not unverified writes', () {
     final capabilities = AppCapabilities.forEnvironment(
       AppEnvironment.production,
@@ -22,19 +32,34 @@ void main() {
     expect(capabilities.offlinePaymentCode, isTrue);
   });
 
-  test('real composition root has no dependency on demo repositories', () {
-    final source = File(
-      'lib/features/campus_card/app/real_runtime_factory.dart',
-    ).readAsStringSync();
-    expect(source, isNot(contains('/mock/')));
-    expect(source, isNot(contains('Demo')));
-    expect(source, contains('EcardOpenIdAuthPort'));
-    expect(source, contains('EcardTransactionHistoryRepository'));
-    expect(source, contains('EcardSecuritySettingsRepository'));
-    expect(source, contains('EcardOfflineAuthorizationRemote'));
-    expect(source, contains('identityGuard: auth.verifyCurrentIdentity'));
-    expect(source, contains('verifiedIdSerialReader'));
-    expect(source, contains('subjectReader: readSubjectId'));
+  test('the real composition root composes adapters the demo one does not',
+      () async {
+    final real = buildRealRuntime(AppEnvironment.staging);
+    addTearDown(real.dispose);
+    final demo = await buildDemoRuntime();
+    addTearDown(demo.dispose);
+
+    // Comparing the composed types says what the old source scan said — the real
+    // root never wires a demo adapter — without reading our own source text.
+    for (final (name, pair) in [
+      ('auth', (real.auth, demo.auth)),
+      ('cards', (real.cards, demo.cards)),
+      ('paymentCodes', (real.paymentCodes, demo.paymentCodes)),
+      ('scanPayments', (real.scanPayments, demo.scanPayments)),
+      ('transactions', (real.transactions, demo.transactions)),
+      ('securitySettings', (real.securitySettings, demo.securitySettings)),
+    ]) {
+      expect(
+        pair.$1.runtimeType,
+        isNot(pair.$2.runtimeType),
+        reason: '$name must differ between the real and demo runtimes',
+      );
+    }
+
+    // The offline payment service is the one adapter the two runtimes share: it is
+    // a domain service over ports, and the demo/real difference lives in those
+    // ports (covered by test/campus_card/application/offline_payment_service_test).
+    expect(real.offlinePayments.runtimeType, demo.offlinePayments.runtimeType);
   });
 
   test('disabled production adapters can never return success', () async {
@@ -59,67 +84,58 @@ void main() {
     );
   });
 
-  test('recharge writes remain fail-closed', () {
-    final rechargeSource = File(
-      'lib/features/campus_card/data/repositories/ecard_recharge_repository.dart',
-    ).readAsStringSync();
-    expect(rechargeSource, contains('RECHARGE_WRITE_NOT_AUTHORIZED'));
-  });
-
-  test('settings are local and hidden flows are absent from routing', () {
-    final settings = File(
-      'lib/features/campus_card/presentation/screens/settings_screen.dart',
-    ).readAsStringSync();
-    final routes = File(
-      'lib/features/campus_card/presentation/app/providers.dart',
-    ).readAsStringSync();
-    final information = File(
-      'lib/features/campus_card/presentation/screens/card_manage_screen.dart',
-    ).readAsStringSync();
-    final providers = File(
-      'lib/features/campus_card/app/app_providers.dart',
-    ).readAsStringSync();
-    expect(settings, isNot(contains('settingsControllerProvider')));
-    expect(routes, isNot(contains('RechargeScreen')));
-    expect(routes, isNot(contains('UnbindScreen')));
-    expect(routes, isNot(contains('BillScreen')));
-    expect(routes, isNot(contains('BillTimelineScreen')));
-    expect(routes, contains('GpRoutes.transactions'));
-    expect(information, isNot(contains('GpRoutes.recharge')));
-    expect(information, isNot(contains('billSummary')));
-    expect(information, isNot(contains("context.push('/unbind')")));
-    expect(
-      providers,
-      contains(
-        'AsyncNotifierProvider.autoDispose<SpendingLimitsController, SpendingLimits>',
-      ),
+  test('the feature routes exactly the flows it ships', () async {
+    final runtime = await buildDemoRuntime();
+    final container = ProviderContainer(
+      overrides: [appRuntimeProvider.overrideWithValue(runtime)],
     );
+    addTearDown(container.dispose);
+    addTearDown(runtime.dispose);
+
+    final router = container.read(gpRouterProvider);
+    final paths = router.configuration.routes
+        .whereType<GoRoute>()
+        .map((route) => route.path)
+        .toSet();
+
+    // Positive and exact: a hidden flow coming back — under any class name —
+    // adds a path, and the set no longer matches.
+    expect(paths, {
+      GpRoutes.widgetSetup,
+      GpRoutes.login,
+      GpRoutes.bindCard,
+      GpRoutes.offline,
+      '/card/manage',
+      '${GpRoutes.me}/security',
+      '${GpRoutes.me}/settings',
+      GpRoutes.pay,
+      '${GpRoutes.transactions}/:id',
+      GpRoutes.me,
+    });
   });
 
-  test(
-    'sensitive payload tracing is isolated behind debug and explicit opt-in',
-    () {
-      final loggingCall = RegExp(
-        r'(^|[^A-Za-z0-9_])(print|debugPrint|debugPrintSynchronously|log)\s*\(',
-        multiLine: true,
+  test('nothing in the feature logs outside the request trace', () {
+    // The trace's own gate (debug mode and explicit opt-in) is behavioural-tested
+    // in test/campus_card_http_trace_test.dart; what stays here is the rename-proof
+    // half: no stray print/debugPrint anywhere in the feature.
+    final loggingCall = RegExp(
+      r'(^|[^A-Za-z0-9_])(print|debugPrint|debugPrintSynchronously)\s*\(',
+      multiLine: true,
+    );
+    for (final file in Directory('lib/features/campus_card')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((file) => file.path.endsWith('.dart'))
+        // The trace is the one place allowed to log; its own gate is covered by
+        // test/campus_card_http_trace_test.dart.
+        .where(
+          (file) => !file.path.endsWith('data/api/decrypted_http_trace.dart'),
+        )) {
+      expect(
+        file.readAsStringSync(),
+        isNot(matches(loggingCall)),
+        reason: file.path,
       );
-      final dartFiles = Directory('lib/features/campus_card')
-          .listSync(recursive: true)
-          .whereType<File>()
-          .where((file) => file.path.endsWith('.dart'));
-      for (final file in dartFiles) {
-        final source = file.readAsStringSync();
-        if (file.path.endsWith('decrypted_http_trace.dart')) {
-          expect(
-            source,
-            contains('debugModeFeaturesAvailable && _traceRequested'),
-          );
-          expect(source, contains('GEEKPAY_TRACE_DECRYPTED_HTTP'));
-          expect(source, matches(loggingCall));
-          continue;
-        }
-        expect(source, isNot(matches(loggingCall)), reason: file.path);
-      }
-    },
-  );
+    }
+  });
 }

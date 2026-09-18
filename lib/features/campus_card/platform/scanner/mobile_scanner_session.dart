@@ -1,8 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
-
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
@@ -10,7 +7,8 @@ import '../../core/async_mutex.dart';
 import '../../core/errors/app_failure.dart';
 import '../../domain/ports/platform_ports.dart';
 
-/// Shared scanner controller for iOS, Android and the OHOS platform adapter.
+/// Shared scanner controller for every platform the pinned mobile_scanner fork
+/// supports — Android, iOS and OHOS — through one code path.
 /// Presentation uses [controller] only to attach the plugin-owned camera
 /// preview; all scanning operations remain behind [ScannerPort].
 final class MobileScannerSession implements ScannerPort {
@@ -99,10 +97,8 @@ final class MobileScannerSession implements ScannerPort {
   @override
   Future<String?> scanImage() async {
     _ensureActive();
-    final path = defaultTargetPlatform.name == 'ohos'
-        ? await const MethodChannel('techpie/campus_card')
-            .invokeMethod<String>('pickImage')
-        : (await _imagePicker.pickImage(source: ImageSource.gallery))?.path;
+    final path =
+        (await _imagePicker.pickImage(source: ImageSource.gallery))?.path;
     if (path == null) return null;
     final capture = await controller.analyzeImage(path);
     return _firstValue(capture);

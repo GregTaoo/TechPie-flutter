@@ -1,5 +1,4 @@
 import 'package:flutter/foundation.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../application/offline_payment_service.dart';
 import '../core/config/app_environment.dart';
@@ -19,7 +18,6 @@ import '../data/storage/secure_card_cache.dart';
 import '../data/storage/secure_offline_credential_repository.dart';
 import '../domain/ports/credential_store.dart';
 import '../platform/scanner/mobile_scanner_session.dart';
-import '../platform/scanner/ohos_mobile_scanner.dart';
 import '../platform/system_ports.dart';
 import 'app_runtime.dart';
 
@@ -63,11 +61,6 @@ AppRuntime buildRealRuntime(
       (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS ||
           defaultTargetPlatform.name == 'ohos');
-  if (!kIsWeb &&
-      defaultTargetPlatform.name == 'ohos' &&
-      MobileScannerPlatform.instance is! OhosMobileScanner) {
-    MobileScannerPlatform.instance = OhosMobileScanner();
-  }
   final scanner = scannerSupported ? MobileScannerSession() : null;
   late final EcardTransactionHistoryRepository transactions;
   Future<void> purgeAccountMaterial() async {

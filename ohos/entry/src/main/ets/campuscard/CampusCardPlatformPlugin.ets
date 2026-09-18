@@ -3,7 +3,6 @@ import MethodChannel, { MethodCallHandler, MethodResult } from '@ohos/flutter_oh
 import MethodCall from '@ohos/flutter_ohos/src/main/ets/plugin/common/MethodCall';
 import EventChannel, { EventSink } from '@ohos/flutter_ohos/src/main/ets/plugin/common/EventChannel';
 import connection from '@ohos.net.connection';
-import photoAccessHelper from '@ohos.file.photoAccessHelper';
 import { BusinessError } from '@kit.BasicServicesKit';
 
 export class CampusCardPlatformPlugin implements FlutterPlugin, MethodCallHandler {
@@ -55,11 +54,6 @@ export class CampusCardPlatformPlugin implements FlutterPlugin, MethodCallHandle
     if (call.method === 'isOnline') {
       connection.hasDefaultNet().then((online: boolean) => result.success(online))
         .catch(() => result.error('NETWORK_STATE_FAILED', 'Cannot read network state', null));
-    } else if (call.method === 'pickImage') {
-      const picker = new photoAccessHelper.PhotoViewPicker();
-      picker.select({ MIMEType: photoAccessHelper.PhotoViewMIMETypes.IMAGE_TYPE, maxSelectNumber: 1 })
-        .then((selection: photoAccessHelper.PhotoSelectResult) => result.success(selection.photoUris[0] ?? null))
-        .catch(() => result.error('IMAGE_PICKER_FAILED', 'Cannot open photo picker', null));
     } else result.notImplemented();
   }
 
