@@ -128,7 +128,7 @@ class _SettingsPageState extends State<SettingsPage> {
         onPopWithResult: (_) => _nestedNavigatorKey.currentState?.pop(),
         child: Navigator(
           key: _nestedNavigatorKey,
-          onGenerateRoute: (settings) => MaterialPageRoute<void>(
+          onGenerateRoute: (settings) => adaptivePageRoute<void>(
             settings: settings,
             builder: (context) => _buildSettingsScaffold(context),
           ),

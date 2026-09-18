@@ -151,7 +151,7 @@ class _AppShellState extends State<AppShell> {
       onPopWithResult: (_) => navigatorKey.currentState?.pop(),
       child: Navigator(
         key: navigatorKey,
-        onGenerateRoute: (settings) => MaterialPageRoute<void>(
+        onGenerateRoute: (settings) => adaptivePageRoute<void>(
           settings: settings,
           builder: (context) => pageView,
         ),

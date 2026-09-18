@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 
+import '../../../../utils/adaptive_motion.dart';
 import '../scanner/scanner_modal.dart';
-import '../theme/glass.dart';
 import '../theme/tokens.dart';
 
 /// Opens the scanner with one identical bottom-up transition on every OS.
 Future<void> openGpScanner(BuildContext context) async {
-  final reduceMotion = gpReduceMotionActive(context);
+  final reduceMotion = !appAnimationsEnabled(context);
   await showGeneralDialog<void>(
     context: context,
     useRootNavigator: false,

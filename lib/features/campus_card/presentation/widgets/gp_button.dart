@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../../utils/adaptive_motion.dart';
 import '../theme/colors.dart';
-import '../theme/glass.dart';
 import '../theme/tokens.dart';
 
 enum GpButtonVariant { primary, secondary, tertiary, destructive }
@@ -104,7 +104,7 @@ final class GpButton extends StatelessWidget {
       );
     }
 
-    final reduce = gpReduceMotionActive(context);
+    final reduce = !appAnimationsEnabled(context);
     return Semantics(
       button: true,
       enabled: enabled,

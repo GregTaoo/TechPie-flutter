@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../utils/adaptive_motion.dart';
 import '../../app/app_providers.dart';
 import '../../core/config/scan_payment_preferences.dart';
 import '../../domain/models/card_models.dart';
@@ -12,7 +13,6 @@ import '../../domain/models/scan_models.dart';
 import '../../domain/ports/platform_ports.dart';
 import '../icons/platform_icons.dart';
 import '../theme/colors.dart';
-import '../theme/glass.dart';
 import '../theme/tokens.dart';
 import '../widgets/apple_wallet_components.dart';
 import 'scan_result_content.dart';
@@ -232,7 +232,7 @@ class _ScannerModalState extends ConsumerState<ScannerModal> {
     final runtime = ref.watch(appRuntimeProvider);
     final scan = ref.watch(scanPaymentControllerProvider);
     final card = ref.watch(cardControllerProvider).valueOrNull;
-    final reduceMotion = gpReduceMotionActive(context);
+    final reduceMotion = !appAnimationsEnabled(context);
     final popupDuration = reduceMotion
         ? const Duration(milliseconds: 180)
         : GpTokens.scanModalDuration;

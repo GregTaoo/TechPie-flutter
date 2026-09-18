@@ -8,9 +8,6 @@ import 'tokens.dart';
 bool gpReduceTransparencyActive(BuildContext context) =>
     MediaQuery.maybeOf(context)?.highContrast ?? false;
 
-bool gpReduceMotionActive(BuildContext context) =>
-    MediaQuery.maybeOf(context)?.disableAnimations ?? false;
-
 /// Navigation/control glass per Part A §4. Content surfaces never use this.
 final class GpGlass extends StatelessWidget {
   const GpGlass({super.key, required this.child, this.borderRadius});
