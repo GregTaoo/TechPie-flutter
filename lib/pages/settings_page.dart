@@ -23,6 +23,7 @@ import '../widgets/app_shell/app_shell_metrics.dart';
 import '../widgets/blurred_app_bar.dart';
 import '../widgets/desktop_popup.dart';
 import '../widgets/ios/ios_native_navigation_bar.dart';
+import '../widgets/update_dialogs.dart';
 import 'debug_log_page.dart';
 import 'debug_webview_page.dart';
 import 'login_page.dart';
@@ -100,41 +101,15 @@ class _SettingsPageState extends State<SettingsPage> {
       if (!mounted) return;
 
       if (release == null) {
-        await showAdaptiveAlertDialog<void>(
-          context: context,
-          title: '已是最新版本',
-          message: '当前版本 $_appVersion 就是 GitHub 上最新的版本。',
-          actions: const [AdaptiveAlertAction<void>(label: '好')],
-        );
+        await showUpToDateDialog(context, _appVersion);
         return;
       }
-
-      final openReleasePage = await showAdaptiveAlertDialog<bool>(
-        context: context,
-        title: '发现新版本 ${release.name}',
-        message: release.notes,
-        actions: const [
-          AdaptiveAlertAction<bool>(label: '以后再说'),
-          AdaptiveAlertAction<bool>(
-            label: '前往更新',
-            value: true,
-            isDefault: true,
-          ),
-        ],
-      );
-      if (openReleasePage != true || !mounted) return;
-      await launchUrl(
-        Uri.parse(UpdateService.latestReleasePage),
-        mode: LaunchMode.externalApplication,
-      );
+      await showUpdateAvailableDialog(context, release);
     } on UpdateCheckException catch (error) {
       if (!mounted) return;
-      await showAdaptiveAlertDialog<void>(
-        context: context,
-        title: '检查更新失败',
-        message: error.message,
-        actions: const [AdaptiveAlertAction<void>(label: '好')],
-      );
+      // The manual check is the one that reports everything, including the way
+      // out that does not depend on this app reaching GitHub at all.
+      await showUpdateFailureDialog(context, message: error.message);
     } finally {
       if (mounted) setState(() => _checkingUpdate = false);
     }

@@ -23,6 +23,7 @@ import 'services/uni_auth_service.dart';
 import 'services/update_service.dart';
 import 'widgets/adaptive_feedback.dart';
 import 'widgets/app_shell/app_shell.dart';
+import 'widgets/update_dialogs.dart';
 void main(List<String> args) async {
   // If this Flutter engine is a desktop_webview_window title bar (secondary
   // engine inside the webview popup), render the navigation controls and
@@ -277,7 +278,64 @@ class TechPieApp extends StatefulWidget {
   State<TechPieApp> createState() => _TechPieAppState();
 }
 
-class _TechPieAppState extends State<TechPieApp> {
+class _TechPieAppState extends State<TechPieApp> with WidgetsBindingObserver {
+  /// The silent check runs at launch and whenever the app comes back to the
+  /// foreground, but not more often than this: a resume is not a reason to hit
+  /// the network, and the answer does not change that fast.
+  static const _autoCheckInterval = Duration(minutes: 30);
+
+  DateTime? _lastAutoCheck;
+  bool _promptedThisLaunch = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    unawaited(_checkForUpdatesQuietly());
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_checkForUpdatesQuietly());
+    }
+  }
+
+  /// The check nobody asked for.
+  ///
+  /// It may raise the update dialog, and says nothing else: a network the user
+  /// cannot do anything about is not worth interrupting them over, and the manual
+  /// check — the one they did ask for — reports all of it, with a way out.
+  Future<void> _checkForUpdatesQuietly() async {
+    final now = DateTime.now();
+    final last = _lastAutoCheck;
+    if (last != null && now.difference(last) < _autoCheckInterval) return;
+    _lastAutoCheck = now;
+    // One prompt per launch: a dialog that reappears on every resume is worse
+    // than not mentioning the update at all.
+    if (_promptedThisLaunch) return;
+
+    final current = await UpdateService.currentProductVersion();
+    if (current == null || !mounted) return;
+
+    final ReleaseInfo? release;
+    try {
+      release = await widget.updateService.checkForUpdate(current);
+    } on UpdateCheckException {
+      return;
+    }
+    if (release == null || !mounted) return;
+
+    _promptedThisLaunch = true;
+    await showUpdateAvailableDialog(context, release);
+  }
+
   @override
   Widget build(BuildContext context) {
     // The plugin has no implementation on iOS, web or OHOS, where asking for

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../utils/product_version.dart';
 
@@ -65,6 +66,22 @@ class UpdateService {
 
   static Uri get _latestReleaseUri =>
       Uri.https('api.github.com', '/repos/$repository/releases/latest');
+
+  /// The version this build is, for a caller that has no other reason to hold it
+  /// — the silent check has none. Null when the platform cannot say or the answer
+  /// is not a version: a check against an unknown version would answer about
+  /// nothing.
+  static Future<ProductVersion?> currentProductVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      final raw = info.buildNumber.isEmpty
+          ? info.version
+          : '${info.version}+${info.buildNumber}';
+      return ProductVersion.tryParse(raw);
+    } catch (_) {
+      return null;
+    }
+  }
 
   /// The newest published release when it is newer than [current], or null when
   /// the running build is already the newest — which is not a failure, and must
