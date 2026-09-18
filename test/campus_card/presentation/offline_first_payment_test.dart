@@ -25,8 +25,7 @@ import 'package:techpie/features/campus_card/presentation/screens/payment_code_p
 final _now = DateTime.utc(2026, 9, 14, 12);
 
 void main() {
-  testWidgets(
-      'usable local code is shown while online code and renewal are pending',
+  testWidgets('the online code is awaited, and a failure shows the local one',
       (tester) async {
     final h = await _Harness.create();
     await h.mount(tester);
@@ -36,15 +35,21 @@ void main() {
       h.container.read(paymentCodeControllerProvider).phase,
       PaymentCodePhase.initializing,
     );
-    expect(find.text('离线付款码'), findsOneWidget);
-    expect(find.byKey(const Key('payment-code-qr')), findsOneWidget);
-    expect(h.credentials.reservations, 1);
+    // While the online attempt is still running the pass shows neither code and
+    // signs nothing locally.
+    expect(find.text('离线付款码'), findsNothing);
+    expect(find.text('在线付款码'), findsNothing);
+    expect(find.byKey(const Key('payment-code-qr')), findsNothing);
+    expect(h.credentials.reservations, 0);
     await tester.pump(const Duration(seconds: 5));
-    expect(h.credentials.reservations, 1);
+    expect(h.credentials.reservations, 0);
+
+    // Success shows the online code, and never signs a local one.
     h.online.pending.complete(_frame());
     await _pump(tester);
     expect(find.text('在线付款码'), findsOneWidget);
     expect(find.byKey(const Key('payment-code-qr')), findsOneWidget);
+    expect(h.credentials.reservations, 0);
     expect(
       h.container.read(paymentCodeControllerProvider).frame!.qrPayload,
       'ONLINE-CODE',
@@ -52,11 +57,11 @@ void main() {
     await h.close(tester);
   });
 
-  testWidgets('failed online load keeps the already displayed offline code',
+  testWidgets('a failed online load is what shows the local code',
       (tester) async {
     final h = await _Harness.create();
     await h.mount(tester);
-    expect(find.text('离线付款码'), findsOneWidget);
+    expect(find.byKey(const Key('payment-code-qr')), findsNothing);
     h.online.pending
         .completeError(const AppFailure(FailureKind.network, 'test offline'));
     await _pump(tester);
@@ -71,13 +76,21 @@ void main() {
         'late local generation cannot replace ready online code (failure=$failed)',
         (tester) async {
       final h = await _Harness.create();
-      h.credentials.gate = Completer<void>();
       await h.mount(tester);
+      // The failed online attempt starts the local code, held here so it lands
+      // after the retry has already delivered the online one.
+      h.credentials.gate = Completer<void>();
+      h.online.pending.completeError(
+        const AppFailure(FailureKind.network, 'test offline'),
+      );
+      await _pump(tester);
       expect(h.credentials.reservations, 1);
-      h.online.pending.complete(_frame());
+
+      h.online.retry = Completer<PaymentCodeFrame>();
+      await tester.pump(const Duration(seconds: 16));
+      h.online.retry!.complete(_frame());
       await _pump(tester);
       expect(find.text('在线付款码'), findsOneWidget);
-      expect(find.byKey(const Key('payment-code-qr')), findsOneWidget);
       expect(
         h.container.read(paymentCodeControllerProvider).frame!.qrPayload,
         'ONLINE-CODE',
@@ -176,12 +189,15 @@ void main() {
   testWidgets('leaving while local generation is pending has no late UI writes',
       (tester) async {
     final h = await _Harness.create();
-    h.credentials.gate = Completer<void>();
     await h.mount(tester);
+    h.credentials.gate = Completer<void>();
+    h.online.pending.completeError(
+      const AppFailure(FailureKind.network, 'test offline'),
+    );
+    await _pump(tester);
     expect(h.credentials.reservations, 1);
     await tester.pumpWidget(const SizedBox.shrink());
     h.credentials.gate!.complete();
-    h.online.pending.complete(_frame());
     await _pump(tester);
     expect(tester.takeException(), isNull);
     await h.close(tester);
@@ -201,7 +217,7 @@ void main() {
     await tester.tap(find.byType(Switch));
     await tester.pumpAndSettle();
     expect(find.text('离线付款码'), findsOneWidget);
-    expect(h.credentials.reservations, 2);
+    expect(h.credentials.reservations, 1);
 
     // A tap on the code regenerates the local one and consumes a use; the online
     // code must not come back while the mode is on.
@@ -209,8 +225,32 @@ void main() {
     await _pump(tester);
     expect(find.text('离线付款码'), findsOneWidget);
     expect(find.text('在线付款码'), findsNothing);
-    expect(h.credentials.reservations, 3);
+    expect(h.credentials.reservations, 2);
     expect(tester.takeException(), isNull);
+    await h.close(tester);
+  });
+
+  testWidgets('a local refresh reads the keystore a handful of times',
+      (tester) async {
+    final h = await _Harness.create();
+    await h.mount(tester);
+    h.online.pending.complete(_frame());
+    await _pump(tester);
+    await tester.tap(find.byKey(const Key('payment-online-status-indicator')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(Switch));
+    await tester.pumpAndSettle();
+    expect(find.text('离线付款码'), findsOneWidget);
+
+    final reads = h.credentials.reads + h.credentials.keyReads;
+    await tester.tap(find.byKey(const Key('payment-code-qr')));
+    await _pump(tester);
+
+    // One pass: the grant to sign with, the key to sign, then both again to
+    // confirm nothing rotated while the use was reserved. Every extra read is a
+    // keystore round trip on a device, and this refresh is meant to be instant.
+    expect(h.credentials.reads + h.credentials.keyReads - reads, lessThan(5));
+    expect(find.text('离线付款码'), findsOneWidget);
     await h.close(tester);
   });
 
@@ -271,7 +311,7 @@ void main() {
     expect(h.online.calls, onlineCalls);
     expect(h.remote.renewals, renewals);
     expect(find.text('离线付款码'), findsOneWidget);
-    expect(h.credentials.reservations, 3);
+    expect(h.credentials.reservations, 2);
     expect(tester.takeException(), isNull);
     await h.close(tester);
   });
@@ -321,13 +361,13 @@ void main() {
     expect(find.text('重试'), findsOneWidget);
 
     // The retry generates the local code again (the failed attempt had already
-    // reserved a use: one automatic, one entering the mode, one failed, one here).
+    // reserved a use: one entering the mode, one failed, one here).
     h.credentials.gate = null;
     await tester.tap(find.text('重试'));
     await _pump(tester);
     expect(find.text('离线付款码'), findsOneWidget);
     expect(find.byKey(const Key('payment-code-qr')), findsOneWidget);
-    expect(h.credentials.reservations, 4);
+    expect(h.credentials.reservations, 3);
     expect(tester.takeException(), isNull);
     await h.close(tester);
   });
@@ -493,6 +533,8 @@ class _Credentials implements OfflineCredentialRepository {
   final OfflineCredentialRepository delegate;
   Completer<void>? gate;
   int reservations = 0;
+  int reads = 0;
+  int keyReads = 0;
   @override
   Future<OfflineAuthorization> reserveUse(
     String cardId, {
@@ -507,14 +549,18 @@ class _Credentials implements OfflineCredentialRepository {
   Future<OfflineAuthorization?> read(
     String cardId, {
     required String deviceCode,
-  }) =>
-      delegate.read(cardId, deviceCode: deviceCode);
+  }) {
+    reads++;
+    return delegate.read(cardId, deviceCode: deviceCode);
+  }
   @override
   Future<OfflineAuthorization?> readMostRecent({required String deviceCode}) =>
       delegate.readMostRecent(deviceCode: deviceCode);
   @override
-  Future<String?> readPrivateKey(String cardId, {required String deviceCode}) =>
-      delegate.readPrivateKey(cardId, deviceCode: deviceCode);
+  Future<String?> readPrivateKey(String cardId, {required String deviceCode}) {
+    keyReads++;
+    return delegate.readPrivateKey(cardId, deviceCode: deviceCode);
+  }
   @override
   Future<void> install({
     required OfflineAuthorization authorization,

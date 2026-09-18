@@ -74,22 +74,15 @@ final class OfflinePaymentService {
     return _credentials.readMostRecent(deviceCode: deviceCode);
   }
 
-  Future<OfflineAuthorizationView> status(String cardId) async {
-    final deviceCode = await _requireDeviceCode();
-    final authorization = await _credentials.read(
-      cardId,
-      deviceCode: deviceCode,
-    );
-    if (authorization == null) {
-      return const OfflineAuthorizationView(
-        state: OfflineAuthorizationState.missingCredential,
-      );
-    }
-    final key = await _credentials.readPrivateKey(
-      cardId,
-      deviceCode: deviceCode,
-    );
-    if (key == null) {
+  /// Describes a stored grant. Pure, so a caller that already holds the
+  /// authorization and the key can describe it without reading secure storage
+  /// again: every read here is a keystore round trip, and a payment tap must not
+  /// pay for the same one four times.
+  OfflineAuthorizationView viewOf(
+    OfflineAuthorization? authorization, {
+    required bool hasPrivateKey,
+  }) {
+    if (authorization == null || !hasPrivateKey) {
       return OfflineAuthorizationView(
         state: OfflineAuthorizationState.missingCredential,
         authorization: authorization,
@@ -117,6 +110,22 @@ final class OfflinePaymentService {
       state: OfflineAuthorizationState.active,
       authorization: authorization,
     );
+  }
+
+  Future<OfflineAuthorizationView> status(String cardId) async {
+    final deviceCode = await _requireDeviceCode();
+    final authorization = await _credentials.read(
+      cardId,
+      deviceCode: deviceCode,
+    );
+    if (authorization == null) {
+      return viewOf(null, hasPrivateKey: false);
+    }
+    final key = await _credentials.readPrivateKey(
+      cardId,
+      deviceCode: deviceCode,
+    );
+    return viewOf(authorization, hasPrivateKey: key != null);
   }
 
   Future<OfflineAuthorization> activate({required String cardId}) {
@@ -243,8 +252,23 @@ final class OfflinePaymentService {
     }
   }
 
-  Future<OfflineQrCode> generate(String cardId) async {
-    final view = await status(cardId);
+  Future<OfflineQrCode> generate(String cardId) async =>
+      (await generateWithGrant(cardId)).code;
+
+  /// Generates a local code and hands back the grant it consumed, so the caller
+  /// can report the new remaining count without reading storage again.
+  Future<({OfflineQrCode code, OfflineAuthorization authorization})>
+      generateWithGrant(String cardId) async {
+    final deviceCode = await _requireDeviceCode();
+    final authorization = await _credentials.read(
+      cardId,
+      deviceCode: deviceCode,
+    );
+    final privateKey = await _credentials.readPrivateKey(
+      cardId,
+      deviceCode: deviceCode,
+    );
+    final view = viewOf(authorization, hasPrivateKey: privateKey != null);
     if (view.state == OfflineAuthorizationState.expired) {
       throw const AppFailure(
         FailureKind.offlineAuthorizationExpired,
@@ -259,12 +283,7 @@ final class OfflinePaymentService {
         code: 'OFFLINE_QUOTA_EXHAUSTED',
       );
     }
-    final deviceCode = await _requireDeviceCode();
-    final privateKey = await _credentials.readPrivateKey(
-      cardId,
-      deviceCode: deviceCode,
-    );
-    if (privateKey == null) {
+    if (privateKey == null || authorization == null) {
       throw const AppFailure(
         FailureKind.credentialMissing,
         '此设备缺少离线付款私钥。',
@@ -278,7 +297,7 @@ final class OfflinePaymentService {
     );
     final current = await _credentials.read(cardId, deviceCode: deviceCode);
     if (current == null ||
-        view.authorization?.publicKeyCompressed != reserved.publicKeyCompressed ||
+        authorization.publicKeyCompressed != reserved.publicKeyCompressed ||
         current.publicKeyCompressed != reserved.publicKeyCompressed ||
         current.authorInfo != reserved.authorInfo ||
         current.updatedAt != reserved.updatedAt ||
@@ -305,11 +324,14 @@ final class OfflinePaymentService {
       privateKeyHex: privateKey,
       now: generatedAt,
     );
-    return OfflineQrCode(
-      hex: hex,
-      payload: QrPayloadCodec.offline(hex),
-      reservedUse: reserved.used,
-      generatedAt: generatedAt,
+    return (
+      code: OfflineQrCode(
+        hex: hex,
+        payload: QrPayloadCodec.offline(hex),
+        reservedUse: reserved.used,
+        generatedAt: generatedAt,
+      ),
+      authorization: reserved,
     );
   }
 

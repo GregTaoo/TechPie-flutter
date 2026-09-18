@@ -481,10 +481,15 @@ final class OfflineAuthorizationController
   Future<OfflineQrCode> generate() async {
     final generation = _generation;
     final service = ref.read(appRuntimeProvider).offlinePayments;
-    final code = await service.generate(arg);
-    final view = await service.status(arg);
-    if (generation == _generation) state = AsyncData(view);
-    return code;
+    // The service hands back the grant it just consumed, so the new remaining
+    // count costs no extra keystore read.
+    final result = await service.generateWithGrant(arg);
+    if (generation == _generation) {
+      state = AsyncData(
+        service.viewOf(result.authorization, hasPrivateKey: true),
+      );
+    }
+    return result.code;
   }
 
   Future<void> activate() async {

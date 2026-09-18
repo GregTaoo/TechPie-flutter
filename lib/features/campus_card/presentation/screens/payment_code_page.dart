@@ -14,6 +14,7 @@ import '../../application/confirmed_disconnect_feedback.dart';
 import '../../core/config/debug_mode_controller.dart';
 import '../../core/config/debug_mode_features.dart';
 import '../../core/config/offline_authorization_banner_controller.dart';
+import '../../core/errors/app_failure.dart';
 import '../../domain/models/card_models.dart';
 import '../../domain/models/offline_models.dart';
 import '../../domain/models/payment_models.dart';
@@ -204,7 +205,6 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
     if (_offlineBusy || !mounted || !_active) return;
     if (automatic && _preferReadyOnlineCode()) return;
     final revision = _activityRevision;
-    final offlineService = ref.read(appRuntimeProvider).offlinePayments;
     setState(() {
       _offlineBusy = true;
       _offlineError = null;
@@ -214,27 +214,26 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
       final controller = ref.read(
         offlineAuthorizationProvider(card.id).notifier,
       );
-      final view = await offlineService.status(card.id);
-      if (view.state != OfflineAuthorizationState.active &&
-          view.state != OfflineAuthorizationState.renewalDue) {
-        throw StateError('OFFLINE_AUTH_REQUIRED');
-      }
+      // generate() validates the grant itself and publishes the grant it
+      // consumed, so neither a pre-check nor a post-check reads secure storage
+      // here: the refresh stays one pass over the keystore.
       final code = await controller.generate();
-      final refreshed = await offlineService.status(card.id);
       if (!mounted || !_active || revision != _activityRevision) return;
       // Online generation may finish while local signing/storage is pending.
       if (automatic && _preferReadyOnlineCode()) return;
       setState(() {
         _offline = true;
         _offlinePayload = code.payload;
-        _offlineRemaining = refreshed.authorization?.remaining;
+        _offlineRemaining = ref
+            .read(offlineAuthorizationProvider(card.id))
+            .valueOrNull
+            ?.authorization
+            ?.remaining;
       });
     } catch (error) {
       if (!mounted || !_active || revision != _activityRevision) return;
       if (automatic && _preferReadyOnlineCode()) return;
-      final authorizationRequired = error.toString().contains(
-            'OFFLINE_AUTH_REQUIRED',
-          );
+      final authorizationRequired = _isAuthorizationUnusable(error);
       setState(() {
         _offlineError =
             authorizationRequired ? null : GpStateView.safeUiError(error);
@@ -264,6 +263,22 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
         });
       }
     }
+  }
+
+  /// Whether the local code cannot be produced because the *grant* is unusable —
+  /// absent, expired or spent — as opposed to a failure of this attempt. The
+  /// service says which by the failure it raises.
+  static bool _isAuthorizationUnusable(Object error) {
+    if (error is! AppFailure) return false;
+    return switch (error.kind) {
+      FailureKind.credentialMissing ||
+      FailureKind.offlineAuthorizationExpired ||
+      FailureKind.offlineQuotaExhausted =>
+        true,
+      _ =>
+        error.code == 'OFFLINE_DEVICE_CODE_MISSING' ||
+            error.code == 'OFFLINE_CREDENTIAL_MISSING',
+    };
   }
 
   bool _preferReadyOnlineCode() {
@@ -387,16 +402,16 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
     final onlineFailed = payment.phase == PaymentCodePhase.switchingOffline ||
         (payment.phase == PaymentCodePhase.failed &&
             payment.connectionState != PaymentConnectionState.online);
-    final waitingForFirstOnlineCode = payment.frame == null &&
-        (payment.phase == PaymentCodePhase.idle ||
-            payment.phase == PaymentCodePhase.initializing);
     if (onlineFailed && _onlineRetryTimer?.isActive != true) {
       _scheduleOnlineRetry();
     }
+    // The local code is a fallback, not a head start: it appears when the online
+    // attempt has failed (or when the user asked for offline), never while the
+    // online code is still on its way.
     if (_active &&
         card != null &&
         canGenerateOffline &&
-        (manualOffline || onlineFailed || waitingForFirstOnlineCode) &&
+        (manualOffline || onlineFailed) &&
         !_offline &&
         !_offlineBusy &&
         _offlineError == null) {

@@ -226,7 +226,10 @@ class _Credentials implements OfflineCredentialRepository {
   Future<String?> readPrivateKey(String cardId,
       {required String deviceCode,}) async {
     final key = await delegate.readPrivateKey(cardId, deviceCode: deviceCode);
-    final callback = ++keyReads == 2 ? afterKeyRead : null;
+    // Generation reads the key twice — once to sign, once to confirm it did not
+    // change while the use was reserved — so the rotation belongs after the
+    // signing read, where the code under test must notice it.
+    final callback = ++keyReads == 1 ? afterKeyRead : null;
     if (callback != null) afterKeyRead = null;
     await callback?.call();
     return key;
