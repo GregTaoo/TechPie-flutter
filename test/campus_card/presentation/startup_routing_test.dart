@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
 import 'package:techpie/features/campus_card/app/app_providers.dart';
 import 'package:techpie/features/campus_card/app/app_runtime.dart';
 import 'package:techpie/features/campus_card/app/demo_runtime_factory.dart';
@@ -28,6 +27,7 @@ import 'package:techpie/features/campus_card/presentation/scanner/scan_result_co
 import 'package:techpie/features/campus_card/presentation/scanner/scanner_modal.dart';
 import 'package:techpie/features/campus_card/presentation/theme/tokens.dart';
 import 'package:techpie/features/campus_card/presentation/widgets/apple_wallet_components.dart';
+import 'package:techpie/pages/campus_card_page.dart';
 
 void main() {
   testWidgets('local session opens the target without a splash or network gate',
@@ -268,19 +268,22 @@ void main() {
         disposeRuntime: ports.dispose,
       );
       addTearDown(runtime.dispose);
-      var exitCount = 0;
-
+      // The feature is a page like any other now: the host pushes it, and its
+      // first page's back action leaves it through the host navigator.
+      final navigator = GlobalKey<NavigatorState>();
       await tester.pumpWidget(
         MaterialApp(
-            home: ProviderScope(
-            overrides: [
-              appRuntimeProvider.overrideWithValue(runtime),
-              campusCardEntryProvider.overrideWithValue(
-                CampusCardEntry.cardManagement,
-              ),
-              geekPayHostExitProvider.overrideWithValue(() => exitCount++),
-            ],
-            child: const CampusCardFeature(),
+          navigatorKey: navigator,
+          home: const Scaffold(body: Center(child: Text('host page'))),
+        ),
+      );
+      unawaited(
+        navigator.currentState!.push(
+          MaterialPageRoute<void>(
+            builder: (_) => CampusCardPage(
+              entry: CampusCardEntry.cardManagement,
+              runtime: runtime,
+            ),
           ),
         ),
       );
@@ -290,8 +293,9 @@ void main() {
 
       expect(find.byKey(const Key('card-manage-page')), findsOneWidget);
       await tester.tap(find.byTooltip('返回'));
-      await tester.pump();
-      expect(exitCount, 1);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('card-manage-page')), findsNothing);
+      expect(find.text('host page'), findsOneWidget);
 
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump();

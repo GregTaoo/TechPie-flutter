@@ -4,14 +4,16 @@ import 'dart:typed_data';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../app/app_providers.dart';
-import '../app/routes.dart';
+import '../app/navigation.dart';
 import '../icons/platform_icons.dart';
 import '../theme/colors.dart';
 import '../widgets/apple_wallet_components.dart';
 import '../widgets/gp_state.dart';
+import 'card_manage_screen.dart';
+import 'security_hub_screen.dart';
+import 'settings_screen.dart';
 
 final class MeScreen extends ConsumerWidget {
   const MeScreen({super.key});
@@ -28,8 +30,9 @@ final class MeScreen extends ConsumerWidget {
             sfSymbol: 'chevron.left',
             icon: GpPlatformIcons.back(context),
             label: '返回',
-            onPressed: () =>
-                context.canPop() ? context.pop() : context.go(GpRoutes.pay),
+            onPressed: () {
+              popCampusCard(context);
+            },
           ),
           child: ListView(
             physics: const BouncingScrollPhysics(),
@@ -97,19 +100,19 @@ final class MeScreen extends ConsumerWidget {
                   AppleListRow(
                     icon: GpPlatformIcons.card(context),
                     label: '卡片信息',
-                    onTap: () => unawaited(context.push('/card/manage')),
+                    onTap: () => unawaited(pushCampusCardPage<void>(context, builder: (_) => const CardManageScreen())),
                   ),
                   AppleListRow(
                     icon: GpPlatformIcons.security(context),
                     label: '安全中心',
                     onTap: () =>
-                        unawaited(context.push('${GpRoutes.me}/security')),
+                        unawaited(pushCampusCardPage<void>(context, builder: (_) => const SecurityHubScreen())),
                   ),
                   AppleListRow(
                     icon: GpPlatformIcons.settings(context),
                     label: '设置',
                     onTap: () =>
-                        unawaited(context.push('${GpRoutes.me}/settings')),
+                        unawaited(pushCampusCardPage<void>(context, builder: (_) => const SettingsScreen())),
                   ),
                 ],
               ),

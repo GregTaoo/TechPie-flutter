@@ -5,7 +5,6 @@ import 'dart:typed_data';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
@@ -19,7 +18,7 @@ import '../../domain/models/card_models.dart';
 import '../../domain/models/offline_models.dart';
 import '../../domain/models/payment_models.dart';
 import '../../domain/ports/platform_ports.dart';
-import '../app/routes.dart';
+import '../app/navigation.dart';
 import '../app/shell.dart';
 import '../icons/geekpay_icons.dart';
 import '../icons/platform_icons.dart';
@@ -27,6 +26,9 @@ import '../theme/colors.dart';
 import '../theme/tokens.dart';
 import '../widgets/apple_wallet_components.dart';
 import '../widgets/gp_state.dart';
+import 'bill_transaction_screen.dart';
+import 'card_manage_screen.dart';
+import 'offline_screen.dart';
 
 /// Expanded pass surface from the supplied design: card header, online/offline
 /// indicator, live QR or animated result, cardholder data, and recent activity.
@@ -353,7 +355,6 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
       });
     }
     final transactions = ref.watch(transactionFeedProvider(_allTransactions));
-    final hostExit = ref.watch(geekPayHostExitProvider);
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
     final manualOffline = ref.watch(manualOfflineModeProvider);
     final debugMode =
@@ -447,15 +448,13 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
           : AppleWalletPage(
               child: ApplePinnedHeaderLayout(
                 title: '付款码',
-                leading: hostExit == null
-                    ? null
-                    : CampusCardHeaderAction(
-                        id: 'back',
-                        sfSymbol: 'chevron.left',
-                        icon: GpPlatformIcons.back(context),
-                        label: '返回',
-                        onPressed: hostExit,
-                      ),
+                leading: CampusCardHeaderAction(
+                  id: 'back',
+                  sfSymbol: 'chevron.left',
+                  icon: GpPlatformIcons.back(context),
+                  label: '返回',
+                  onPressed: () => popCampusCard(context),
+                ),
                 actions: [
                   CampusCardHeaderAction(
                     id: 'scan',
@@ -470,7 +469,7 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
                     sfSymbol: 'info.circle',
                     key: const Key('payment-header-info'),
                     label: '卡片信息',
-                    onPressed: () => unawaited(context.push('/card/manage')),
+                    onPressed: () => unawaited(pushCampusCardPage<void>(context, builder: (_) => const CardManageScreen())),
                     icon: GpPlatformIcons.info(context),
                   ),
                 ],
@@ -561,7 +560,7 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
                             const SizedBox(height: 12),
                             _OfflineAuthorizationBanner(
                               onActivate: () =>
-                                  unawaited(context.push(GpRoutes.offline)),
+                                  unawaited(pushCampusCardPage<void>(context, builder: (_) => const OfflineAuthorizationScreen())),
                               onDismiss: () async {
                                 await ref
                                     .read(
@@ -587,7 +586,11 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
                                   Expanded(child: Text(_offlineError!)),
                                   TextButton(
                                     onPressed: () => unawaited(
-                                      context.push(GpRoutes.offline),
+                                      pushCampusCardPage<void>(
+                                        context,
+                                        builder: (_) =>
+                                            const OfflineAuthorizationScreen(),
+                                      ),
                                     ),
                                     child: const Text('离线授权'),
                                   ),
@@ -620,8 +623,11 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
                                 .take(25)
                                 .toList(),
                             onTap: (record) => unawaited(
-                              context.push(
-                                GpRoutes.transactionDetail(record.id),
+                              pushCampusCardPage<void>(
+                                context,
+                                builder: (_) => BillTransactionScreen(
+                                  transactionId: record.id,
+                                ),
                               ),
                             ),
                           ),

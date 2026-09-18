@@ -49,7 +49,6 @@ dependencies:
       url: https://gitcode.com/openharmony-sig/fluttertpc_flutter_secure_storage.git
       path: flutter_secure_storage_ohos
       ref: br_v9.2.2_ohos
-  go_router: 16.0.0
   http: ^1.4.0
   image_picker:
     git:

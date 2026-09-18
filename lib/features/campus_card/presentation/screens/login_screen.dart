@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:techpie/widgets/adaptive_button.dart';
 
 import '../../app/app_providers.dart';
+import '../app/navigation.dart';
 import '../icons/platform_icons.dart';
 import '../theme/colors.dart';
 import '../widgets/apple_wallet_components.dart';
@@ -16,21 +17,20 @@ final class LoginScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final auth = ref.watch(authControllerProvider);
-    final hostExit = ref.watch(geekPayHostExitProvider);
     final openAccount = ref.watch(campusCardAccountProvider);
 
     return Scaffold(
       body: AppleWalletPage(
         child: ApplePinnedHeaderLayout(
-          leading: hostExit == null
-              ? null
-              : CampusCardHeaderAction(
-                  id: 'back',
-                  sfSymbol: 'chevron.left',
-                  icon: GpPlatformIcons.back(context),
-                  label: '返回',
-                  onPressed: hostExit,
-                ),
+          leading: CampusCardHeaderAction(
+            id: 'back',
+            sfSymbol: 'chevron.left',
+            icon: GpPlatformIcons.back(context),
+            label: '返回',
+            onPressed: () {
+              popCampusCard(context);
+            },
+          ),
           title: 'eCard',
           child: ListView(
             physics: const BouncingScrollPhysics(),

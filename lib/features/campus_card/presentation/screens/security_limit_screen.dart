@@ -4,11 +4,11 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../app/app_providers.dart';
 import '../../domain/models/security_models.dart';
 import '../../domain/money_fen.dart';
+import '../app/navigation.dart';
 import '../icons/platform_icons.dart';
 import '../theme/colors.dart';
 import '../widgets/apple_wallet_components.dart';
@@ -110,7 +110,7 @@ class _SecurityLimitScreenState extends ConsumerState<SecurityLimitScreen> {
             sfSymbol: 'chevron.left',
             icon: GpPlatformIcons.back(context),
             label: '返回',
-            onPressed: () => context.pop(),
+            onPressed: () => popCampusCard(context),
           ),
           title: '消费限额',
           child: ListView(

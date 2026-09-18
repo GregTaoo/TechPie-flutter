@@ -1,11 +1,11 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../app/app_providers.dart';
 import '../../domain/models/bill_models.dart';
+import '../app/navigation.dart';
 import '../icons/platform_icons.dart';
 import '../theme/colors.dart';
 import '../widgets/apple_wallet_components.dart';
@@ -27,7 +27,7 @@ final class BillTransactionScreen extends ConsumerWidget {
             sfSymbol: 'chevron.left',
             icon: GpPlatformIcons.back(context),
             label: '返回',
-            onPressed: () => context.pop(),
+            onPressed: () => popCampusCard(context),
           ),
           title: '交易详情',
           child: CustomScrollView(

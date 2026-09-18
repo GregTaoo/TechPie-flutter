@@ -2,12 +2,13 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../app/app_providers.dart';
-import '../app/routes.dart';
+import '../app/navigation.dart';
 import '../icons/platform_icons.dart';
 import '../widgets/apple_wallet_components.dart';
+import 'security_limit_screen.dart';
+import 'security_password_screen.dart';
 
 final class SecurityHubScreen extends ConsumerWidget {
   const SecurityHubScreen({super.key});
@@ -23,7 +24,7 @@ final class SecurityHubScreen extends ConsumerWidget {
             sfSymbol: 'chevron.left',
             icon: GpPlatformIcons.back(context),
             label: '返回',
-            onPressed: () => context.pop(),
+            onPressed: () => popCampusCard(context),
           ),
           title: '安全中心',
           child: ListView(
@@ -45,7 +46,7 @@ final class SecurityHubScreen extends ConsumerWidget {
                         : '服务暂未开放',
                     onTap: caps.changeSpendingPassword
                         ? () => unawaited(
-                              context.push('${GpRoutes.me}/security/password'),
+                              pushCampusCardPage<void>(context, builder: (_) => const SecurityPasswordScreen()),
                             )
                         : null,
                   ),
@@ -55,7 +56,7 @@ final class SecurityHubScreen extends ConsumerWidget {
                     value: caps.spendingLimits ? null : '服务暂未开放',
                     onTap: caps.spendingLimitsRead
                         ? () => unawaited(
-                              context.push('${GpRoutes.me}/security/limit'),
+                              pushCampusCardPage<void>(context, builder: (_) => const SecurityLimitScreen()),
                             )
                         : null,
                   ),

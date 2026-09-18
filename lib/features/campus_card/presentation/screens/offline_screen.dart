@@ -3,12 +3,12 @@ import 'dart:async';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../app/app_providers.dart';
 import '../../domain/models/offline_models.dart';
 import '../../domain/ports/platform_ports.dart';
+import '../app/navigation.dart';
 import '../icons/geekpay_icons.dart';
 import '../icons/platform_icons.dart';
 import '../theme/colors.dart';
@@ -29,7 +29,7 @@ final class OfflineAuthorizationScreen extends ConsumerWidget {
             sfSymbol: 'chevron.left',
             icon: GpPlatformIcons.back(context),
             label: '返回',
-            onPressed: () => context.pop(),
+            onPressed: () => popCampusCard(context),
           ),
           title: '离线授权',
           child: ListView(

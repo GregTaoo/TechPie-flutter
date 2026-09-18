@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:desktop_webview_window/desktop_webview_window.dart'
     show runWebViewTitleBarWidget;
 import 'package:dynamic_color/dynamic_color.dart';
@@ -6,8 +7,8 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:techpie/utils/platform.dart';
 
+import 'features/campus_card/app/app_providers.dart';
 import 'models/third_party_account.dart';
-import 'pages/campus_card_page.dart';
 import 'services/assignment_service.dart';
 import 'services/auth_service.dart';
 import 'services/campus_card_service.dart';
@@ -25,7 +26,6 @@ import 'services/third_party_auth_service.dart';
 import 'services/uni_auth_service.dart';
 import 'services/update_service.dart';
 import 'widgets/adaptive_feedback.dart';
-import 'widgets/adaptive_page_navigation.dart';
 import 'widgets/app_shell/app_shell.dart';
 import 'widgets/update_dialogs.dart';
 void main(List<String> args) async {
@@ -305,7 +305,6 @@ class TechPieApp extends StatefulWidget {
 
 class _TechPieAppState extends State<TechPieApp> with WidgetsBindingObserver {
   final _navigatorKey = GlobalKey<NavigatorState>();
-  bool _ecardPayRouteOpen = false;
 
   /// The silent check runs at launch and whenever the app comes back to the
   /// foreground, but not more often than this: a resume is not a reason to hit
@@ -376,21 +375,10 @@ class _TechPieAppState extends State<TechPieApp> with WidgetsBindingObserver {
   }
 
   Future<void> _openEcardPayCode() async {
-    if (_ecardPayRouteOpen) return;
-    if (_navigatorKey.currentState == null) {
-      await WidgetsBinding.instance.endOfFrame;
-    }
-    final navigator = _navigatorKey.currentState;
-    if (navigator == null || !mounted) return;
-    _ecardPayRouteOpen = true;
-    unawaited(
-      pushAdaptivePage<void>(
-        navigator.context,
-        settings: const RouteSettings(name: 'ecard-pay-code'),
-        builder: (_) => const CampusCardPage(),
-      ).whenComplete(() => _ecardPayRouteOpen = false),
-    );
-    await WidgetsBinding.instance.endOfFrame;
+    // The shell performs the push: it knows whether the entry belongs inside the
+    // selected destination's stack or on the root navigator, and it is still
+    // there after a cold start.
+    appShellPendingEcardEntry.value = CampusCardEntry.paymentCode;
   }
 
   @override

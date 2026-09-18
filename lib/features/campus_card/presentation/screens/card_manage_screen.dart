@@ -5,17 +5,22 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../app/app_providers.dart';
 import '../../domain/models/card_models.dart';
 import '../../domain/ports/platform_ports.dart';
-import '../app/routes.dart';
+import '../app/navigation.dart';
 import '../icons/platform_icons.dart';
 import '../theme/colors.dart';
 import '../widgets/apple_wallet_components.dart';
 import '../widgets/gp_state.dart';
+import 'bill_transaction_screen.dart';
+import 'bind_card_screen.dart';
+import 'offline_screen.dart';
+import 'security_hub_screen.dart';
+import 'settings_screen.dart';
+import 'widget_setup_screen.dart';
 
 /// eCard information and activity. OpenID account management lives in
 /// TechPie's Account settings.
@@ -245,18 +250,7 @@ class _CardManageScreenState extends ConsumerState<CardManageScreen>
             sfSymbol: 'chevron.left',
             icon: GpPlatformIcons.back(context),
             label: '返回',
-            onPressed: () {
-              if (context.canPop()) {
-                context.pop();
-                return;
-              }
-              final hostExit = ref.read(geekPayHostExitProvider);
-              if (hostExit != null) {
-                hostExit();
-                return;
-              }
-              context.go(GpRoutes.pay);
-            },
+            onPressed: () => popCampusCard(context),
           ),
           child: switch (cardAsync) {
             AsyncError(:final error) => Padding(
@@ -276,7 +270,7 @@ class _CardManageScreenState extends ConsumerState<CardManageScreen>
               ),
             _ when card == null => Center(
                 child: FilledButton(
-                  onPressed: () => unawaited(context.push(GpRoutes.bindCard)),
+                  onPressed: () => unawaited(pushCampusCardPage<void>(context, builder: (_) => const BindCardScreen())),
                   child: const Text('绑定卡片'),
                 ),
               ),
@@ -417,17 +411,17 @@ final class _InformationTab extends ConsumerWidget {
             AppleListRow(
               icon: GpPlatformIcons.security(context),
               label: '安全中心',
-              onTap: () => unawaited(context.push('${GpRoutes.me}/security')),
+              onTap: () => unawaited(pushCampusCardPage<void>(context, builder: (_) => const SecurityHubScreen())),
             ),
             AppleListRow(
               icon: GpPlatformIcons.offline(context),
               label: '离线授权',
-              onTap: () => unawaited(context.push(GpRoutes.offline)),
+              onTap: () => unawaited(pushCampusCardPage<void>(context, builder: (_) => const OfflineAuthorizationScreen())),
             ),
             AppleListRow(
               icon: GpPlatformIcons.settings(context),
               label: '设置',
-              onTap: () => unawaited(context.push('${GpRoutes.me}/settings')),
+              onTap: () => unawaited(pushCampusCardPage<void>(context, builder: (_) => const SettingsScreen())),
             ),
           ],
         ),
@@ -441,7 +435,7 @@ final class _InformationTab extends ConsumerWidget {
                 key: const Key('add-pay-widget'),
                 icon: GpPlatformIcons.homeWidget(context),
                 label: '添加消费码小组件',
-                onTap: () => unawaited(context.push(GpRoutes.widgetSetup)),
+                onTap: () => unawaited(pushCampusCardPage<void>(context, builder: (_) => const WidgetSetupScreen())),
               ),
             ],
           ),
@@ -504,7 +498,7 @@ final class _ActivitySliver extends ConsumerWidget {
                 TransactionList(
                   items: value.items,
                   onTap: (record) => unawaited(
-                    context.push(GpRoutes.transactionDetail(record.id)),
+                    pushCampusCardPage<void>(context, builder: (_) => BillTransactionScreen(transactionId: record.id)),
                   ),
                 ),
                 if (value.hasMore) ...[

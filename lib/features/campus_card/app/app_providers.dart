@@ -30,11 +30,8 @@ final appRuntimeProvider = Provider<AppRuntime>(
       throw StateError('AppRuntime must be overridden at the application root'),
 );
 
-/// Supplied by TechPie so the campus-card root can return through the host
-/// navigator without coupling its internal router to the app shell.
-final geekPayHostExitProvider = Provider<VoidCallback?>((ref) => null);
-
-/// Opens TechPie's Account settings for the campus-card OpenID.
+/// Supplied by TechPie so the feature can open TechPie's Account settings for
+/// the campus-card OpenID, on the host navigator it is being shown on.
 final campusCardAccountProvider = Provider<VoidCallback?>((ref) => null);
 
 final homeWidgetPortProvider = Provider<HomeWidgetPort?>((ref) => null);

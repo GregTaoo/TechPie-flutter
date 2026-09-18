@@ -1,10 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:techpie/widgets/adaptive_button.dart';
 
 import '../../app/app_providers.dart';
 import '../../domain/ports/platform_ports.dart';
+import '../app/navigation.dart';
 import '../icons/platform_icons.dart';
 import '../theme/colors.dart';
 import '../theme/tokens.dart';
@@ -77,7 +79,7 @@ class _WidgetSetupScreenState extends ConsumerState<WidgetSetupScreen> {
             sfSymbol: 'chevron.left',
             icon: GpPlatformIcons.back(context),
             label: '返回',
-            onPressed: () => context.pop(),
+            onPressed: () => popCampusCard(context),
           ),
           child: ListView(
             padding: const EdgeInsets.fromLTRB(

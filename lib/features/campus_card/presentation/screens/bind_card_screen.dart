@@ -1,12 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../app/app_providers.dart';
 import '../../domain/models/card_models.dart';
 import '../../domain/ports/platform_ports.dart';
-import '../app/routes.dart';
+import '../app/navigation.dart';
 import '../icons/platform_icons.dart';
 import '../theme/colors.dart';
 import '../widgets/apple_wallet_components.dart';
@@ -63,7 +64,7 @@ class _BindCardScreenState extends ConsumerState<BindCardScreen> {
       if (!mounted) return;
       _password.clear();
       await ref.read(appRuntimeProvider).feedback.play(FeedbackEvent.success);
-      if (mounted) context.go(GpRoutes.pay);
+      if (mounted) await goToCampusCardPay(context, ref);
     } catch (error) {
       if (mounted) setState(() => _error = GpStateView.safeUiError(error));
     } finally {
@@ -84,13 +85,7 @@ class _BindCardScreenState extends ConsumerState<BindCardScreen> {
             sfSymbol: 'chevron.left',
             icon: GpPlatformIcons.back(context),
             label: '返回',
-            onPressed: () {
-              if (context.canPop()) {
-                context.pop();
-              } else {
-                ref.read(geekPayHostExitProvider)?.call();
-              }
-            },
+            onPressed: () => popCampusCard(context),
           ),
           title: '绑定卡片',
           child: ListView(

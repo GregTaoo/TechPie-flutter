@@ -6,8 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../features/campus_card/app/app_providers.dart';
 import '../features/campus_card/app/app_runtime.dart';
 import '../features/campus_card/presentation/app/app.dart';
-import '../features/campus_card/presentation/app/providers.dart';
-import '../features/campus_card/presentation/app/routes.dart';
+import '../features/campus_card/presentation/app/navigation.dart';
 import '../services/ecard_widget_service.dart';
 import '../services/service_provider.dart';
 import '../widgets/adaptive_page_navigation.dart';
@@ -28,34 +27,28 @@ class CampusCardPage extends StatelessWidget {
   final AppRuntime? runtime;
   final CampusCardEntry entry;
 
-  void _exit(BuildContext context) {
-    unawaited(Navigator.of(context).maybePop());
-  }
-
-  void _openAccount(BuildContext context) {
-    unawaited(
-      pushAdaptivePage<void>(
-        context,
-        builder: (_) => const CampusCardAccountPage(),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final services = runtime == null ? ServiceProvider.of(context) : null;
     final value = runtime ?? services!.campusCardService.runtime;
-    return ProviderScope(
-      overrides: [
-        appRuntimeProvider.overrideWithValue(value),
-        geekPayHostExitProvider.overrideWithValue(() => _exit(context)),
-        campusCardAccountProvider.overrideWithValue(
-          () => _openAccount(context),
-        ),
-        campusCardEntryProvider.overrideWithValue(entry),
-        homeWidgetPortProvider.overrideWithValue(services?.ecardWidgetService),
-      ],
-      child: _CampusCardWidgetTarget(widgets: services?.ecardWidgetService),
+    return CampusCardHostScope(
+      navigator: Navigator.of(context),
+      child: ProviderScope(
+        overrides: [
+          appRuntimeProvider.overrideWithValue(value),
+          campusCardAccountProvider.overrideWithValue(
+            () => unawaited(
+              pushAdaptivePage<void>(
+                context,
+                builder: (_) => const CampusCardAccountPage(),
+              ),
+            ),
+          ),
+          campusCardEntryProvider.overrideWithValue(entry),
+          homeWidgetPortProvider.overrideWithValue(services?.ecardWidgetService),
+        ],
+        child: _CampusCardWidgetTarget(widgets: services?.ecardWidgetService),
+      ),
     );
   }
 }
@@ -90,13 +83,10 @@ class _CampusCardWidgetTargetState
 
   Future<void> _openPay() async {
     if (!mounted) return;
-    final route = ModalRoute.of(context);
-    if (route != null) {
-      Navigator.of(context).popUntil(
-        (candidate) => identical(candidate, route) || candidate.isFirst,
-      );
-    }
-    ref.read(gpRouterProvider).go(GpRoutes.pay);
+    // A widget tap while the feature is open sends it to the pay page rather than
+    // mounting a second copy of it: the pages above the feature's first one go,
+    // and the pay page is either already there or pushed on top of it.
+    await goToCampusCardPay(context, ref);
     await WidgetsBinding.instance.endOfFrame;
   }
 

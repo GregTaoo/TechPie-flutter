@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../core/config/debug_mode_controller.dart';
 import '../../core/config/debug_mode_features.dart';
@@ -10,6 +9,7 @@ import '../../core/config/feedback_settings.dart';
 import '../../core/config/payment_code_preferences.dart';
 import '../../core/config/scan_payment_preferences.dart';
 import '../../domain/models/feedback_models.dart';
+import '../app/navigation.dart';
 import '../icons/platform_icons.dart';
 import '../widgets/apple_wallet_components.dart';
 
@@ -30,7 +30,7 @@ final class SettingsScreen extends ConsumerWidget {
             sfSymbol: 'chevron.left',
             icon: GpPlatformIcons.back(context),
             label: '返回',
-            onPressed: () => context.pop(),
+            onPressed: () => popCampusCard(context),
           ),
           title: '设置',
           child: ListView(

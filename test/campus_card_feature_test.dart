@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:techpie/features/campus_card/app/demo_runtime_factory.dart';
 import 'package:techpie/features/campus_card/domain/models/auth_models.dart';
@@ -114,7 +113,9 @@ void main() {
       await tester.pump(const Duration(milliseconds: 30));
     }
     expect(find.byType(CardManageScreen), findsOneWidget);
-    final router = GoRouter.of(tester.element(find.byType(CardManageScreen)));
+    // The feature's pages live on the host navigator now, so "can pop" is the
+    // host's answer, not a router's.
+    final navigator = Navigator.of(tester.element(find.byType(CardManageScreen)));
     await tester.ensureVisible(find.text('设置'));
     await tester.pump();
     await tester.tap(find.text('设置'));
@@ -122,14 +123,16 @@ void main() {
       await tester.pump(const Duration(milliseconds: 30));
     }
     expect(find.byType(SettingsScreen), findsOneWidget);
-    expect(router.canPop(), isTrue);
+    expect(navigator.canPop(), isTrue);
 
     await tester.binding.handlePopRoute();
     for (var i = 0; i < 40; i++) {
       await tester.pump(const Duration(milliseconds: 30));
     }
     expect(
-      find.byType(CampusCardPage),
+      // Offstage, because its own page covers it now that the feature's pages are
+      // routes of the host navigator rather than a navigator of its own.
+      find.byType(CampusCardPage, skipOffstage: false),
       findsOneWidget,
       reason:
           'System back must leave the eCard feature mounted while an internal route can pop.',

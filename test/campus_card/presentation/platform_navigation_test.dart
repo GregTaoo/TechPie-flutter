@@ -1,21 +1,29 @@
 import 'dart:async';
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:go_router/go_router.dart';
 import 'package:techpie/features/campus_card/app/app_providers.dart';
 import 'package:techpie/features/campus_card/app/app_runtime.dart';
 import 'package:techpie/features/campus_card/app/demo_runtime_factory.dart';
 import 'package:techpie/features/campus_card/domain/models/auth_models.dart';
 import 'package:techpie/features/campus_card/domain/ports/auth_port.dart';
-import 'package:techpie/features/campus_card/presentation/app/providers.dart';
+import 'package:techpie/features/campus_card/presentation/app/navigation.dart';
 
+/// The feature has no router of its own: its pages are pushed through the host's
+/// adaptive page helper, so it inherits TechPie's transition policy, its back
+/// gesture, and the account scoping the feature's router used to apply. These
+/// tests pin exactly that.
 void main() {
-  testWidgets(
-      'account changes clear page-local state within the existing route',
-      (tester) async {
+  // Belt and braces: each test resets the override before it ends, because the
+  // binding verifies that no foundation debug variable is left set.
+  tearDown(() => debugDefaultTargetPlatformOverride = null);
+
+  testWidgets('an account change clears page-local state on the pushed page', (
+    tester,
+  ) async {
     final base = await buildDemoRuntime();
     final auth = _PageTestAuthPort();
     final runtime = AppRuntime(
@@ -34,31 +42,33 @@ void main() {
       feedback: base.feedback,
     );
     final container = ProviderContainer(
-      overrides: [
-        appRuntimeProvider.overrideWithValue(runtime),
-      ],
-    );
-    final router = GoRouter(
-      routes: [
-        GoRoute(
-          path: '/',
-          pageBuilder: (context, state) =>
-              gpPlatformPage(context, state, const _AccountLocalState()),
-        ),
-      ],
+      overrides: [appRuntimeProvider.overrideWithValue(runtime)],
     );
     addTearDown(() async {
-      router.dispose();
       container.dispose();
       await auth.dispose();
       await base.dispose();
     });
+
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: MaterialApp.router(routerConfig: router),
+        child: MaterialApp(
+          home: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => unawaited(
+                pushCampusCardPage<void>(
+                  context,
+                  builder: (_) => const _AccountLocalState(),
+                ),
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
       ),
     );
+    await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Local state: 0'));
     await tester.pump();
@@ -71,72 +81,58 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  test(
-    'iOS pages use Cupertino routes and Android pages use Material routes',
-    () {
-      expect(
-        gpPageForPlatform(
-          TargetPlatform.iOS,
-          key: const ValueKey('ios'),
-          child: const SizedBox(),
-        ),
-        isA<CupertinoPage<void>>(),
-      );
-      expect(
-        gpPageForPlatform(
-          TargetPlatform.android,
-          key: const ValueKey('android'),
-          child: const SizedBox(),
-        ),
-        isA<MaterialPage<void>>(),
-      );
-    },
-  );
+  testWidgets('a feature page is an iOS Cupertino page on iOS', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    final routes = <Route<dynamic>>[];
+    await _pumpPusher(tester, routes);
+    await tester.tap(find.text('push'));
+    await tester.pumpAndSettle();
 
-  testWidgets('iOS edge swipe moves the current page with the finger', (
+    expect(routes.last, isA<CupertinoPageRoute<void>>());
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('a feature page is a Material page everywhere else', (
     tester,
   ) async {
-    late final GoRouter router;
-    router = GoRouter(
-      initialLocation: '/first',
-      routes: [
-        GoRoute(
-          path: '/first',
-          pageBuilder: (context, state) => gpPageForPlatform(
-            TargetPlatform.iOS,
-            key: state.pageKey,
-            child: Scaffold(
-              key: const Key('first-page'),
-              body: Center(
-                child: TextButton(
-                  onPressed: () => context.push('/second'),
-                  child: const Text('next'),
+    final routes = <Route<dynamic>>[];
+    await _pumpPusher(tester, routes);
+    await tester.tap(find.text('push'));
+    await tester.pumpAndSettle();
+
+    expect(routes.last, isA<MaterialPageRoute<void>>());
+  });
+
+  testWidgets('the iOS edge swipe moves the pushed page with the finger', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+        theme: ThemeData(platform: TargetPlatform.iOS),
+        home: Builder(
+          builder: (context) => Scaffold(
+            key: const Key('first-page'),
+            body: Center(
+              child: TextButton(
+                onPressed: () => unawaited(
+                  pushCampusCardPage<void>(
+                    context,
+                    builder: (_) => const Scaffold(
+                      key: Key('second-page'),
+                      body: Center(child: Text('second')),
+                    ),
+                  ),
                 ),
+                child: const Text('next'),
               ),
             ),
           ),
         ),
-        GoRoute(
-          path: '/second',
-          pageBuilder: (context, state) => gpPageForPlatform(
-            TargetPlatform.iOS,
-            key: state.pageKey,
-            child: const Scaffold(
-              key: Key('second-page'),
-              body: Center(child: Text('second')),
-            ),
-          ),
-        ),
-      ],
-    );
-    addTearDown(router.dispose);
-    await tester.pumpWidget(
-      MaterialApp.router(
-        theme: ThemeData(platform: TargetPlatform.iOS),
-        routerConfig: router,
+      ),
       ),
     );
-    await tester.pumpAndSettle();
     await tester.tap(find.text('next'));
     await tester.pumpAndSettle();
 
@@ -152,7 +148,40 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('first-page')), findsOneWidget);
     expect(second, findsNothing);
+    debugDefaultTargetPlatformOverride = null;
   });
+}
+
+Future<void> _pumpPusher(WidgetTester tester, List<Route<dynamic>> routes) async {
+  await tester.pumpWidget(
+    ProviderScope(
+      child: MaterialApp(
+        navigatorObservers: [_RouteRecorder(routes)],
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () => unawaited(
+              pushCampusCardPage<void>(
+                context,
+                builder: (_) => const SizedBox.shrink(),
+              ),
+            ),
+            child: const Text('push'),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+final class _RouteRecorder extends NavigatorObserver {
+  _RouteRecorder(this.routes);
+
+  final List<Route<dynamic>> routes;
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    routes.add(route);
+  }
 }
 
 final class _PageTestAuthPort implements AuthPort {
@@ -186,12 +215,14 @@ final class _PageTestAuthPort implements AuthPort {
 
 final class _AccountLocalState extends StatefulWidget {
   const _AccountLocalState();
+
   @override
   State<_AccountLocalState> createState() => _AccountLocalStateState();
 }
 
 final class _AccountLocalStateState extends State<_AccountLocalState> {
   int value = 0;
+
   @override
   Widget build(BuildContext context) => Scaffold(
         body: Center(

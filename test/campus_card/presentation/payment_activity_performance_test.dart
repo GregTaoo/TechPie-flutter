@@ -23,7 +23,7 @@ import 'package:techpie/features/campus_card/domain/ports/payment_ports.dart';
 import 'package:techpie/features/campus_card/domain/ports/platform_ports.dart'
     as ports;
 import 'package:techpie/features/campus_card/presentation/app/app.dart';
-import 'package:techpie/features/campus_card/presentation/app/providers.dart';
+import 'package:techpie/features/campus_card/presentation/screens/card_manage_screen.dart';
 
 import '../support/fake_ecard_transport.dart';
 import '../support/successful_payment_poll.dart';
@@ -192,8 +192,13 @@ void main() {
   testWidgets('covered payment routes stop polling and restore brightness',
       (tester) async {
     final rig = await _Rig.mount(tester, maximizeBrightness: true);
-    final router = rig.container.read(gpRouterProvider);
-    unawaited(router.push('/card/manage'));
+    // The feature pushes its pages through the host navigator now, so covering
+    // the pay page is an ordinary push above it.
+    unawaited(
+      rig.navigator.currentState!.push(
+        MaterialPageRoute<void>(builder: (_) => const CardManageScreen()),
+      ),
+    );
     await tester.pumpAndSettle();
     final before = rig.repository.polls;
     await tester.pump(const Duration(seconds: 6));
@@ -202,7 +207,7 @@ void main() {
       (polls: 0, brightness: 0.5),
     );
     final generations = rig.repository.generations;
-    router.pop();
+    rig.navigator.currentState!.pop();
     await tester.pumpAndSettle();
     expect(rig.repository.generations, generations + 1);
     expect(rig.brightness.value, 1);

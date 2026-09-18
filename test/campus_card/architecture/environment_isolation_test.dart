@@ -1,17 +1,12 @@
 import 'dart:io';
 
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:go_router/go_router.dart';
-import 'package:techpie/features/campus_card/app/app_providers.dart';
 import 'package:techpie/features/campus_card/app/demo_runtime_factory.dart';
 import 'package:techpie/features/campus_card/app/real_runtime_factory.dart';
 import 'package:techpie/features/campus_card/core/config/app_environment.dart';
 import 'package:techpie/features/campus_card/data/repositories/disabled_ports.dart';
 import 'package:techpie/features/campus_card/domain/models/security_models.dart';
 import 'package:techpie/features/campus_card/domain/money_fen.dart';
-import 'package:techpie/features/campus_card/presentation/app/providers.dart';
-import 'package:techpie/features/campus_card/presentation/app/routes.dart';
 
 void main() {
   // buildRealRuntime() constructs adapters that read WidgetsBinding.instance.
@@ -82,36 +77,6 @@ void main() {
       const DisabledTransactionHistoryPort().timeline(month: '2026-08'),
       throwsA(isA<Exception>()),
     );
-  });
-
-  test('the feature routes exactly the flows it ships', () async {
-    final runtime = await buildDemoRuntime();
-    final container = ProviderContainer(
-      overrides: [appRuntimeProvider.overrideWithValue(runtime)],
-    );
-    addTearDown(container.dispose);
-    addTearDown(runtime.dispose);
-
-    final router = container.read(gpRouterProvider);
-    final paths = router.configuration.routes
-        .whereType<GoRoute>()
-        .map((route) => route.path)
-        .toSet();
-
-    // Positive and exact: a hidden flow coming back — under any class name —
-    // adds a path, and the set no longer matches.
-    expect(paths, {
-      GpRoutes.widgetSetup,
-      GpRoutes.login,
-      GpRoutes.bindCard,
-      GpRoutes.offline,
-      '/card/manage',
-      '${GpRoutes.me}/security',
-      '${GpRoutes.me}/settings',
-      GpRoutes.pay,
-      '${GpRoutes.transactions}/:id',
-      GpRoutes.me,
-    });
   });
 
   test('nothing in the feature logs outside the request trace', () {

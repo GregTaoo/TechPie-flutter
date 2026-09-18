@@ -12,6 +12,7 @@ import 'package:techpie/features/campus_card/domain/models/auth_models.dart';
 import 'package:techpie/features/campus_card/domain/ports/auth_port.dart';
 import 'package:techpie/features/campus_card/presentation/app/app.dart';
 import 'package:techpie/features/campus_card/presentation/screens/login_screen.dart';
+import 'package:techpie/pages/campus_card_page.dart';
 
 void main() {
   Future<void> pumpFrames(WidgetTester tester, [int frames = 32]) async {
@@ -45,7 +46,6 @@ void main() {
     WidgetTester tester,
     AppRuntime runtime, {
     VoidCallback? onAccount,
-    VoidCallback? onExit,
   }) async {
     const primary = Color(0xFF4A67D6);
     await tester.pumpWidget(
@@ -61,7 +61,6 @@ void main() {
           overrides: [
             appRuntimeProvider.overrideWithValue(runtime),
             campusCardAccountProvider.overrideWithValue(onAccount),
-            geekPayHostExitProvider.overrideWithValue(onExit),
           ],
           child: const CampusCardFeature(),
         ),
@@ -101,20 +100,33 @@ void main() {
     expect(accountOpened, isTrue);
   });
 
-  testWidgets('uses the host back action instead of a mini-app close action', (
+  testWidgets('the back action leaves the feature through the host navigator', (
     tester,
   ) async {
     final auth = _ScriptedAuthPort();
     final runtime = await stagingRuntime(auth);
     addTearDown(runtime.dispose);
-    var exited = false;
-    await pumpLogin(tester, runtime, onExit: () => exited = true);
+    final navigator = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: navigator,
+        home: const Scaffold(body: Center(child: Text('host page'))),
+      ),
+    );
+    unawaited(
+      navigator.currentState!.push(
+        MaterialPageRoute<void>(builder: (_) => CampusCardPage(runtime: runtime)),
+      ),
+    );
+    await pumpFrames(tester);
 
+    expect(find.byType(LoginScreen), findsOneWidget);
     expect(find.byTooltip('返回'), findsOneWidget);
     expect(find.byTooltip('关闭'), findsNothing);
     await tester.tap(find.byTooltip('返回'));
-    await tester.pump();
-    expect(exited, isTrue);
+    await tester.pumpAndSettle();
+    expect(find.byType(LoginScreen), findsNothing);
+    expect(find.text('host page'), findsOneWidget);
   });
 
   testWidgets('an authenticated Account session enters the payment code', (

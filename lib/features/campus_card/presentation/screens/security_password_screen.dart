@@ -1,10 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../app/app_providers.dart';
 import '../../domain/ports/platform_ports.dart';
+import '../app/navigation.dart';
 import '../icons/platform_icons.dart';
 import '../theme/colors.dart';
 import '../widgets/apple_wallet_components.dart';
@@ -59,7 +61,7 @@ class _SecurityPasswordScreenState
       await ref.read(appRuntimeProvider).feedback.play(FeedbackEvent.success);
       if (!mounted) return;
       await _showMessage('消费密码修改成功');
-      if (mounted) context.pop();
+      if (mounted) popCampusCard(context);
     } catch (error) {
       if (mounted) await _showMessage(GpStateView.safeUiError(error));
     } finally {
@@ -97,7 +99,7 @@ class _SecurityPasswordScreenState
             sfSymbol: 'chevron.left',
             icon: GpPlatformIcons.back(context),
             label: '返回',
-            onPressed: () => context.pop(),
+            onPressed: () => popCampusCard(context),
           ),
           title: '修改消费密码',
           child: ListView(
