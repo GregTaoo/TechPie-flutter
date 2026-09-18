@@ -5,6 +5,7 @@ import 'package:techpie/main.dart';
 import 'package:techpie/pages/debug_log_page.dart';
 import 'package:techpie/services/assignment_service.dart';
 import 'package:techpie/services/auth_service.dart';
+import 'package:techpie/services/campus_card_service.dart';
 import 'package:techpie/services/debug_logger.dart';
 import 'package:techpie/services/egate_app_service.dart';
 import 'package:techpie/services/http_client.dart';
@@ -79,6 +80,7 @@ void main() {
         uniAuthService: uniAuth,
         syncService: sync,
         updateService: UpdateService(),
+        campusCardService: CampusCardService(),
       ),
     );
     await tester.pumpAndSettle();

@@ -1,10 +1,12 @@
 import 'dart:convert';
 
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:flutter_secure_storage_ohos/flutter_secure_storage_ohos.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:techpie/features/campus_card/domain/models/auth_models.dart';
+import 'package:techpie/models/ecard_sync_binding.dart';
 import 'package:techpie/models/third_party_account.dart';
 import 'package:techpie/models/user_session.dart';
 import 'package:techpie/services/auth_service.dart';
@@ -18,6 +20,27 @@ import 'package:techpie/services/third_party_auth_service.dart';
 import 'package:techpie/services/uni_auth_service.dart';
 
 void main() {
+  test('encrypted cloud backup restores eCard and propagates its deletion', () async {
+    const openId = 'SYNTHETIC_OPENID_CLOUD_123456';
+    final firstStore = _EcardStore(EcardSyncBinding(openId: openId, channel: EcardOpenIdChannel.alipay,
+      updatedAt: DateTime.utc(2026), deviceId: 'first',),);
+    final first = await _Fixture.withSession(ecard: firstStore);
+    expect((await first.sync.setupWithMasterPassword('synthetic-password')).ok, isTrue);
+    expect(first.server.properties['techpie_sync'], isNot(contains(openId)));
+    final secondStore = _EcardStore(null);
+    final second = await _Fixture.withSession(server: first.server, ecard: secondStore);
+    expect((await second.sync.restoreWithMasterPassword('synthetic-password')).ok, isTrue);
+    expect(secondStore.value!.openId, openId);
+    expect(secondStore.value!.channel, EcardOpenIdChannel.alipay);
+    secondStore.value = EcardSyncBinding(openId: null,
+      updatedAt: DateTime.utc(2026, 1, 2), deviceId: 'second',);
+    await second.sync.push();
+    // An older offline device must not resurrect a remote deletion by pushing.
+    await first.sync.push();
+    await first.sync.pull();
+    expect(firstStore.value!.openId, isNull);
+  });
+
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test('setup -> cloud has blob; restore on a fresh device recovers bindings',
@@ -373,7 +396,7 @@ class _Fixture {
 
   _Fixture(this.storage, this.auth, this.tpAuth, this.sync, this.server);
 
-  static Future<_Fixture> withSession({_FakeCasdoor? server}) async {
+  static Future<_Fixture> withSession({_FakeCasdoor? server, EcardSyncStore? ecard}) async {
     SharedPreferences.setMockInitialValues({});
     FlutterSecureStorage.setMockInitialValues({});
     final prefs = await SharedPreferences.getInstance();
@@ -393,7 +416,7 @@ class _Fixture {
     final uniAuth = UniAuthService();
     final auth = AuthService(storage, httpClient, uniAuth);
     final tpAuth = ThirdPartyAuthService(storage, httpClient);
-    final sync = SyncService(auth, tpAuth, storage, client: srv.toHttpClient());
+    final sync = SyncService(auth, tpAuth, storage, client: srv.toHttpClient(), ecard: ecard);
     // Mirror main.dart wiring so tombstones are recorded + pushes fire.
     tpAuth.onBindingsChanged = ({force = false}) {
       return force ? sync.forcePush() : sync.pushIfDue();
@@ -403,5 +426,14 @@ class _Fixture {
     await tpAuth.initialize();
     await sync.loadCachedKey();
     return _Fixture(storage, auth, tpAuth, sync, srv);
+  }
+}
+
+class _EcardStore implements EcardSyncStore {
+  _EcardStore(this.value);
+  EcardSyncBinding? value;
+  @override Future<EcardSyncBinding?> readSyncBinding() async => value;
+  @override Future<void> applySyncBinding(EcardSyncBinding? binding) async {
+    value = value?.merge(binding) ?? binding;
   }
 }

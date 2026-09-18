@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../models/ecard_sync_binding.dart';
 import '../models/third_party_account.dart';
 
 /// Schema version of the cloud-sync blob's plaintext envelope.
@@ -60,7 +61,7 @@ class SyncSchema {
         .whereType<Map<dynamic, dynamic>>()
         .map((e) => SyncTombstone.fromJson(e.cast<String, dynamic>()))
         .toList();
-    return SyncEnvelope(v: current, accounts: accounts, tombstones: tombstones);
+    return SyncEnvelope(v: current, accounts: accounts, tombstones: tombstones, ecard: EcardSyncBinding.fromJson(m['ecard']));
   }
 }
 
@@ -114,15 +115,18 @@ class SyncEnvelope {
   final int v;
   final List<ThirdPartyAccount> accounts;
   final List<SyncTombstone> tombstones;
+  final EcardSyncBinding? ecard;
 
   const SyncEnvelope({
     required this.v,
     required this.accounts,
     required this.tombstones,
+    this.ecard,
   });
 
   String encode() => jsonEncode({
         'v': v,
+        if (ecard != null) 'ecard': ecard!.toJson(),
         'accounts': accounts.map((a) => a.toJson()).toList(),
         'tombstones': tombstones.map((t) => t.toJson()).toList(),
       });
@@ -143,11 +147,13 @@ class SyncEnvelope {
   factory SyncEnvelope.fromLocal({
     required Iterable<ThirdPartyAccount> accounts,
     required Iterable<SyncTombstone> tombstones,
+    EcardSyncBinding? ecard,
   }) {
     return SyncEnvelope(
       v: SyncSchema.current,
       accounts: accounts.toList(),
       tombstones: tombstones.toList(),
+      ecard: ecard,
     );
   }
 
@@ -253,6 +259,7 @@ class SyncEnvelope {
       v: SyncSchema.current,
       accounts: mergedAccounts,
       tombstones: mergedTombstones,
+      ecard: ecard?.merge(remote.ecard) ?? remote.ecard,
     );
   }
 

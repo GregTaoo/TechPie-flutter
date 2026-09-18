@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import '../models/ecard_sync_binding.dart';
 import '../models/third_party_account.dart';
 import 'auth_service.dart';
 import 'storage_service.dart';
@@ -76,6 +77,7 @@ class SyncService extends ChangeNotifier {
   final ThirdPartyAuthService _tpAuth;
   final StorageService _storage;
   final http.Client _client;
+  final EcardSyncStore? _ecard;
   CachedSyncKey? _cachedKey;
   bool _needsRestore = false;
   DateTime? _lastSyncAt;
@@ -88,8 +90,8 @@ class SyncService extends ChangeNotifier {
   // account older than our deletion is not resurrected.
   final List<SyncTombstone> _tombstones = [];
 
-  SyncService(this._auth, this._tpAuth, this._storage, {http.Client? client})
-      : _client = client ?? http.Client();
+  SyncService(this._auth, this._tpAuth, this._storage, {http.Client? client, EcardSyncStore? ecard})
+      : _ecard = ecard, _client = client ?? http.Client();
 
   bool get enabled => _storage.syncEnabled;
   bool get hasLocalKey => _cachedKey != null;
@@ -279,11 +281,14 @@ class SyncService extends ChangeNotifier {
   // -- Blob access --------------------------------------------------------------
 
   /// Read the encrypted blob from the user's properties, or null if absent.
-  Future<String?> _readBlob() async {
+  Future<String?> _readBlob({bool requireReadableAccount = false}) async {
     final token = await _requireToken();
     if (token == null) return null;
     final account = await _getAccount(token);
-    if (account == null) return null;
+    if (account == null) {
+      if (requireReadableAccount) throw StateError('无法读取云端同步状态');
+      return null;
+    }
     final props = account['data'] is Map
         ? (account['data'] as Map)['properties']
         : account['properties'];
@@ -417,8 +422,9 @@ class SyncService extends ChangeNotifier {
   /// envelope plaintext. Accounts are stamped with this device's id and a
   /// fresh [updatedAt] only via [touchLocal]; already-stamped accounts pass
   /// through unchanged.
-  String _serializeEnvelope() {
+  Future<String> _serializeEnvelope() async {
     final env = SyncEnvelope.fromLocal(
+      ecard: await _ecard?.readSyncBinding(),
       accounts: _tpAuth.accounts,
       tombstones: _tombstones,
     );
@@ -459,7 +465,27 @@ class SyncService extends ChangeNotifier {
     if (!enabled || _cachedKey == null) {
       return const SyncCasdoorResult(false, msg: '云同步未开启或缺少主密码');
     }
-    final payload = _serializeEnvelope();
+    var payload = await _serializeEnvelope();
+    if (_ecard != null) {
+      // Preserve a newer remote eCard edit/deletion even when an offline device
+      // pushes an older local snapshot. Other platforms keep their existing flow.
+      try {
+        final remoteBlob = await _readBlob(requireReadableAccount: true);
+        if (remoteBlob != null) {
+          final dot = remoteBlob.indexOf('.');
+          final plain = dot < 0 ? null : await SyncCrypto.decrypt(remoteBlob.substring(dot + 1), _cachedKey!.key);
+          final remote = plain == null ? null : SyncEnvelope.decode(plain);
+          if (remote == null) throw StateError('无法解密云端同步状态，请先恢复云同步');
+          final local = SyncEnvelope.decode(payload)!;
+          payload = SyncEnvelope(v: local.v, accounts: local.accounts, tombstones: local.tombstones,
+            ecard: local.ecard?.merge(remote.ecard) ?? remote.ecard,).encode();
+        }
+      } catch (_) {
+        _lastError = '无法核对云端 eCard 版本，请先恢复或重试云同步';
+        notifyListeners();
+        return SyncCasdoorResult(false, msg: _lastError);
+      }
+    }
     // Reuse the cached salt so other devices' cached keys keep working.
     final salted = base64.encode(_cachedKey!.salt);
     final inner = await SyncCrypto.encrypt(payload, _cachedKey!.key);
@@ -505,6 +531,7 @@ class SyncService extends ChangeNotifier {
     final remote = SyncEnvelope.decode(plain);
     if (remote == null) return;
     final local = SyncEnvelope.fromLocal(
+      ecard: await _ecard?.readSyncBinding(),
       accounts: _tpAuth.accounts,
       tombstones: _tombstones,
     );
@@ -518,6 +545,7 @@ class SyncService extends ChangeNotifier {
         )
         .toSet();
     await _tpAuth.applySyncMerge(merged.accounts, removed);
+    await _ecard?.applySyncBinding(merged.ecard);
     // Adopt the merged tombstone set so the next push propagates any remote
     // tombstones this device didn't have. Local tombstones that won are
     // already in [merged.tombstones]; ones that lost (an account won) are
@@ -530,7 +558,7 @@ class SyncService extends ChangeNotifier {
     _needsRestore = false;
     // If the merge produced a state that differs from the cloud (e.g. a local
     // account won), push the merged envelope back so other devices converge.
-    if (!_envelopeEquals(local, merged)) {
+    if (!_envelopeEquals(remote, merged)) {
       await _writeMergedEnvelope(merged);
     }
     notifyListeners();
@@ -555,6 +583,7 @@ class SyncService extends ChangeNotifier {
   /// whether a pull changed anything worth pushing back. Compares the
   /// encoded form; envelope encode is deterministic.
   bool _envelopeEquals(SyncEnvelope a, SyncEnvelope b) {
+    if (jsonEncode(a.ecard?.toJson()) != jsonEncode(b.ecard?.toJson())) return false;
     if (a.accounts.length != b.accounts.length) return false;
     if (a.tombstones.length != b.tombstones.length) return false;
     // Account order is platform-stable within an envelope.
@@ -601,7 +630,7 @@ class SyncService extends ChangeNotifier {
         message: '云端已存在备份，请改用「恢复」并输入主密码',
       );
     }
-    final payload = _serializeEnvelope();
+    final payload = await _serializeEnvelope();
     final blob = await SyncCrypto.encryptWithSalt(payload, password);
     final salt = SyncCrypto.extractSalt(blob)!;
     final key = await SyncCrypto.deriveKey(password, salt);
@@ -647,6 +676,7 @@ class SyncService extends ChangeNotifier {
       return const SyncOutcome(ok: false, message: '云端备份格式损坏');
     }
     final local = SyncEnvelope.fromLocal(
+      ecard: await _ecard?.readSyncBinding(),
       accounts: _tpAuth.accounts,
       tombstones: _tombstones,
     );
@@ -655,6 +685,7 @@ class SyncService extends ChangeNotifier {
         .where((p) => !merged.accounts.any((a) => a.platform == p))
         .toSet();
     await _tpAuth.applySyncMerge(merged.accounts, removed);
+    await _ecard?.applySyncBinding(merged.ecard);
     _tombstones
       ..clear()
       ..addAll(merged.tombstones);

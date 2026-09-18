@@ -29,6 +29,7 @@ import 'debug_webview_page.dart';
 import 'login_page.dart';
 import 'sync_settings_page.dart';
 import 'third_party_accounts_page.dart';
+import 'watch_settings_page.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -146,6 +147,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final storage = sp.storageService;
     final themeService = sp.themeService;
     final tpAuth = sp.thirdPartyAuthService;
+    final campusCard = sp.campusCardService;
     final useIosChrome = isIos();
     final useLegacyIosChrome = usesLegacyIosChrome();
     final topInset = useIosChrome || useLegacyIosChrome
@@ -161,7 +163,13 @@ class _SettingsPageState extends State<SettingsPage> {
             )
           : const BlurredAppBar(title: Text('Settings')),
       body: ListenableBuilder(
-        listenable: Listenable.merge([auth, logger, themeService, tpAuth]),
+        listenable: Listenable.merge([
+          auth,
+          logger,
+          themeService,
+          tpAuth,
+          campusCard,
+        ]),
         builder: (context, _) => ListView(
           padding: EdgeInsets.only(
             top: topInset,
@@ -189,7 +197,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 leading: const Icon(Icons.account_tree_outlined),
                 title: const Text('Linked accounts'),
                 subtitle: Text(
-                  '${tpAuth.boundPlatforms.length} bound · CpDaily/IDS · Gradescope · Hydro',
+                  '${tpAuth.boundPlatforms.length + (campusCard.configured ? 1 : 0)} bound · eCard / eGate / Gradescope / Hydro',
                 ),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => unawaited(
@@ -262,6 +270,20 @@ class _SettingsPageState extends State<SettingsPage> {
                 subtitle: const Text('通过 GeekPie Uni-Auth 登录'),
                 onTap: () => unawaited(presentLoginPage(context)),
               ),
+              ListTile(
+                leading: const Icon(Icons.account_tree_outlined),
+                title: const Text('Linked accounts'),
+                subtitle: Text(
+                  '${tpAuth.boundPlatforms.length + (campusCard.configured ? 1 : 0)} bound · eCard / eGate / Gradescope / Hydro',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => unawaited(
+                  pushAdaptivePage<void>(
+                    context,
+                    builder: (_) => const ThirdPartyAccountsPage(),
+                  ),
+                ),
+              ),
             const Divider(),
 
             ListTile(
@@ -276,6 +298,15 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ),
             const Divider(),
+            if (isIos())
+              ListTile(
+                leading: const Icon(Icons.watch_outlined),
+                title: const Text('Apple Watch'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => unawaited(
+                  pushAdaptivePage<void>(context, builder: (_) => const WatchSettingsPage()),
+                ),
+              ),
 
             // Appearance section
             _sectionHeader(theme, 'Appearance'),

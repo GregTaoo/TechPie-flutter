@@ -1,0 +1,150 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:techpie/features/campus_card/domain/models/feedback_models.dart';
+import 'package:techpie/features/campus_card/domain/ports/platform_ports.dart';
+import 'package:techpie/features/campus_card/platform/system_ports.dart';
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  testWidgets('a missing native haptic reply cannot block navigation',
+      (tester) async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final pending = Completer<void>();
+    messenger.setMockMethodCallHandler(
+        SystemChannels.platform, (_) => pending.future,);
+    addTearDown(() {
+      messenger.setMockMethodCallHandler(SystemChannels.platform, null);
+      pending.complete();
+    });
+    var completed = false;
+    final feedback = SystemFeedbackPort()
+        .play(FeedbackEvent.selection)
+        .then((_) => completed = true);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(completed, isTrue);
+    await feedback;
+  });
+
+  for (final platform
+      in TargetPlatform.values.where((value) => value.name == 'ohos')) {
+    test(
+        'OHOS reports real connectivity and does not treat channel failures as online',
+        () async {
+      debugDefaultTargetPlatformOverride = platform;
+      const channel = MethodChannel('techpie/campus_card');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      addTearDown(() {
+        debugDefaultTargetPlatformOverride = null;
+        messenger.setMockMethodCallHandler(channel, null);
+      });
+      var online = false;
+      messenger.setMockMethodCallHandler(channel, (_) async => online);
+      final port = SystemConnectivityPort();
+      expect(await port.isOnline(), isFalse);
+      online = true;
+      expect(await port.isOnline(), isTrue);
+      messenger.setMockMethodCallHandler(channel, (_) async {
+        throw PlatformException(code: 'NETWORK_STATE_FAILED');
+      });
+      expect(await port.isOnline(), isFalse);
+    });
+  }
+
+  for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
+    test('$platform schedules success sound and vibration in one native call',
+        () async {
+      const channel = MethodChannel('techpie/feedback');
+      final calls = <MethodCall>[];
+      debugDefaultTargetPlatformOverride = platform;
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        calls.add(call);
+        return null;
+      });
+      addTearDown(() {
+        debugDefaultTargetPlatformOverride = null;
+        messenger.setMockMethodCallHandler(channel, null);
+      });
+      final port = SystemFeedbackPort();
+      await port.play(FeedbackEvent.paymentSuccess);
+      expect(calls.single.method, 'play');
+      expect(
+        calls.single.arguments,
+        {'event': 'paymentSuccess', 'sound': true, 'vibration': true},
+      );
+
+      await port.setEnabled(
+        FeedbackScenario.paymentSuccess,
+        FeedbackChannel.sound,
+        false,
+      );
+      await port.play(FeedbackEvent.paymentSuccess);
+      expect(
+        calls.last.arguments,
+        {'event': 'paymentSuccess', 'sound': false, 'vibration': true},
+      );
+      await port.setEnabled(
+        FeedbackScenario.paymentSuccess,
+        FeedbackChannel.vibration,
+        false,
+      );
+      await port.play(FeedbackEvent.paymentSuccess);
+      expect(calls, hasLength(2));
+      final restored = await SystemFeedbackPort()
+          .settingsFor(FeedbackScenario.paymentSuccess);
+      expect(restored.sound, isFalse);
+      expect(restored.vibration, isFalse);
+
+      await port.play(FeedbackEvent.networkDisconnected);
+      expect(
+        calls.last.arguments,
+        {'event': 'networkDisconnected', 'sound': true, 'vibration': true},
+      );
+      await port.setEnabled(
+        FeedbackScenario.networkDisconnected,
+        FeedbackChannel.vibration,
+        false,
+      );
+      await port.play(FeedbackEvent.networkDisconnected);
+      expect(
+        calls.last.arguments,
+        {'event': 'networkDisconnected', 'sound': true, 'vibration': false},
+      );
+    });
+  }
+
+  test('other successes stay haptic-only and respect the interaction switch',
+      () async {
+    final calls = <MethodCall>[];
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      calls.add(call);
+      return null;
+    });
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+    );
+    final port = SystemFeedbackPort();
+    await port.play(FeedbackEvent.success);
+    expect(calls, hasLength(2));
+    await port.setEnabled(
+      FeedbackScenario.interaction,
+      FeedbackChannel.vibration,
+      false,
+    );
+    await port.play(FeedbackEvent.selection);
+    await port.play(FeedbackEvent.success);
+    expect(calls, hasLength(2));
+  });
+}
