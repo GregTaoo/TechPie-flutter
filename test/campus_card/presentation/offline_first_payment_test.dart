@@ -186,6 +186,69 @@ void main() {
     expect(tester.takeException(), isNull);
     await h.close(tester);
   });
+
+  testWidgets('manual offline mode refreshes the local code, not the online one',
+      (tester) async {
+    final h = await _Harness.create();
+    await h.mount(tester);
+    // Let the online code arrive first so the mode switch reads "off".
+    h.online.pending.complete(_frame());
+    await _pump(tester);
+    expect(find.text('在线付款码'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('payment-online-status-indicator')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(Switch));
+    await tester.pumpAndSettle();
+    expect(find.text('离线付款码'), findsOneWidget);
+    expect(h.credentials.reservations, 2);
+
+    // A tap on the code regenerates the local one and consumes a use; the online
+    // code must not come back while the mode is on.
+    await tester.tap(find.byKey(const Key('payment-code-qr')));
+    await _pump(tester);
+    expect(find.text('离线付款码'), findsOneWidget);
+    expect(find.text('在线付款码'), findsNothing);
+    expect(h.credentials.reservations, 3);
+    expect(tester.takeException(), isNull);
+    await h.close(tester);
+  });
+
+  testWidgets('a failed local refresh keeps the offline surface and its retry',
+      (tester) async {
+    final h = await _Harness.create();
+    await h.mount(tester);
+    h.online.pending.complete(_frame());
+    await _pump(tester);
+    await tester.tap(find.byKey(const Key('payment-online-status-indicator')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(Switch));
+    await tester.pumpAndSettle();
+    expect(find.text('离线付款码'), findsOneWidget);
+
+    h.credentials.gate = Completer<void>();
+    await tester.tap(find.byKey(const Key('payment-code-qr')));
+    await _pump(tester);
+    h.credentials.gate!.completeError(StateError('local signing failed'));
+    await _pump(tester);
+
+    // Still offline, with a retry — never the online code the controller could
+    // still hand out.
+    expect(find.text('离线付款码'), findsOneWidget);
+    expect(find.text('在线付款码'), findsNothing);
+    expect(find.text('重试'), findsOneWidget);
+
+    // The retry generates the local code again (the failed attempt had already
+    // reserved a use: one automatic, one entering the mode, one failed, one here).
+    h.credentials.gate = null;
+    await tester.tap(find.text('重试'));
+    await _pump(tester);
+    expect(find.text('离线付款码'), findsOneWidget);
+    expect(find.byKey(const Key('payment-code-qr')), findsOneWidget);
+    expect(h.credentials.reservations, 4);
+    expect(tester.takeException(), isNull);
+    await h.close(tester);
+  });
 }
 
 Future<void> _pump(WidgetTester tester) async {

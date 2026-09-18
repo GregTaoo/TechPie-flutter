@@ -161,6 +161,8 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
     if (!mounted) return;
     ref.read(manualOfflineModeProvider.notifier).setEnabled(enabled);
     if (!enabled) {
+      // The local code stays on screen until a fresh online one is ready; only
+      // the failure note goes away.
       setState(() {
         _offlineError = null;
       });
@@ -171,8 +173,16 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
     if (!mounted) return;
     await _generateOffline(card, switching: true);
     if (!mounted) return;
-    if (_offlinePayload == null) {
+    if (_offlinePayload == null && _offlineError == null) {
+      // Nothing to generate from — no offline authorization — so the mode goes
+      // back off and the activation banner takes over. A code that failed for
+      // any other reason keeps the offline surface and its retry.
       ref.read(manualOfflineModeProvider.notifier).setEnabled(false);
+      setState(() {
+        _offline = false;
+        _offlinePayload = null;
+        _offlineRemaining = null;
+      });
       if (_active) await _paymentCodes.restart();
     }
   }
@@ -221,7 +231,9 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
             authorizationRequired ? null : GpStateView.safeUiError(error);
         _offlinePayload = null;
         _offlineRemaining = null;
-        _offline = false;
+        // A failed local code keeps the surface the user asked for: only the
+        // automatic fallback hands the pass back to the online code.
+        _offline = ref.read(manualOfflineModeProvider);
       });
       if (authorizationRequired) {
         ref.invalidate(offlineAuthorizationProvider(card.id));
@@ -232,7 +244,9 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
       if (mounted) {
         setState(() {
           _offlineBusy = false;
-          if (_offlinePayload == null) _offline = false;
+          if (_offlinePayload == null) {
+            _offline = ref.read(manualOfflineModeProvider);
+          }
         });
       }
     }
@@ -452,10 +466,15 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
                             _ExpandedPaymentPass(
                               card: card,
                               payment: payment,
-                              offline: _offline,
+                              // What the pass shows, and what a tap on the code
+                              // means, follows the mode the user chose — not only
+                              // the automatic fallback, or a failed local refresh
+                              // would hand the surface back to the online code.
+                              offline: manualOffline || _offline,
                               offlineBusy: _offlineBusy,
                               offlinePayload: _offlinePayload,
                               offlineRemaining: _offlineRemaining,
+                              offlineError: _offlineError,
                               reduceMotion: reduceMotion,
                               active: _active,
                               onShowStatus: () => unawaited(
@@ -779,6 +798,7 @@ final class _ExpandedPaymentPass extends StatelessWidget {
     required this.offlineBusy,
     required this.offlinePayload,
     required this.offlineRemaining,
+    required this.offlineError,
     required this.reduceMotion,
     required this.active,
     required this.onShowStatus,
@@ -793,6 +813,7 @@ final class _ExpandedPaymentPass extends StatelessWidget {
   final bool offlineBusy;
   final String? offlinePayload;
   final int? offlineRemaining;
+  final String? offlineError;
   final bool reduceMotion;
   final bool active;
   final VoidCallback onShowStatus;
@@ -965,16 +986,21 @@ final class _ExpandedPaymentPass extends StatelessWidget {
                                                 key: const ValueKey('activate'),
                                                 onActivate: onActivateOnline,
                                               )
-                                            : payment.phase ==
-                                                        PaymentCodePhase
-                                                            .failed &&
-                                                    !offline
+                                            : (offline
+                                                      ? offlineError != null
+                                                      : payment.phase ==
+                                                            PaymentCodePhase
+                                                                .failed)
                                                 ? _CodeFailure(
                                                     key: const ValueKey(
                                                       'failed',
                                                     ),
-                                                    message: payment.message,
-                                                    onRetry: onRefreshOnline,
+                                                    message: offline
+                                                        ? offlineError
+                                                        : payment.message,
+                                                    onRetry: offline
+                                                        ? onRefreshOffline
+                                                        : onRefreshOnline,
                                                   )
                                                 : payload == null
                                                     ? const _PaymentCodeActivityIndicator(
