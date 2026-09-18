@@ -31,6 +31,18 @@ jobs:
           flutter-version: "3.27.4"
           cache: true
 
+      - name: Cache pub dependencies
+        # Same key as the release jobs, so a pull request's analysis starts from
+        # the cache the releases keep warm. A `pull_request` run can only restore
+        # the base branch's caches and saves to the merge ref, so it cannot
+        # pollute them.
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.os == 'Windows' && '~/AppData/Local/Pub/Cache' || '~/.pub-cache' }}
+          key: pub-${{ runner.os }}-${{ hashFiles('pubspec.lock') }}
+          restore-keys: |
+            pub-${{ runner.os }}-
+
       - name: Install dependencies
         # The committed lock resolves through the China mirror (see .envrc), so
         # the drift check below compares against the same host.

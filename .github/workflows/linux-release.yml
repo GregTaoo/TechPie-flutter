@@ -105,6 +105,20 @@ jobs:
         # runner behave like the machine the build was developed on.
         run: flutter config --enable-linux-desktop
 
+      - name: Cache pub dependencies
+        # The same step as the other platform jobs, and deliberately the same
+        # cross-platform key: the pub cache is sources — hosted packages and the
+        # bare clones pub makes of git dependencies — so the Linux cache also
+        # serves the Android and OHOS jobs, which run on the same OS. Without the
+        # restore-keys fallback a lockfile change would be a full miss, which is
+        # what made one platform's `pub get` take 5 seconds and another's 191.
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.os == 'Windows' && '~/AppData/Local/Pub/Cache' || '~/.pub-cache' }}
+          key: pub-${{ runner.os }}-${{ hashFiles('pubspec.lock') }}
+          restore-keys: |
+            pub-${{ runner.os }}-
+
       - name: Resolve locked dependencies
         # The committed lock resolves through the China mirror (see .envrc).
         env:

@@ -93,6 +93,31 @@ jobs:
         # start without it.
         run: flutter config --enable-windows-desktop
 
+      - name: Allow long checkout paths
+        # Windows still refuses a path over 260 characters unless git is told
+        # otherwise, and pub checks out one of our git dependencies (the
+        # webview_flutter fork) into paths that long:
+        #
+        #   error: cannot stat '.../webview_flutter_android/android/src/main/
+        #   java/io/flutter/plugins/webviewflutter/
+        #   GeolocationPermissionsCallbackFlutterApiImpl.java': Filename too long
+        #
+        # That is pub's own `git checkout` inside its cache, so the setting has to
+        # be in place before `flutter pub get`, and --global is enough: the runner
+        # user owns it, and pub's git inherits it.
+        run: git config --global core.longpaths true
+
+      - name: Cache pub dependencies
+        # Same step as the other platforms, but a key of its own: this is the job
+        # that had never had a pub cache at all, and paid 191 seconds for a cold
+        # resolve while Linux and Android took 4 and 5.
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.os == 'Windows' && '~/AppData/Local/Pub/Cache' || '~/.pub-cache' }}
+          key: pub-${{ runner.os }}-${{ hashFiles('pubspec.lock') }}
+          restore-keys: |
+            pub-${{ runner.os }}-
+
       - name: Resolve locked dependencies
         # The committed lock resolves through the China mirror (see .envrc).
         env:

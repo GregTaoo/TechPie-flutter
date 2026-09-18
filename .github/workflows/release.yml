@@ -100,6 +100,17 @@ jobs:
           flutter-version: "3.27.4"
           cache: true
 
+      - name: Cache pub dependencies
+        # The plan runs `flutter analyze` and `flutter test`, which resolve the
+        # same lock as the platform builds; sharing the cache keeps the release's
+        # first two minutes from being a cold `pub get`.
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.os == 'Windows' && '~/AppData/Local/Pub/Cache' || '~/.pub-cache' }}
+          key: pub-${{ runner.os }}-${{ hashFiles('pubspec.lock') }}
+          restore-keys: |
+            pub-${{ runner.os }}-
+
       - name: Verify the commit being released
         # GitHub does not order workflow runs, so passing analyze.yml says
         # nothing about whether the release workflow is looking at a green
