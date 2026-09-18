@@ -194,20 +194,6 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               ),
               ListTile(
-                leading: const Icon(Icons.account_tree_outlined),
-                title: const Text('Linked accounts'),
-                subtitle: Text(
-                  '${tpAuth.boundPlatforms.length + (campusCard.configured ? 1 : 0)} bound · eCard / eGate / Gradescope / Hydro',
-                ),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => unawaited(
-                  pushAdaptivePage<void>(
-                    context,
-                    builder: (_) => const ThirdPartyAccountsPage(),
-                  ),
-                ),
-              ),
-              ListTile(
                 leading: const Icon(Icons.cloud_sync_outlined),
                 title: const Text('Cloud sync'),
                 subtitle: Text(_cloudSyncSubtitle(sp.syncService)),
@@ -270,20 +256,23 @@ class _SettingsPageState extends State<SettingsPage> {
                 subtitle: const Text('通过 GeekPie Uni-Auth 登录'),
                 onTap: () => unawaited(presentLoginPage(context)),
               ),
-              ListTile(
-                leading: const Icon(Icons.account_tree_outlined),
-                title: const Text('Linked accounts'),
-                subtitle: Text(
-                  '${tpAuth.boundPlatforms.length + (campusCard.configured ? 1 : 0)} bound · eCard / eGate / Gradescope / Hydro',
-                ),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => unawaited(
-                  pushAdaptivePage<void>(
-                    context,
-                    builder: (_) => const ThirdPartyAccountsPage(),
-                  ),
+            // Bindings are configured independently of the primary account, so
+            // this row sits outside the signed-in block (it replaces the old
+            // OPENID row, which was reachable the same way).
+            ListTile(
+              leading: const Icon(Icons.account_tree_outlined),
+              title: const Text('Linked accounts'),
+              subtitle: Text(
+                '${tpAuth.boundPlatforms.length + (campusCard.configured ? 1 : 0)} bound · eCard / eGate / Gradescope / Hydro',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => unawaited(
+                pushAdaptivePage<void>(
+                  context,
+                  builder: (_) => const ThirdPartyAccountsPage(),
                 ),
               ),
+            ),
             const Divider(),
 
             ListTile(
