@@ -344,6 +344,12 @@ void main() {
       expect(find.byKey(const Key('payment-code-page')), findsOneWidget);
       expect(find.bySemanticsLabel('关闭'), findsNothing);
       expect(find.text('在线付款码'), findsOneWidget);
+
+      // The pass prints the card's number, not the card: the label used to
+      // interpolate the object and read "No. Instance of 'CampusCard'.id".
+      final card = await runtime.cards.currentCard();
+      expect(find.text('No. ${card!.id}'), findsOneWidget);
+      expect(find.textContaining('Instance of'), findsNothing);
       final passSize = tester.getSize(
         find.byKey(const Key('expanded-payment-pass')),
       );

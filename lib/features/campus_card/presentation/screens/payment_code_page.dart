@@ -1139,7 +1139,7 @@ final class _ExpandedPaymentPass extends StatelessWidget {
                                       ),
                                       SizedBox(height: width * 0.006),
                                       Text(
-                                        'No. $card.id',
+                                        'No. ${card.id}',
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                         style: TextStyle(
