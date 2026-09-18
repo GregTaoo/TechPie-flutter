@@ -106,10 +106,12 @@ Future<void> _realMain(SharedPreferences prefs) async {
   thirdPartyAuthService.onBindingsChanged = ({force = false}) {
     // The timetable is drawn from the eGate binding, and `fetchAll` does nothing
     // at all while there is none — silently, which is how a freshly bound account
-    // used to sit on an empty table with nothing to suggest it should reload. A
-    // binding that just appeared, or was just renewed, is the moment to ask
-    // again. Not awaited: the binding flow should not wait on three requests.
-    unawaited(scheduleService.fetchAll());
+    // used to sit on an empty table with nothing to suggest it should reload. This
+    // runs for every binding, though, and a timetable does not care about
+    // Gradescope: requestFetch is what decides whether the campus account this
+    // data belongs to actually changed, and collapses the burst around a login
+    // into one round.
+    scheduleService.requestFetch();
     return force ? syncService.forcePush() : syncService.pushIfDue();
   };
   // Cloud-sync tombstone hook: record a deletion so the next LWW merge does
@@ -191,7 +193,9 @@ Future<void> _realMain(SharedPreferences prefs) async {
     }
 
     if (thirdPartyAuthService.hasCpdailyBinding) {
-      await scheduleService.fetchAll();
+      // Through the funnel: the token renewals just above fire the same trigger,
+      // and this used to be a second round on top of theirs.
+      scheduleService.requestFetch(force: true);
     }
     if (authService.isLoggedIn ||
         thirdPartyAuthService.boundPlatforms.isNotEmpty) {

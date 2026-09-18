@@ -53,18 +53,55 @@ class ScheduleService extends ChangeNotifier {
   ScheduleService(this._storage, this._http, AuthService _, this._tpAuth) {
     // A renewed campus session, a cookie minted for a child service (eams,
     // elearning, egateApp) or a cloud-sync merge that replaced the account can
-    // each turn a fetch that was failing into one that works — and none of them
-    // is a "binding changed" event, so nothing else would ever say so. Only when
-    // there is nothing usable on screen: with a timetable in hand, none of those
-    // events changes what it says.
-    _tpAuth.addListener(_refetchIfTimetableUnusable);
+    // each turn a fetch that was failing into one that works. They all go through
+    // requestFetch, which decides whether they amount to anything.
+    _tpAuth.addListener(requestFetch);
   }
 
-  void _refetchIfTimetableUnusable() {
-    if (_loading) return;
-    if (_semesterInfo != null && _error == null) return;
-    if (!_hasCpdailyBinding) return;
-    unawaited(fetchAll());
+  /// The campus account the timetable currently in hand was fetched for.
+  ///
+  /// Only who it belongs to — not the session token, not when it was refreshed. A
+  /// renewal of the same account leaves the timetable as valid as it was, and
+  /// treating that as a change is how a routine token refresh turned into another
+  /// round of requests. A rebind, a different account or a sync merge that
+  /// replaces it does change this, and data fetched for another account has to go.
+  String? _fetchedForAccount;
+
+  Timer? _pendingFetch;
+
+  String? _campusAccount() {
+    final account = _tpAuth.cpdailyNode.account;
+    if (account == null) return null;
+    return '${account.sid}|${account.account}';
+  }
+
+  /// The one way anything asks for the timetable to be refetched.
+  ///
+  /// Three things used to ask on their own — the app starting, a binding
+  /// changing, a session being renewed — and around a login they all fire inside
+  /// the same second, so one login meant three rounds of three requests. Bursts
+  /// collapse into a single fetch here, and a trigger that neither the user asked
+  /// for nor changed the account does nothing at all.
+  void requestFetch({bool force = false}) {
+    final account = _campusAccount();
+    final accountChanged = account != null && account != _fetchedForAccount;
+    final usable = _semesterInfo != null && _error == null;
+    if (!force && !accountChanged && usable) return;
+
+    _pendingFetch?.cancel();
+    _pendingFetch = Timer(const Duration(milliseconds: 600), () {
+      unawaited(_fetchAndStamp());
+    });
+  }
+
+  Future<void> _fetchAndStamp() async {
+    final account = _campusAccount();
+    await fetchAll();
+    // Only a success counts as "fetched for": a failed attempt has to be able to
+    // try again on the next trigger.
+    if (account != null && _error == null) {
+      _fetchedForAccount = account;
+    }
   }
 
   int currentWeek() {

@@ -14,11 +14,11 @@ import 'package:techpie/services/uni_auth_service.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  // Renewing a campus session — or letting a sync merge replace it — changes what
-  // a timetable fetch can see, and nothing about it looks like "the binding
-  // changed". With an empty table on screen that is the difference between a page
-  // that recovers by itself and one that stays empty until a manual pull.
-  test('a session change with no timetable in hand fetches one', () async {
+  // Around a login the triggers all fire inside the same second — the binding
+  // lands, the session is renewed, a child cookie is minted — and each of them
+  // used to start a round of its own: three rounds of three requests for one
+  // login. They go through one funnel now, which collapses the burst.
+  test('a burst of triggers is one round of requests, not one each', () async {
     SharedPreferences.setMockInitialValues({});
     FlutterSecureStorage.setMockInitialValues({});
     final prefs = await SharedPreferences.getInstance();
@@ -44,27 +44,31 @@ void main() {
     await tpAuth.initialize();
 
     final schedule = ScheduleService(storage, http, auth, tpAuth);
-    expect(requests, isEmpty, reason: 'constructing it does not fetch');
-    expect(schedule.semesterInfo, isNull, reason: 'nothing in hand');
+    expect(schedule.semesterInfo, isNull, reason: 'nothing in hand yet');
 
-    // What a renewal or a sync merge amounts to, from a listener's point of view.
-    await tpAuth.updateRaw(
-      ThirdPartyPlatform.cpdaily,
-      const {'tgc': 'tgc-value', 'cookies': 'CASTGC=renewed'},
-    );
-    // Past the window requestFetch coalesces over.
+    // The burst: every one of these notifies the schedule through the same
+    // listener, milliseconds apart.
+    for (final marker in ['a', 'b', 'c']) {
+      await tpAuth.updateRaw(
+        ThirdPartyPlatform.cpdaily,
+        {'tgc': 'tgc-value', 'cookies': 'CASTGC=$marker'},
+      );
+    }
+
+    // Past the coalescing window.
     await Future<void>.delayed(const Duration(milliseconds: 900));
 
     expect(
-      requests,
-      isNotEmpty,
-      reason: 'the table was empty, so a renew has to lead to a fetch',
+      requests.length,
+      1,
+      reason: 'the burst is one round; the client fails on the first request, '
+          'so a second round would show up as a second request',
     );
   });
 }
 
-/// Answers everything with a failure: this test is about whether a fetch is
-/// attempted, not about what it makes of the answer.
+/// Counts what was asked for and answers with a failure: this test is about how
+/// many rounds are started, not about what comes back.
 class _RecordingClient extends http.BaseClient {
   _RecordingClient(this.requests);
 
