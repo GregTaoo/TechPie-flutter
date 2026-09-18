@@ -28,13 +28,25 @@ concurrency:
 jobs:
   windows:
     name: Build Windows release
-    runs-on: windows-latest
-    # A desktop build is source-only here — no signing key and no Gradle — so an
-    # hour is a budget against a stalled download, not against the build. A job
-    # killed here leaves its tag and its draft behind, which is what the budget
-    # buys time against.
+    runs-on: windows-2022
+    # Pinned, not `windows-latest`: that label now resolves to the
+    # `windows-2025-vs2026` image, and Flutter 3.27.4 does not know Visual Studio
+    # 2026. `flutter_tools/lib/src/windows/visual_studio.dart` maps a major version
+    # it does not recognise to the 2019 generator:
+    #
+    #   17 => 'Visual Studio 17 2022',
+    #   _  => 'Visual Studio 16 2019',
+    #
+    # so CMake was asked for a VS 2019 the image does not carry and answered
+    # "could not find any instance of Visual Studio" — which names the generator it
+    # was given, not the toolchain that is missing. `windows-2022` carries Visual
+    # Studio Enterprise 2022 (17.14) with the Desktop C++ workload, which is what
+    # Flutter asks for by name.
+    #
+    # This pin is a dead end eventually: when the image is retired, the Flutter
+    # version has to move first.
     timeout-minutes: 60
-    # `windows-latest` runs `run:` steps under pwsh by default. Everything below
+    # Windows runners run `run:` steps under pwsh by default. Everything below
     # except the packaging step is POSIX shell — starting with
     # scripts/release-name.sh, which the bash below runs — so bash is the job
     # default and the one PowerShell step says so for itself.
@@ -92,6 +104,16 @@ jobs:
         # Harmless when the runner image already has it on; the build refuses to
         # start without it.
         run: flutter config --enable-windows-desktop
+
+      - name: Verify the Windows toolchain
+        # Prints the Visual Studio flutter_tools found and the components it checks
+        # for. Without this, a toolchain mismatch surfaces only as a CMake error
+        # naming a VS generator, which does not say what the runner actually has.
+        #
+        # Not fatal: `flutter doctor` exits non-zero for things this job does not
+        # use (an unconfigured Android toolchain), and the log is the point.
+        continue-on-error: true
+        run: flutter doctor -v
 
       - name: Allow long checkout paths
         # Windows still refuses a path over 260 characters unless git is told
