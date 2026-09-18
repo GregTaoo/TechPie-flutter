@@ -186,12 +186,19 @@ class ThirdPartyAuthService extends ChangeNotifier {
   /// Persist/clear a child node's derived cookie. Installed as the tree's
   /// [PersistDerivedCookie] callback so eams/elearning cookie minting and
   /// parent-renew cascades flow through storage.
+  ///
+  /// Also notifies: a child session's cookie is what a fetch against that
+  /// service carries, so a renewal can turn a failing fetch into a working one,
+  /// and nothing else would ever say so. Deliberately listeners only, not
+  /// [onBindingsChanged] — the cookies are local, and the cloud push has nothing
+  /// to gain from them.
   Future<void> _persistDerivedCookie(String nodeId, String? cookie) async {
     if (cookie == null) {
       await _storage.clearDerivedCookie(nodeId);
     } else {
       await _storage.saveDerivedCookie(nodeId, cookie);
     }
+    notifyListeners();
   }
 
   Future<void> _persistRenewTimestamp(
@@ -495,8 +502,12 @@ class ThirdPartyAuthService extends ChangeNotifier {
     } finally {
       _suppressSyncPush = false;
     }
-    // One notification for the whole merge.
-    notifyListeners();
+    // One notification for the whole merge — through the funnel, so the same
+    // downstream effects a manual binding change gets happen for a merge too.
+    // It used to notify listeners only, which left everything wired to
+    // onBindingsChanged (the cloud push, and the services that refetch when a
+    // binding appears) blind to a merge that replaced the account.
+    _onTreeChanged();
   }
 
   /// Cheap structural equality used by [applySyncMerge] to skip no-op writes.

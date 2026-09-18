@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -49,7 +50,22 @@ class ScheduleService extends ChangeNotifier {
           ? _termCalendar!.allTeachWeeks
           : _fallbackTotalWeeks;
 
-  ScheduleService(this._storage, this._http, AuthService _, this._tpAuth);
+  ScheduleService(this._storage, this._http, AuthService _, this._tpAuth) {
+    // A renewed campus session, a cookie minted for a child service (eams,
+    // elearning, egateApp) or a cloud-sync merge that replaced the account can
+    // each turn a fetch that was failing into one that works — and none of them
+    // is a "binding changed" event, so nothing else would ever say so. Only when
+    // there is nothing usable on screen: with a timetable in hand, none of those
+    // events changes what it says.
+    _tpAuth.addListener(_refetchIfTimetableUnusable);
+  }
+
+  void _refetchIfTimetableUnusable() {
+    if (_loading) return;
+    if (_semesterInfo != null && _error == null) return;
+    if (!_hasCpdailyBinding) return;
+    unawaited(fetchAll());
+  }
 
   int currentWeek() {
     final begin = termBegin;
