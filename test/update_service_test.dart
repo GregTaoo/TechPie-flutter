@@ -83,6 +83,32 @@ void main() {
     );
   });
 
+  test('a request that hangs fails on a deadline instead of never', () async {
+    // What api.github.com looks like from a network that drops packets: the
+    // request neither succeeds nor fails, and without a deadline the check would
+    // sit there. The response below arrives far too late to matter.
+    final service = UpdateService(
+      client: _FakeClient(
+        (_) => Future<http.Response>.delayed(
+          const Duration(seconds: 5),
+          () => http.Response('{}', 200),
+        ),
+      ),
+      timeout: const Duration(milliseconds: 50),
+    );
+
+    await expectLater(
+      service.checkForUpdate(const ProductVersion(1, 0, 1)),
+      throwsA(
+        isA<UpdateCheckException>().having(
+          (error) => error.message,
+          'message',
+          contains('超时'),
+        ),
+      ),
+    );
+  });
+
   test('reports a refusal as a failure, not as up to date', () async {
     // Unauthenticated GitHub requests are capped at 60 an hour per address.
     final rateLimited = UpdateService(

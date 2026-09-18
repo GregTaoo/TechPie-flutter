@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -42,9 +43,17 @@ class ReleaseInfo {
 /// page a user would look at anyway, so it stays correct even when the API is
 /// down, and it needs no account.
 class UpdateService {
-  UpdateService({http.Client? client}) : _client = client ?? http.Client();
+  UpdateService({
+    http.Client? client,
+    // A route that drops packets instead of refusing them — which is what
+    // api.github.com looks like from some networks — leaves the request hanging
+    // rather than failing, so the check carries its own deadline. Injectable so
+    // a test does not have to wait one out.
+    this.timeout = const Duration(seconds: 12),
+  }) : _client = client ?? http.Client();
 
   final http.Client _client;
+  final Duration timeout;
 
   static const repository = 'HeZeBang/TechPie-flutter';
 
@@ -63,17 +72,23 @@ class UpdateService {
   Future<ReleaseInfo?> checkForUpdate(ProductVersion current) async {
     final http.Response response;
     try {
-      response = await _client.get(
-        _latestReleaseUri,
-        headers: {
-          // Pin the API version this payload is read under, and say who is
-          // asking: GitHub rejects a request with no user agent.
-          'Accept': 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28',
-          'User-Agent': 'TechPie/$current',
-        },
-      );
+      response = await _client
+          .get(
+            _latestReleaseUri,
+            headers: {
+              // Pin the API version this payload is read under, and say who is
+              // asking: GitHub rejects a request with no user agent.
+              'Accept': 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28',
+              'User-Agent': 'TechPie/$current',
+            },
+          )
+          .timeout(timeout);
+    } on TimeoutException {
+      throw UpdateCheckException('连接 GitHub 超时，请检查网络后重试。');
     } catch (error) {
+      // The text here is what the user reads, and it is usually the only clue
+      // about which of the network's ways of failing this was.
       throw UpdateCheckException('无法连接 GitHub：$error');
     }
 
