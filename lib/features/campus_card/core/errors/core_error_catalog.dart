@@ -58,12 +58,14 @@ abstract final class CoreErrorCatalog {
     );
   }
 
+  /// The feature's copy is Chinese, so the catalog resolves to Chinese by
+  /// default. [languageCode] stays for callers that already know the language
+  /// (the tests pin both tables), and English is kept as a fallback for codes
+  /// the Chinese table does not carry.
   static String? message(String? code, {String? languageCode}) {
     final normalized = code?.trim();
     if (normalized == null || normalized.isEmpty) return null;
-    final language = languageCode ??
-        PlatformDispatcher.instance.locale.languageCode.toLowerCase();
-    final preferred = language == 'zh' ? _chinese : _english;
+    final preferred = languageCode == 'en' ? _english : _chinese;
     return preferred[normalized] ??
         _chinese[normalized] ??
         _english[normalized];

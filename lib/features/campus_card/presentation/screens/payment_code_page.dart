@@ -815,10 +815,10 @@ final class _ExpandedPaymentPass extends StatelessWidget {
         payment.phase == PaymentCodePhase.refreshing ||
         payment.phase == PaymentCodePhase.polling;
     final ownerName = card.detailsAvailable
-        ? cardholderDisplayName(
-            card.ownerName,
-            languageCode: Localizations.localeOf(context).languageCode,
-          )
+        // The feature's copy is Chinese, and the host resolves its own locale
+        // (English by default) independently of the device: shorten the name to
+        // the Chinese part the way the Chinese UI does.
+        ? cardholderDisplayName(card.ownerName, languageCode: 'zh')
         : 'eCard';
 
     return Hero(
