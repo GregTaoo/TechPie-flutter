@@ -468,7 +468,7 @@ final class OfflineAuthorizationController
     final view = await service.status(cardId);
     if (generation != _generation) return view;
     _scheduleAutomaticRenewal(view);
-    if (_shouldRenewAutomatically(view)) {
+    if (_shouldRenewAutomatically(view) && !_manualOffline) {
       // Publish the local grant before attempting network maintenance. A valid
       // renewal-due grant remains usable while the server is slow/unavailable.
       Future<void>.delayed(Duration.zero, () {
@@ -581,6 +581,9 @@ final class OfflineAuthorizationController
     bool retrySoon = false,
   }) {
     _renewalTimer?.cancel();
+    // Manual offline mode is a promise of no network: nothing here renews until
+    // the switch is turned off again.
+    if (_manualOffline) return;
     final authorization = view.authorization;
     if (authorization == null) return;
     final expiresOn = authorization.expiresOn;
@@ -596,8 +599,13 @@ final class OfflineAuthorizationController
       final untilRenewal = renewalAt.difference(DateTime.now().toUtc());
       if (untilRenewal > Duration.zero) delay = untilRenewal;
     }
-    _renewalTimer = Timer(delay, () => unawaited(maintain(force: true)));
+    _renewalTimer = Timer(delay, () {
+      if (_manualOffline) return;
+      unawaited(maintain(force: true));
+    });
   }
+
+  bool get _manualOffline => ref.read(manualOfflineModeProvider);
 }
 
 final paymentCodeControllerProvider =

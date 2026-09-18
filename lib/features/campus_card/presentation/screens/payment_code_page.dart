@@ -130,6 +130,9 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
     if (!mounted || !_active) return;
     final card = ref.read(cardControllerProvider).valueOrNull;
     if (card == null) return;
+    // Manual offline mode promises a local-only session: no renewal, no online
+    // code. Only the switch ends it.
+    if (ref.read(manualOfflineModeProvider)) return;
     if (online) {
       unawaited(
         ref
@@ -137,7 +140,6 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
             .maintain(force: false),
       );
     }
-    if (ref.read(manualOfflineModeProvider)) return;
     if (!online) {
       _paymentCodes.markDisconnected();
     } else {
@@ -173,10 +175,17 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
     if (!mounted) return;
     await _generateOffline(card, switching: true);
     if (!mounted) return;
-    if (_offlinePayload == null && _offlineError == null) {
-      // Nothing to generate from — no offline authorization — so the mode goes
-      // back off and the activation banner takes over. A code that failed for
-      // any other reason keeps the offline surface and its retry.
+    final authorization = ref
+        .read(offlineAuthorizationProvider(card.id))
+        .valueOrNull
+        ?.state;
+    final usable = authorization == OfflineAuthorizationState.active ||
+        authorization == OfflineAuthorizationState.renewalDue;
+    if (_offlinePayload == null && !usable) {
+      // Nothing to generate from — no offline authorization, or one that has
+      // expired — so the mode cannot take effect: the pass goes back online and
+      // the activation banner takes over. A code that failed for any other
+      // reason keeps the offline surface and its retry.
       ref.read(manualOfflineModeProvider.notifier).setEnabled(false);
       setState(() {
         _offline = false;
@@ -237,6 +246,11 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
       });
       if (authorizationRequired) {
         ref.invalidate(offlineAuthorizationProvider(card.id));
+        // No usable grant and no renewal available locally: the mode cannot keep
+        // its promise, so the pass returns to the online code.
+        if (ref.read(manualOfflineModeProvider)) {
+          await _setOfflineMode(card, false);
+        }
       } else {
         await ref.read(appRuntimeProvider).feedback.play(FeedbackEvent.error);
       }
@@ -482,6 +496,7 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
                                   card: card,
                                   payment: payment,
                                   manualOffline: manualOffline,
+                                  canToggleOffline: canGenerateOffline,
                                 ),
                               ),
                               onRefreshOnline: _refreshOnline,
@@ -656,6 +671,7 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
     required CampusCard card,
     required PaymentCodeViewState payment,
     required bool manualOffline,
+    required bool canToggleOffline,
   }) async {
     final stateLabel = switch (payment.connectionState) {
       PaymentConnectionState.online => '网络正常',
@@ -685,22 +701,24 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
                   label: '离线付款码',
                   verticalPadding: 4,
                   trailing: Switch.adaptive(
-                    value: manualOffline ||
-                        _offline ||
-                        payment.connectionState ==
-                            PaymentConnectionState.disconnected ||
-                        payment.connectionState ==
-                            PaymentConnectionState.apiError,
-                    onChanged: (value) => Navigator.pop(sheetContext, value),
+                    // The switch is the user's mode, not "an offline code happens
+                    // to be on screen": it moves only when the mode moves, and it
+                    // is inert while there is no usable grant to generate from.
+                    value: manualOffline,
+                    onChanged: canToggleOffline
+                        ? (value) => Navigator.pop(sheetContext, value)
+                        : null,
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 10),
             Text(
-              manualOffline
-                  ? '手动离线模式会保持到 App 进程退出。'
-                  : '在线码加载期间或网络异常时，先显示可用的离线码；在线码就绪后自动切换。',
+              !canToggleOffline
+                  ? '没有可用的离线授权：请先开通或联网续期，之后才能使用离线码。'
+                  : manualOffline
+                      ? '离线模式：只用本机生成的付款码，本地即时刷新，不发起网络请求。'
+                      : '开启后只用本机生成的离线码（每次刷新消耗一次授权次数），直到关闭或退出 App。',
               textAlign: TextAlign.center,
               style: TextStyle(color: context.gpColors.textSecondary),
             ),

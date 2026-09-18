@@ -214,6 +214,88 @@ void main() {
     await h.close(tester);
   });
 
+  test('manual offline mode suspends automatic renewal', () async {
+    final h = await _Harness.create();
+    // The harness's grant expires tomorrow, so a rebuild renews while the mode is
+    // off — the control half of this test.
+    h.container.read(offlineAuthorizationProvider('card'));
+    await pumpEventQueue();
+    expect(h.remote.renewals, 1);
+    // Let the first renewal finish: the service keeps one renewal in flight per
+    // card, so nothing else can start until this one is done.
+    h.remote.pending.complete(null);
+    await pumpEventQueue();
+
+    h.container.read(manualOfflineModeProvider.notifier).setEnabled(true);
+    h.container.invalidate(offlineAuthorizationProvider('card'));
+    h.container.read(offlineAuthorizationProvider('card'));
+    await pumpEventQueue();
+    expect(h.remote.renewals, 1, reason: 'manual offline mode must not renew');
+
+    h.container.read(manualOfflineModeProvider.notifier).setEnabled(false);
+    h.container.invalidate(offlineAuthorizationProvider('card'));
+    h.container.read(offlineAuthorizationProvider('card'));
+    await pumpEventQueue();
+    expect(h.remote.renewals, 2, reason: 'leaving the mode resumes renewal');
+  });
+
+  testWidgets('manual offline mode never touches the network', (tester) async {
+    final h = await _Harness.create();
+    await h.mount(tester);
+    h.online.pending.complete(_frame());
+    await _pump(tester);
+    expect(find.text('在线付款码'), findsOneWidget);
+
+    // Turn the mode on the way the user does, through the status sheet.
+    await tester.tap(find.byKey(const Key('payment-online-status-indicator')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(Switch));
+    await tester.pumpAndSettle();
+    expect(h.container.read(manualOfflineModeProvider), isTrue);
+    expect(find.text('离线付款码'), findsOneWidget);
+    // Free the single-flight renewal slot so the assertions below can see one.
+    h.remote.pending.complete(null);
+    await _pump(tester);
+
+    final onlineCalls = h.online.calls;
+    final renewals = h.remote.renewals;
+
+    // Rebuilding the grant provider — what a failed local generation does — and
+    // tapping the code both stay local while the mode is on.
+    h.container.invalidate(offlineAuthorizationProvider('card'));
+    h.container.read(offlineAuthorizationProvider('card'));
+    await _pump(tester);
+    await tester.tap(find.byKey(const Key('payment-code-qr')));
+    await _pump(tester);
+
+    expect(h.online.calls, onlineCalls);
+    expect(h.remote.renewals, renewals);
+    expect(find.text('离线付款码'), findsOneWidget);
+    expect(h.credentials.reservations, 3);
+    expect(tester.takeException(), isNull);
+    await h.close(tester);
+  });
+
+  for (final state in ['missing', 'expired']) {
+    testWidgets('the offline switch is inert with a $state grant',
+        (tester) async {
+      final h = await _Harness.create(grantState: state);
+      await h.mount(tester);
+      h.online.pending.complete(_frame());
+      await _pump(tester);
+      expect(find.text('在线付款码'), findsOneWidget);
+
+      await tester.tap(
+        find.byKey(const Key('payment-online-status-indicator')),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.widget<Switch>(find.byType(Switch)).onChanged, isNull);
+      expect(find.textContaining('没有可用的离线授权'), findsOneWidget);
+      expect(h.container.read(manualOfflineModeProvider), isFalse);
+      await h.close(tester);
+    });
+  }
+
   testWidgets('a failed local refresh keeps the offline surface and its retry',
       (tester) async {
     final h = await _Harness.create();
