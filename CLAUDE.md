@@ -390,11 +390,11 @@ arch       universal | x86-64 | arm-64 | arm32v7 | arm64v8
            Android and OHOS use ABI tokens (arm64-v8a -> arm64v8,
            armeabi-v7a -> arm32v7); desktop 64-bit ARM is arm-64; universal is
            one file for every architecture of that platform.
--unsigned  only when nothing signed it: our OHOS hap today, and any iOS build the
-           private signing repo hands back unsigned.
+-unsigned  only when nothing signed it: the OHOS hap and App Pack we build here,
+           and any iOS build the private signing repo hands back unsigned.
 ext        android   apk | aab
            linux     AppImage | deb | rpm | tar.gz | zip
-           ohos      hap | hsp
+           ohos      hap | hsp | app
            ios       ipa | app
            macos     dmg | app | tar.gz | zip
            windows   exe | msi | zip
@@ -470,11 +470,16 @@ distinguishable in git, and the file names deliberately do not try to.
   user cannot move between them without reinstalling.
 - There is no freeze switch: a release waits for its dispatch, so merging a
   version bump publishes nothing on its own.
-- **OHOS**: each release also publishes an unsigned hap
-  (`techpie-<version>-unsigned.hap` plus its sha256) attached to the GitHub
-  release, built by `scripts/build-unsigned-hap.sh` with `OHOS_UNSIGNED=1` (the
-  generator writes a profile without signing material, so hvigor packs the
-  unsigned hap). Signing happens on the device owner's machine, never in CI.
+- **OHOS**: each release also publishes two unsigned packages — the hap you install
+  on a device (`TechPie-<release name>-ohos-arm64v8-unsigned.hap`) and the App Pack
+  AppGallery publishes (`…-ohos-arm64v8-unsigned.app`, which holds that hap plus
+  `pack.info`) — each with its sha256. They are built by
+  `scripts/build-unsigned-hap.sh` and `scripts/build-ohos-app.sh` with
+  `OHOS_UNSIGNED=1`: the generator writes a profile with no signing material, so
+  hvigor packs `-unsigned` artifacts while flutter exits non-zero looking for the
+  signed ones, which is why both scripts judge the build by the artifact rather
+  than by its exit code. Signing happens on the device owner's machine, never in
+  CI — so an AppGallery upload is a maintainer step: sign the pack, then upload it.
   The toolchain reaches CI as a container image, not as a self-hosted runner:
   `ci/Dockerfile.ohos-buildenv` bakes the OHOS Flutter fork and the DevEco
   command-line tools — neither can be installed on a hosted runner, because the

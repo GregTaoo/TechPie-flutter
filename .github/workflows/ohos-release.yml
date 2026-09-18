@@ -117,6 +117,13 @@ jobs:
       - name: Build unsigned hap
         run: scripts/build-unsigned-hap.sh
 
+      - name: Build unsigned App Pack
+        # What AppGallery publishes is this — a pack holding the hap plus
+        # `pack.info` — not the hap beside it, which is for installing on a device.
+        # Judged by the artifact for the same reason as the hap: flutter exits
+        # non-zero while looking for the *signed* pack hvigor never wrote.
+        run: scripts/build-ohos-app.sh
+
       - name: Attach the hap to the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -133,4 +140,4 @@ jobs:
             exit 1
           fi
 
-          scripts/attach-release-asset.sh "$RELEASE_TAG" dist/*.hap dist/*.sha256
+          scripts/attach-release-asset.sh "$RELEASE_TAG" dist/*.hap dist/*.sha256 dist/*.app
