@@ -103,6 +103,12 @@ Future<void> _realMain(SharedPreferences prefs) async {
   // state (throttled). Wired via post-construction setter to avoid a circular
   // dependency between ThirdPartyAuthService and SyncService.
   thirdPartyAuthService.onBindingsChanged = ({force = false}) {
+    // The timetable is drawn from the eGate binding, and `fetchAll` does nothing
+    // at all while there is none — silently, which is how a freshly bound account
+    // used to sit on an empty table with nothing to suggest it should reload. A
+    // binding that just appeared, or was just renewed, is the moment to ask
+    // again. Not awaited: the binding flow should not wait on three requests.
+    unawaited(scheduleService.fetchAll());
     return force ? syncService.forcePush() : syncService.pushIfDue();
   };
   // Cloud-sync tombstone hook: record a deletion so the next LWW merge does

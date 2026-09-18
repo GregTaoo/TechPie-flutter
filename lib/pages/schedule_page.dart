@@ -28,6 +28,31 @@ import '../widgets/ios/ios_native_navigation_bar.dart';
 import 'login_page.dart';
 import 'third_party_accounts_page.dart';
 
+/// What an empty week actually is, given what the timetable knows about itself.
+///
+/// Split out and kept pure so it can be tested without building the app: these
+/// three states are the difference between a page that is working and a page that
+/// looks broken, and the wrong answer reads as a fact the app invented.
+enum EmptyWeekState {
+  /// Nothing fetched yet — a fresh login, or a binding whose fetch is in flight.
+  loading,
+
+  /// A fetch ran and failed. Pull-to-refresh is the way out.
+  failed,
+
+  /// The timetable is in hand, and this week is genuinely empty.
+  noClasses,
+}
+
+EmptyWeekState emptyWeekStateOf({
+  required bool hasSemester,
+  required bool hasError,
+}) {
+  if (hasError) return EmptyWeekState.failed;
+  if (!hasSemester) return EmptyWeekState.loading;
+  return EmptyWeekState.noClasses;
+}
+
 class SchedulePage extends StatefulWidget {
   const SchedulePage({super.key});
 
@@ -793,6 +818,53 @@ class _SchedulePageState extends State<SchedulePage> {
     );
   }
 
+  /// The week area when there is nothing to draw, which is three different
+  /// situations rather than one: a fetch in flight, a fetch that failed, and a
+  /// week that is genuinely free. They are worth distinguishing — the first two
+  /// look like a broken page if they are reported as the third.
+  Widget _buildEmptyWeek(ThemeData theme, int week) {
+    final state = emptyWeekStateOf(
+      hasSemester: _schedule.semesterInfo != null,
+      hasError: _schedule.error != null,
+    );
+
+    return ListView(
+      key: ValueKey<String>('empty-$week'),
+      children: [
+        SizedBox(
+          height: 300,
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (state == EmptyWeekState.loading) ...[
+                  // The same ring, at the same size, as every other place in the
+                  // app that is waiting on something.
+                  const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+                Text(
+                  switch (state) {
+                    EmptyWeekState.loading => '正在获取课表…',
+                    EmptyWeekState.failed => '课表加载失败，下拉刷新重试',
+                    EmptyWeekState.noClasses => '本周没有课程',
+                  },
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildScheduleWeek(
     BuildContext context,
     ThemeData theme,
@@ -807,22 +879,7 @@ class _SchedulePageState extends State<SchedulePage> {
         .toList();
 
     final content = visibleCourses.isEmpty
-        ? ListView(
-            key: ValueKey<String>('empty-$week'),
-            children: [
-              SizedBox(
-                height: 300,
-                child: Center(
-                  child: Text(
-                    '本周没有课程',
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          )
+        ? _buildEmptyWeek(theme, week)
         : _TimetableGrid(
             key: ValueKey<int>(week),
             courses: courses,
