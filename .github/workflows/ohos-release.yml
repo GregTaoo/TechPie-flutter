@@ -103,18 +103,13 @@ jobs:
 
       # The mirrors (PUB_HOSTED_URL and both FLUTTER_*_STORAGE_BASE_URL) come from
       # the image's environment, matching .envrc on the developer machine.
-      - name: Cache pub dependencies
-        # This job runs inside the build-environment image, whose HOME is a fresh
-        # mount every run, so it was the one platform that never had a warm pub
-        # cache: 136 and 164 seconds against Linux's 5. `~` resolves to that
-        # mounted home here, and the path is on the runner, so the cache action
-        # can archive it from inside the container.
-        uses: actions/cache@v6
-        with:
-          path: ${{ runner.os == 'Windows' && '~/AppData/Local/Pub/Cache' || '~/.pub-cache' }}
-          key: pub-${{ runner.os }}-${{ hashFiles('pubspec.lock') }}
-          restore-keys: |
-            pub-${{ runner.os }}-
+      # The pub cache, defined once in .github/actions/pub-cache. Read-only here.
+      # This job runs inside the build-environment image, whose HOME is a fresh
+      # mount every run, so it used to be the one platform with no warm cache at
+      # all (136 and 164 seconds against Linux's 5). `~` resolves to that mounted
+      # home, and the path is on the runner, so the action can archive it from
+      # inside the container.
+      - uses: ./.github/actions/pub-cache
 
       - name: Resolve dependencies
         run: flutter pub get

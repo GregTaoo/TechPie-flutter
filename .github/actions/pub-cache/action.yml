@@ -1,0 +1,42 @@
+name: Pub cache
+description: >-
+  Restore the pub cache, and save it back under the lockfile's key unless this is
+  a reader. The key, the paths and the fallback are here rather than in the six
+  workflows that need them, so the policy has one home.
+
+inputs:
+  mode:
+    description: >-
+      `write` restores *and* saves, which exactly one job per operating system
+      does. Anything else restores only, which is what the other jobs want:
+      GitHub cannot update a cache in place, so a writer that runs after the
+      first one adds another copy of the same key instead of a newer one.
+    required: false
+    default: read
+
+runs:
+  using: composite
+  steps:
+    # `restore-keys` is what makes a lockfile change incremental rather than a
+    # cold start: the exact key misses, the prefix matches, and the most recent
+    # cache of that operating system is restored for pub to top up. The key
+    # deliberately has no build number or release name in it — the lockfile is
+    # the whole input, so a lockfile that has not moved is an exact hit.
+    #
+    # The OS stays in the key because pub's git checkouts honour core.autocrlf:
+    # a Windows-made cache restored on Linux would carry CRLF sources.
+    - if: inputs.mode == 'write'
+      uses: actions/cache@v6
+      with:
+        path: ${{ runner.os == 'Windows' && '~/AppData/Local/Pub/Cache' || '~/.pub-cache' }}
+        key: pub-${{ runner.os }}-${{ hashFiles('pubspec.lock') }}
+        restore-keys: |
+          pub-${{ runner.os }}-
+
+    - if: inputs.mode != 'write'
+      uses: actions/cache/restore@v6
+      with:
+        path: ${{ runner.os == 'Windows' && '~/AppData/Local/Pub/Cache' || '~/.pub-cache' }}
+        key: pub-${{ runner.os }}-${{ hashFiles('pubspec.lock') }}
+        restore-keys: |
+          pub-${{ runner.os }}-

@@ -99,17 +99,17 @@ jobs:
         with:
           flutter-version: "3.27.4"
           cache: true
+          # `.github/actions/pub-cache` owns the pub cache: this one keys by OS
+          # *and* lockfile, so a lockfile change is a full miss, and two caches of
+          # one set of dependencies is one too many.
+          pub-cache: false
 
-      - name: Cache pub dependencies
-        # The plan runs `flutter analyze` and `flutter test`, which resolve the
-        # same lock as the platform builds; sharing the cache keeps the release's
-        # first two minutes from being a cold `pub get`.
-        uses: actions/cache@v6
+      # The pub cache, defined once in .github/actions/pub-cache. This job owns
+      # the Linux copy — it runs first, always, and resolves the same lock the
+      # platform builds do — so it is the one that saves. The others restore.
+      - uses: ./.github/actions/pub-cache
         with:
-          path: ${{ runner.os == 'Windows' && '~/AppData/Local/Pub/Cache' || '~/.pub-cache' }}
-          key: pub-${{ runner.os }}-${{ hashFiles('pubspec.lock') }}
-          restore-keys: |
-            pub-${{ runner.os }}-
+          mode: write
 
       - name: Verify the commit being released
         # GitHub does not order workflow runs, so passing analyze.yml says

@@ -99,6 +99,10 @@ jobs:
           channel: stable
           flutter-version: 3.27.4
           cache: true
+          # `.github/actions/pub-cache` owns the pub cache: this one keys by OS
+          # *and* lockfile, so a lockfile change is a full miss, and two caches of
+          # one set of dependencies is one too many.
+          pub-cache: false
 
       - name: Enable the Windows desktop target
         # Harmless when the runner image already has it on; the build refuses to
@@ -129,16 +133,12 @@ jobs:
         # user owns it, and pub's git inherits it.
         run: git config --global core.longpaths true
 
-      - name: Cache pub dependencies
-        # Same step as the other platforms, but a key of its own: this is the job
-        # that had never had a pub cache at all, and paid 191 seconds for a cold
-        # resolve while Linux and Android took 4 and 5.
-        uses: actions/cache@v6
+      # The pub cache, defined once in .github/actions/pub-cache. This job is the
+      # only Windows job, so it owns that copy: it restores with a lockfile-
+      # prefixed fallback and saves what pub fetched.
+      - uses: ./.github/actions/pub-cache
         with:
-          path: ${{ runner.os == 'Windows' && '~/AppData/Local/Pub/Cache' || '~/.pub-cache' }}
-          key: pub-${{ runner.os }}-${{ hashFiles('pubspec.lock') }}
-          restore-keys: |
-            pub-${{ runner.os }}-
+          mode: write
 
       - name: Resolve locked dependencies
         # The committed lock resolves through the China mirror (see .envrc).

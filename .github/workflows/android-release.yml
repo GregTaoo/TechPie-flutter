@@ -149,23 +149,14 @@ jobs:
           channel: stable
           flutter-version: 3.27.4
           cache: true
+          # `.github/actions/pub-cache` owns the pub cache: this one keys by OS
+          # *and* lockfile, so a lockfile change is a full miss, and two caches of
+          # one set of dependencies is one too many.
+          pub-cache: false
 
-      - name: Cache pub dependencies
-        # hashFiles is only the key; restore-keys falls back to the newest cache
-        # of this OS, so a changed lock restores the previous cache and pub then
-        # fetches the difference. GitHub cannot update a cache in place, and a new
-        # key is what makes the new contents savable — so this is the incremental
-        # pub cache, and it is the only one available here.
-        #
-        # The OS stays in the key on purpose: pub's git checkouts honour
-        # core.autocrlf, so a Windows-made cache restored on Linux would carry
-        # CRLF sources.
-        uses: actions/cache@v6
-        with:
-          path: ${{ runner.os == 'Windows' && '~/AppData/Local/Pub/Cache' || '~/.pub-cache' }}
-          key: pub-${{ runner.os }}-${{ hashFiles('pubspec.lock') }}
-          restore-keys: |
-            pub-${{ runner.os }}-
+      # The pub cache, defined once in .github/actions/pub-cache. Read-only: the
+      # plan job owns the Linux copy.
+      - uses: ./.github/actions/pub-cache
 
       - name: Resolve locked dependencies
         # The committed lock resolves through the China mirror (see .envrc).
