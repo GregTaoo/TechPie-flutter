@@ -126,7 +126,7 @@ packages:
     description:
       path: "."
       ref: "feature/techpie-bridge"
-      resolved-ref: d8443059ba096456be8ebd0848d81fc7a99d72ef
+      resolved-ref: ec5f4c34021cefeb0fb032a18e9511002109a751
       url: "https://github.com/HeZeBang/desktop_webview_window_fork.git"
     source: git
     version: "0.2.3"
