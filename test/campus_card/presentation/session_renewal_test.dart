@@ -53,9 +53,7 @@ void main() {
 
   testWidgets('same-account renewal restarts an already displayed QR',
       (tester) async {
-    SharedPreferences.setMockInitialValues(
-      {'geekpay.onboarding_complete': true},
-    );
+    SharedPreferences.setMockInitialValues({});
     final base = await buildDemoRuntime();
     addTearDown(base.dispose);
     final auth = _RestoredAuthPort();
@@ -130,9 +128,7 @@ void main() {
 
   testWidgets('same-account renewal restarts a pending first QR',
       (tester) async {
-    SharedPreferences.setMockInitialValues(
-      {'geekpay.onboarding_complete': true},
-    );
+    SharedPreferences.setMockInitialValues({});
     final base = await buildDemoRuntime();
     addTearDown(base.dispose);
     final auth = _RestoredAuthPort();
@@ -212,9 +208,7 @@ void main() {
   });
   testWidgets('late error from replaced controller cannot hide the new QR',
       (tester) async {
-    SharedPreferences.setMockInitialValues(
-      {'geekpay.onboarding_complete': true},
-    );
+    SharedPreferences.setMockInitialValues({});
     final base = await buildDemoRuntime();
     addTearDown(base.dispose);
     final auth = _RestoredAuthPort();
@@ -293,9 +287,7 @@ void main() {
     await tester.pump();
   });
   testWidgets('renewal in background waits for resume', (tester) async {
-    SharedPreferences.setMockInitialValues(
-      {'geekpay.onboarding_complete': true},
-    );
+    SharedPreferences.setMockInitialValues({});
     final base = await buildDemoRuntime();
     addTearDown(base.dispose);
     final auth = _RestoredAuthPort();
@@ -388,9 +380,7 @@ void main() {
 
   testWidgets('same-account renewal preserves manual offline mode',
       (tester) async {
-    SharedPreferences.setMockInitialValues(
-      {'geekpay.onboarding_complete': true},
-    );
+    SharedPreferences.setMockInitialValues({});
     final base = await buildDemoRuntime();
     addTearDown(base.dispose);
     final auth = _RestoredAuthPort();

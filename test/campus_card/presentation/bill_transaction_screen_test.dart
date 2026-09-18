@@ -11,20 +11,23 @@ import 'package:techpie/features/campus_card/presentation/widgets/gp_state.dart'
 
 void main() {
   group('BillTransactionScreen', () {
-    testWidgets('demo: renders transaction detail with formatted fields', (
+    testWidgets('demo: renders the recorded amount, title and identifier', (
       tester,
     ) async {
       final runtime = await buildDemoRuntime();
       addTearDown(runtime.dispose);
 
       final page = await runtime.transactions.timeline(month: '2025-09');
-      if (page.items.isEmpty) return;
+      // The September fixture is what this test renders: if it stops carrying
+      // records the test has to fail, not quietly assert nothing.
+      expect(page.items, isNotEmpty);
+      final record = page.items.first;
 
       await tester.pumpWidget(
         ProviderScope(
           overrides: [appRuntimeProvider.overrideWithValue(runtime)],
           child: MaterialApp(
-            home: BillTransactionScreen(transactionId: page.items.first.id),
+            home: BillTransactionScreen(transactionId: record.id),
           ),
         ),
       );
@@ -32,13 +35,14 @@ void main() {
 
       expect(find.text('演示数据 · 非真实账户'), findsNothing);
       expect(find.textContaining('¥'), findsWidgets);
-
-      final record = page.items.first;
-      if (record.merchantName == null) {
-        expect(find.text('商户'), findsNothing);
-      }
+      // The detail view prints the record it was given and never invents a
+      // field the record does not carry.
+      expect(find.text(record.title), findsWidgets);
+      expect(find.text(record.id), findsOneWidget);
       if (record.location == null) {
-        expect(find.text('位置'), findsNothing);
+        expect(find.text('所属单位'), findsNothing);
+      } else {
+        expect(find.text('所属单位'), findsOneWidget);
       }
     });
 

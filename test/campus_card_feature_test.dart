@@ -19,7 +19,6 @@ void main() {
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({
-      'geekpay.onboarding_complete': true,
     });
     final runtime = await buildDemoRuntime();
     addTearDown(runtime.dispose);
@@ -37,7 +36,6 @@ void main() {
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({
-      'geekpay.onboarding_complete': true,
     });
     final runtime = await buildDemoRuntime();
     addTearDown(runtime.dispose);

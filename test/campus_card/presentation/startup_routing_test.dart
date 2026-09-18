@@ -35,7 +35,6 @@ void main() {
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({
-      'geekpay.onboarding_complete': true,
     });
     final base = await buildDemoRuntime();
     addTearDown(base.dispose);
@@ -90,7 +89,6 @@ void main() {
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({
-      'geekpay.onboarding_complete': true,
     });
     final base = await buildDemoRuntime();
     addTearDown(base.dispose);
@@ -151,7 +149,6 @@ void main() {
   ) async {
     const primary = GpTokens.appleBlue;
     SharedPreferences.setMockInitialValues({
-      'geekpay.onboarding_complete': true,
     });
     final base = await buildDemoRuntime();
     addTearDown(base.dispose);
@@ -249,7 +246,6 @@ void main() {
     'card management root exits through the TechPie host navigator',
     (tester) async {
       SharedPreferences.setMockInitialValues({
-        'geekpay.onboarding_complete': true,
       });
       final ports = await buildDemoRuntime();
       final auth = _RestoredAuthPort();
@@ -306,7 +302,6 @@ void main() {
     'restored session opens the payment code root without a close button',
     (tester) async {
       SharedPreferences.setMockInitialValues({
-        'geekpay.onboarding_complete': true,
       });
       final ports = await buildDemoRuntime();
       final auth = _RestoredAuthPort();
@@ -399,7 +394,6 @@ void main() {
       expect(find.text('OPENID'), findsNothing);
       expect(find.text('上海科技大学 eCard'), findsOneWidget);
       expect(find.text('退出登录'), findsNothing);
-      expect(find.text('退出登录'), findsNothing);
 
       auth.expire();
       for (var i = 0; i < 20; i++) {
@@ -416,7 +410,6 @@ void main() {
     'offline banner dismisses, stays hidden after activation, and resets on removal',
     (tester) async {
       SharedPreferences.setMockInitialValues({
-        'geekpay.onboarding_complete': true,
       });
       final ports = await buildDemoRuntime();
       await ports.offlinePayments.removeAllFromThisDevice();

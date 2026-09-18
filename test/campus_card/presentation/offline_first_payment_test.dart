@@ -44,7 +44,6 @@ void main() {
     h.online.pending.complete(_frame());
     await _pump(tester);
     expect(find.text('在线付款码'), findsOneWidget);
-    expect(find.text('在线付款码'), findsOneWidget);
     expect(find.byKey(const Key('payment-code-qr')), findsOneWidget);
     expect(
       h.container.read(paymentCodeControllerProvider).frame!.qrPayload,
@@ -89,7 +88,6 @@ void main() {
         h.credentials.gate!.complete();
       }
       await _pump(tester);
-      expect(find.text('在线付款码'), findsOneWidget);
       expect(find.text('在线付款码'), findsOneWidget);
       expect(find.byKey(const Key('payment-code-qr')), findsOneWidget);
       expect(

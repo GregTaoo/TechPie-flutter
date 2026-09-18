@@ -343,7 +343,6 @@ class _Rig {
   }) async {
     SharedPreferences.setMockInitialValues(
       {
-        'geekpay.onboarding_complete': true,
         if (maximizeBrightness)
           'geekpay.maximize_payment_code_brightness': true,
       },
