@@ -107,26 +107,20 @@ final class MaskedCardNumberText extends StatelessWidget {
   }
 }
 
+/// An eCard page's frame: the feature's background, painted edge to edge.
+///
+/// It deliberately does not measure anything. The readable width belongs to the
+/// page *body* alone ([ApplePinnedHeaderLayout.contentWidth]): a window-wide
+/// window gets a window-wide navigation bar — the same bar every other TechPie
+/// page shows — with the column of content centred underneath it.
 final class AppleWalletPage extends StatelessWidget {
-  const AppleWalletPage({super.key, required this.child, this.backgroundColor});
+  const AppleWalletPage({super.key, required this.child});
 
   final Widget child;
-  final Color? backgroundColor;
 
   @override
-  Widget build(BuildContext context) {
-    final background = backgroundColor ?? context.gpColors.bg;
-    return ColoredBox(
-      color: background,
-      child: Align(
-        alignment: Alignment.topCenter,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
-          child: child,
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) =>
+      ColoredBox(color: context.gpColors.bg, child: child);
 }
 
 /// Pull-to-refresh control positioned below the pinned eCard header.
@@ -228,6 +222,11 @@ final class ApplePinnedHeaderLayout extends StatelessWidget {
 
   static const contentTop = 78.0;
 
+  /// The measure of the page body on a wide window. The bar is not part of it:
+  /// it spans whatever the host gives the page, which is what makes an eCard
+  /// page look like the rest of TechPie.
+  static const contentWidth = 560.0;
+
   final Widget child;
   final CampusCardHeaderAction? leading;
   final String? title;
@@ -240,7 +239,15 @@ final class ApplePinnedHeaderLayout extends StatelessWidget {
       bottom: false,
       child: Stack(
         children: [
-          Positioned.fill(child: child),
+          Positioned.fill(
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: contentWidth),
+                child: child,
+              ),
+            ),
+          ),
           Positioned(
             top: 0,
             left: 0,

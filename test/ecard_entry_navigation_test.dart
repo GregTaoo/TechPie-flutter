@@ -23,6 +23,7 @@ import 'package:techpie/services/third_party_auth_service.dart';
 import 'package:techpie/services/uni_auth_service.dart';
 import 'package:techpie/services/update_service.dart';
 import 'package:techpie/widgets/app_shell/app_shell.dart';
+import 'package:techpie/widgets/blurred_app_bar.dart';
 
 /// The eCard home widget asks TechPie for the payment code without a page to
 /// push onto: on a cold start the shell does not exist yet, and while the app
@@ -119,6 +120,13 @@ void main() {
     expect(find.byKey(const Key('payment-code-page')), findsOneWidget);
     expect(find.byType(CampusCardPage), findsOneWidget);
     expect(appShellPendingEcardEntry.value, isNull);
+
+    // Inside the shell the page fills its content area, sidebar included: the bar
+    // spans the page rather than sitting in the middle of it.
+    expect(
+      tester.getSize(find.byType(BlurredAppBar)).width,
+      tester.getSize(find.byKey(const Key('payment-code-page'))).width,
+    );
 
     // It went onto the destination the user was on, so one back leaves the
     // feature instead of the app, and lands back where they were.
