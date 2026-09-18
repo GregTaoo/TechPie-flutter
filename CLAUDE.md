@@ -400,11 +400,18 @@ ext        android   apk | aab
            windows   exe | msi | zip
 ```
 
-Published today: the two split APKs `TechPie-1.0.1-rc.3-android-arm64v8.apk` and
-`TechPie-1.0.1-rc.3-android-arm32v7.apk`, the `TechPie-1.0.1-rc.3-android-universal.apk`
-that carries every ABI, the `TechPie-1.0.1-rc.3-ohos-arm64v8-unsigned.hap` with its
-`.sha256`, `TechPie-1.0.1-rc.3-linux-x86-64.tar.gz` (the Linux bundle, which
-extracts to a single `bundle/` directory) and `TechPie-1.0.1-rc.3-windows-x86-64.zip`.
+Published today: the two split APKs `TechPie-1.0.1-rc.2-android-arm64v8.apk` and
+`TechPie-1.0.1-rc.2-android-arm32v7.apk`, the `TechPie-1.0.1-rc.2-android-universal.apk`
+that carries every ABI, the `TechPie-1.0.1-rc.2-ohos-arm64v8-unsigned.hap` with its
+`.sha256`, `TechPie-1.0.1-rc.2-linux-x86-64.tar.gz` (the Linux bundle, which
+extracts to a single `bundle/` directory) and `TechPie-1.0.1-rc.2-windows-x86-64.zip`.
+
+A candidate's *name* is reused until it actually ships: the `rc.N` counts published
+candidates of that line, so a candidate that died before publishing — 1.0.1-rc.2's
+first attempt — leaves the next one still called `1.0.1-rc.2`, with a higher `+B`.
+The names above are therefore the ones the next release ships; what distinguishes
+two attempts at one release name is the build number, and the tag, never the file
+names.
 macOS and iOS attach nothing to a release — iOS goes to TestFlight through the
 private signing repo. Adding a platform means adding a row above, not inventing a
 name.
