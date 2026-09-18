@@ -4,6 +4,13 @@ description: >-
   a reader. The key, the paths and the fallback are here rather than in the six
   workflows that need them, so the policy has one home.
 
+  One thing this cannot own yet: `subosito/flutter-action` also caches a pub cache,
+  and the `@v2` release we pin cannot be told not to — its `pub-cache` input exists
+  on master but in no published release (v2.23.0 is the newest). That copy holds
+  the hosted packages only, 85 MB against this cache's 1.3 GB, and its key misses
+  on any lockfile change like the rest. When the action ships that input, turning
+  it off is one line per workflow.
+
 inputs:
   mode:
     description: >-

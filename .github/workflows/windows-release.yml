@@ -99,10 +99,6 @@ jobs:
           channel: stable
           flutter-version: 3.27.4
           cache: true
-          # `.github/actions/pub-cache` owns the pub cache: this one keys by OS
-          # *and* lockfile, so a lockfile change is a full miss, and two caches of
-          # one set of dependencies is one too many.
-          pub-cache: false
 
       - name: Enable the Windows desktop target
         # Harmless when the runner image already has it on; the build refuses to
