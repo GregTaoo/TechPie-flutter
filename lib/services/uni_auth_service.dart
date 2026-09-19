@@ -47,6 +47,23 @@ class SsoTokens {
 // ---------------------------------------------------------------------------
 
 class UniAuthService extends ChangeNotifier {
+  /// Absolute expiry for the access token in a token endpoint response.
+  ///
+  /// The field is `expires_in` — seconds from now. `expires_at` is a field of
+  /// Casdoor's token *model*, which an OAuth response does not contain: parsing
+  /// it left every stored expiry null, which is why nothing could tell how much
+  /// of a token was left.
+  static String? expiryFromTokenResponse(
+    Map<String, dynamic> data,
+    DateTime now,
+  ) {
+    final seconds = int.tryParse('${data['expires_in']}');
+    if (seconds != null && seconds > 0) {
+      return now.add(Duration(seconds: seconds)).toUtc().toIso8601String();
+    }
+    return data['expires_at'] as String?;
+  }
+
   Casdoor? _casdoor;
   bool _loading = false;
 
@@ -211,7 +228,7 @@ class UniAuthService extends ChangeNotifier {
     return SsoTokens(
       accessToken: accessToken,
       refreshToken: data['refresh_token'] as String?,
-      expiresAt: data['expires_at'] as String?,
+      expiresAt: expiryFromTokenResponse(data, DateTime.now()),
     );
   }
 
@@ -247,7 +264,7 @@ class UniAuthService extends ChangeNotifier {
       // Casdoor may rotate the refresh token; keep the new one if present,
       // otherwise reuse the one we just redeemed.
       refreshToken: (data['refresh_token'] as String?) ?? refreshToken,
-      expiresAt: data['expires_at'] as String?,
+      expiresAt: expiryFromTokenResponse(data, DateTime.now()),
     );
   }
 }

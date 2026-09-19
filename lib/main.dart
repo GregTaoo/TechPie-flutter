@@ -63,7 +63,8 @@ Future<void> _realMain(SharedPreferences prefs) async {
   final debugLogger = DebugLogger()..enabled = storageService.debugMode;
   final httpClient = LoggingHttpClient(debugLogger);
   final uniAuthService = UniAuthService(logger: debugLogger);
-  final authService = AuthService(storageService, httpClient, uniAuthService);
+  final authService =
+      AuthService(storageService, httpClient, uniAuthService, logger: debugLogger);
   final themeService = ThemeService(storageService);
   final campusCardService = CampusCardService(debugLogger: debugLogger, storage: storageService);
   final ecardBindService = EcardBindService();
@@ -368,6 +369,9 @@ class _TechPieAppState extends State<TechPieApp> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      // Coming back is a cheap moment to top the SSO token up, and it is
+      // guarded: a token with time left is left alone.
+      unawaited(widget.authService.tryRenewSession());
       unawaited(_checkForUpdatesQuietly());
     }
   }

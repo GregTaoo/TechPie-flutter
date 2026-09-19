@@ -253,7 +253,9 @@ class SyncService extends ChangeNotifier {
     // Casdoor returns 200 even on authz denial, but a real 401 means the token
     // is gone — try one refresh + retry before giving up.
     if (resp.statusCode == 401) {
-      if (await _auth.tryRenewSession()) {
+      // The 401 is proof the token is refused, so this renewal does not
+      // second-guess it against the stored expiry.
+      if (await _auth.tryRenewSession(force: true)) {
         final t2 = _token();
         if (t2 == null || t2.isEmpty) {
           return const SyncCasdoorResult(false, httpStatus: 401, msg: '登录已过期，请重新登录');
