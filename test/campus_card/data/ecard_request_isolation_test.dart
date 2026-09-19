@@ -71,7 +71,7 @@ void main() {
     expect(await rig.store.readSessionCookie(), 'JSESSIONID=initial');
   });
 
-  test('two generations and twenty polls use 24 requests, not 66', () async {
+  test('generations and polls cost only their own requests', () async {
     final rig = await _Rig.create();
     addTearDown(rig.close);
     for (var generation = 0; generation < 2; generation++) {
@@ -81,11 +81,12 @@ void main() {
             .pollTransaction(frame.payCode, context: frame.requestContext);
       }
     }
-    expect(rig.adapter.paths.toSet(), {_quota, _generate, _poll});
-    expect(rig.adapter.paths.where((path) => path == _quota), hasLength(2));
+    // Nothing is fetched before a request any more: the identity comes from the
+    // session the request was prepared with.
+    expect(rig.adapter.paths.toSet(), {_generate, _poll});
     expect(rig.adapter.paths.where((path) => path == _generate), hasLength(2));
     expect(rig.adapter.paths.where((path) => path == _poll), hasLength(20));
-    expect(rig.adapter.paths, hasLength(24));
+    expect(rig.adapter.paths, hasLength(22));
   });
 
   test('Alipay generation uses usertype 18 and rejects the previous WeChat code', () async {
@@ -107,7 +108,7 @@ void main() {
     await expectLater(rig.client.post('/offlineCode/openOfflineCode', const {
       'idserial': 'STUDENT-A', 'devcode': 'SYNTHETIC_OPENID_ACCOUNT_B',
     }), throwsA(isA<AppFailure>()),);
-    expect(rig.adapter.paths, [_quota]);
+    expect(rig.adapter.paths, isEmpty);
   });
 
   test('quota reads validate their own response without a duplicate request',
@@ -123,14 +124,16 @@ void main() {
     expect(await rig.store.readVerifiedIdSerial(), 'STUDENT-A');
   });
 
-  test('quota mismatch prevents generation and never overwrites the issuer identity pin',
+  test('a generation for another identity is refused and never overwrites the pin',
       () async {
     final rig = await _Rig.create();
     addTearDown(rig.close);
+    // The request is sent — nothing is checked before it any more — and its
+    // response is what rejects it: the code it created is never handed over.
     rig.adapter.otherIdentity = true;
     await expectLater(
         rig.codes.generateOnlineCode(), throwsA(isA<AppFailure>()),);
-    expect(rig.adapter.paths, [_quota, '/api/auth/third-party/ecard']);
+    expect(rig.adapter.paths, [_generate, '/api/auth/third-party/ecard']);
     expect(await rig.store.readVerifiedIdSerial(), 'STUDENT-A');
     expect(await rig.store.readVerifiedCardId(), 'CARD-A');
     expect(await rig.store.readSessionCookie(), isNull);
@@ -206,7 +209,7 @@ void main() {
       payTime: DateTime.utc(2026),
     );
     expect(result, isA<ScanSucceeded>());
-    expect(rig.adapter.paths, [_quota, _scan, _quota, _scan]);
+    expect(rig.adapter.paths, [_scan, _scan]);
     await expectLater(
       rig.scans.submit(
         qrCode: challenge.serverQrCode,
@@ -216,7 +219,7 @@ void main() {
       ),
       throwsA(isA<AppFailure>()),
     );
-    expect(rig.adapter.paths, hasLength(4));
+    expect(rig.adapter.paths, hasLength(2));
   });
 
   test('a late result and a queued request cannot survive account switching',
@@ -432,6 +435,7 @@ class _Adapter implements HttpClientAdapter {
         body = {
           'success': true,
           'data': {
+            ...identity,
             'code': '5638AABBCCDD${nextCode++}',
             'qrcode': '5638AABBCCDD',
             'allowOfflineCode': '1',

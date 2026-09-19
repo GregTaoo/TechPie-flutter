@@ -198,9 +198,8 @@ void main() {
     final h = await _Harness.create();
     addTearDown(h.close);
     final old = await h.auth.readSession();
-    // Drift is not the read's business any more: it has no side effect to
-    // protect, and its response is checked against the pinned identity. Acting
-    // requests — generating or spending a code — still ask first.
+    // Drift is not a read's business: it has no side effect to protect, and the
+    // response is checked against the pinned identity either way.
     h.adapter.wrongQuotaOnce = true;
     await h.client.get(_read, {});
     expect(h.adapter.paths, [_read]);
@@ -248,14 +247,14 @@ void main() {
     expect(h.adapter.paths.contains(_read), isTrue);
   });
 
-  test('an endpoint that is not one of the pass reads still asks first',
-      () async {
+  test('no request asks for the identity before it is sent', () async {
     final h = await _Harness.create();
     addTearDown(h.close);
-    // The exemption is a list of reads, not a rule about the caller: anything
-    // else keeps the pre-flight check.
+    // The identity comes from the session the request was prepared with, and a
+    // response carrying another one is refused. Nothing is fetched first — on
+    // any endpoint, not only the reads the pass performs.
     await h.client.post('/virtualcard/openVirtualCardSelf', const {});
-    expect(h.adapter.paths, [_quota, '/virtualcard/openVirtualCardSelf']);
+    expect(h.adapter.paths, ['/virtualcard/openVirtualCardSelf']);
   });
 
   test('simultaneous mismatch rejection shares one recovery', () async {
