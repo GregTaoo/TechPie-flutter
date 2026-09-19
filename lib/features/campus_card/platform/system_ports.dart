@@ -6,17 +6,16 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart' as flutter;
 import 'package:screen_brightness/screen_brightness.dart';
 
+import '../../../utils/haptics.dart';
 import '../data/storage/feedback_preferences.dart';
 import '../domain/models/feedback_models.dart';
 import '../domain/ports/platform_ports.dart';
 
 final class SystemFeedbackPort implements FeedbackPort {
-  SystemFeedbackPort({FeedbackPreferences? preferences, MethodChannel? channel})
-      : _preferences = preferences ?? FeedbackPreferences(),
-        _channel = channel ?? const MethodChannel('techpie/feedback');
+  SystemFeedbackPort({FeedbackPreferences? preferences})
+      : _preferences = preferences ?? FeedbackPreferences();
 
   final FeedbackPreferences _preferences;
-  final MethodChannel _channel;
 
   @override
   Future<FeedbackOptions> settingsFor(FeedbackScenario scenario) =>
@@ -33,66 +32,22 @@ final class SystemFeedbackPort implements FeedbackPort {
   @override
   Future<void> play(FeedbackEvent event) async {
     final options = await _preferences.read(event.scenario);
-    if (!options.vibration && !options.sound) return;
-    if (event.scenario != FeedbackScenario.interaction &&
-        (defaultTargetPlatform == TargetPlatform.iOS ||
-            defaultTargetPlatform == TargetPlatform.android)) {
-      try {
-        await _channel.invokeMethod<void>('play', {
-          'event': event.name,
-          'sound': options.sound,
-          'vibration': options.vibration,
-        }).timeout(const Duration(milliseconds: 300));
-        return;
-      } on TimeoutException {
-        return;
-      } on MissingPluginException {
-        // Unsupported hosts retain the existing system vibration fallback.
-      } on PlatformException {
-        // A feedback failure must never turn a confirmed payment into an error.
-      }
-    }
-    if (!options.vibration) return;
-    try {
+    // The waveform comes from the app's one dictionary (lib/utils/haptics.dart);
+    // whether it plays at all stays here, per scenario.
+    await AppHaptics.play(
       switch (event) {
-        case FeedbackEvent.selection:
-          await HapticFeedback.selectionClick()
-              .timeout(const Duration(milliseconds: 300));
-        case FeedbackEvent.lightImpact:
-          await HapticFeedback.lightImpact()
-              .timeout(const Duration(milliseconds: 300));
-        case FeedbackEvent.mediumImpact:
-          await HapticFeedback.mediumImpact()
-              .timeout(const Duration(milliseconds: 300));
-        case FeedbackEvent.warning:
-        case FeedbackEvent.networkDisconnected:
-          await HapticFeedback.mediumImpact()
-              .timeout(const Duration(milliseconds: 300));
-          await Future<void>.delayed(const Duration(milliseconds: 90));
-          await HapticFeedback.mediumImpact()
-              .timeout(const Duration(milliseconds: 300));
-        case FeedbackEvent.success:
-        case FeedbackEvent.paymentSuccess:
-          await HapticFeedback.heavyImpact()
-              .timeout(const Duration(milliseconds: 300));
-          await Future<void>.delayed(const Duration(milliseconds: 85));
-          await HapticFeedback.mediumImpact()
-              .timeout(const Duration(milliseconds: 300));
-        case FeedbackEvent.error:
-          await HapticFeedback.heavyImpact()
-              .timeout(const Duration(milliseconds: 300));
-          await Future<void>.delayed(const Duration(milliseconds: 70));
-          await HapticFeedback.heavyImpact()
-              .timeout(const Duration(milliseconds: 300));
-      }
-    } on TimeoutException {
-      // Some OHOS engines omit the reply when vibration fails. Feedback must
-      // not hold navigation or a confirmed payment in a pending state.
-    } on MissingPluginException {
-      // Optional system feedback is unavailable on this host.
-    } on PlatformException {
-      // Keep UI actions successful even if the device feedback service fails.
-    }
+        FeedbackEvent.selection => AppHaptics.selection,
+        FeedbackEvent.lightImpact => AppHaptics.lightImpact,
+        FeedbackEvent.mediumImpact => AppHaptics.mediumImpact,
+        FeedbackEvent.success => AppHaptics.success,
+        FeedbackEvent.warning => AppHaptics.warning,
+        FeedbackEvent.error => AppHaptics.error,
+        FeedbackEvent.paymentSuccess => AppHaptics.paymentSuccess,
+        FeedbackEvent.networkDisconnected => AppHaptics.networkDisconnected,
+      },
+      vibration: options.vibration,
+      sound: options.sound,
+    );
   }
 }
 

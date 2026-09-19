@@ -53,7 +53,6 @@ void main() {
       'assets/campus_card/images/widget-background.png',
       'assets/campus_card/audio/payment-success.wav',
       'assets/campus_card/audio/network-disconnected.wav',
-      'assets/campus_card/data/feedback_patterns.json',
     ]) {
       expect(File(path).lengthSync(), greaterThan(0), reason: path);
     }
