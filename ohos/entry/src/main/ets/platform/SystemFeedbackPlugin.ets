@@ -20,11 +20,14 @@ interface FeedbackPulse {
  * strength — so a light tap and a held button feel the same, and both feel like
  * a long buzz. This plugin is told what to play instead of asked to decide:
  *
- *  - API 22 and an HD motor: the whole pattern goes to the motor in one piece,
- *    with the intensity the waveform asked for (`VibratorPatternBuilder`).
- *  - Anything older, or a motor without HD support: the pulses are scheduled as
- *    short `time` vibrations. Durations stay ours, intensity does not, so those
- *    pulses play at the device's own strength.
+ *  - The two designed patterns (`paymentSuccess`, `networkDisconnected`) on an
+ *    HD motor: the whole pattern goes to the motor in one piece, with the
+ *    intensity each pulse asked for (`VibratorPatternBuilder`) — these are the
+ *    only waveforms whose strength carries meaning.
+ *  - Everything else, and any device that will not take a pattern: the pulses
+ *    are scheduled as short `time` vibrations. Durations stay ours, intensity
+ *    does not, so those play at the device's own strength — which is what the
+ *    light ticks want anyway.
  *  - A device that refuses either: nothing. Feedback never fails the action that
  *    asked for it, and it is not faked with a fallback that would feel different
  *    again.
@@ -34,11 +37,23 @@ interface FeedbackPulse {
  */
 export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHandler {
   /**
-   * The version that can start a built pattern. `VibrateEffect` carries the
-   * pattern form in the API 22 revision of the reference, so anything older
-   * takes the scheduled path below instead of a call that may be rejected.
+   * The version the pattern types arrive with (`VibratorPatternBuilder`,
+   * `VibratorPattern`, and their events are documented from API 18; the
+   * reference also carries an API 22 revision of the effect form). A device that
+   * will not take it is caught and replayed on the scheduled path, so the
+   * ambiguity costs a call, never the feedback.
    */
-  private static readonly HD_PATTERN_API = 22;
+  private static readonly HD_PATTERN_API = 18;
+  /**
+   * The waveforms whose strength carries meaning — a card payment landing, and
+   * the app noticing it went offline. The light ticks are deliberately not here:
+   * their feel comes from the duration, and the scheduled path already plays
+   * that exactly.
+   */
+  private static readonly DESIGNED_PATTERNS: string[] = [
+    'paymentSuccess',
+    'networkDisconnected',
+  ];
   /** A pulse this short reads as a tick; anything longer is a sustained event. */
   private static readonly TRANSIENT_MS = 24;
   /**
@@ -81,10 +96,12 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
     }
     this.cancel();
     const vibration = call.argument('vibration') === true;
+    const rawId: Object | null = call.argument('id');
+    const id: string = typeof rawId === 'string' ? rawId as string : '';
     const pulses = this.parsePulses(call.argument('pulses'));
     this.describeDevice();
     if (vibration && !this.unsupported && pulses.length > 0) {
-      const pattern = this.canPlayPattern();
+      const pattern = this.isDesigned(id) && this.canPlayPattern();
       console.info(`SystemFeedback: playing ${pulses.length} pulse(s) via ${pattern ? 'pattern' : 'time'}`);
       if (pattern) {
         this.playPattern(pulses);
@@ -120,16 +137,10 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
     return typeof value === 'number' ? value as number : 0;
   }
 
-  /**
-   * Whether to hand the whole pattern to the motor.
-   *
-   * Off for now, deliberately: on the one device we could test, every waveform
-   * that went through the pattern path played nothing at all, while the
-   * scheduled path below is audible on the same phone. The code and the version
-   * guards stay here — turning this on is the whole change — until a device with
-   * HD haptics reports that the pattern form actually plays.
-   */
-  private static readonly USE_PATTERN_API = false;
+  /** Whether this waveform is one of the two that want per-pulse strength. */
+  private isDesigned(id: string): boolean {
+    return SystemFeedbackPlugin.DESIGNED_PATTERNS.indexOf(id) >= 0;
+  }
 
   /** What this phone can do, once, in the log a device test can be read from. */
   private describeDevice(): void {
@@ -139,7 +150,7 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
     this.described = true;
     this.probeHd();
     console.info(`SystemFeedback: api=${deviceInfo.sdkApiVersion} hd=${this.hdSupported} ` +
-      `pattern=${SystemFeedbackPlugin.USE_PATTERN_API}`);
+      `designed=${SystemFeedbackPlugin.DESIGNED_PATTERNS.join('|')}`);
   }
 
   /** Whether the motor reports HD haptic support (API 19 or newer only). */
@@ -159,10 +170,9 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
     }
   }
 
-  /** API 22 or newer, on a motor that reports HD haptic support. */
+  /** API 18 or newer, on a motor that reports HD haptic support. */
   private canPlayPattern(): boolean {
-    if (!SystemFeedbackPlugin.USE_PATTERN_API ||
-        deviceInfo.sdkApiVersion < SystemFeedbackPlugin.HD_PATTERN_API) {
+    if (deviceInfo.sdkApiVersion < SystemFeedbackPlugin.HD_PATTERN_API) {
       return false;
     }
     this.probeHd();
