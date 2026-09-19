@@ -3,7 +3,9 @@ import MethodChannel, { MethodCallHandler, MethodResult } from '@ohos/flutter_oh
 import MethodCall from '@ohos/flutter_ohos/src/main/ets/plugin/common/MethodCall';
 import vibrator from '@ohos.vibrator';
 import deviceInfo from '@ohos.deviceInfo';
+import fs from '@ohos.file.fs';
 import { BusinessError } from '@kit.BasicServicesKit';
+import { Context } from '@kit.AbilityKit';
 
 /** One vibration pulse, as the Dart side sends it (lib/utils/haptics.dart). */
 interface FeedbackPulse {
@@ -12,67 +14,111 @@ interface FeedbackPulse {
   intensity: number;
 }
 
+/** The haptic configuration file's shape, as the vibrator guideline defines it. */
+interface HapticParameters {
+  Intensity: number;
+  Frequency: number;
+}
+
+interface HapticEvent {
+  Type: string;
+  StartTime: number;
+  Duration?: number;
+  Parameters: HapticParameters;
+}
+
+interface HapticPattern {
+  Event: HapticEvent;
+}
+
+interface HapticChannel {
+  Parameters: HapticChannelIndex;
+  Pattern: HapticPattern[];
+}
+
+interface HapticChannelIndex {
+  Index: number;
+}
+
+interface HapticMetaData {
+  Version: number;
+  ChannelNumber: number;
+  Description?: string;
+}
+
+interface HapticDocument {
+  MetaData: HapticMetaData;
+  Channels: HapticChannel[];
+}
+
 /**
  * Plays the app's waveforms on HarmonyOS NEXT.
  *
  * The engine's own HapticFeedback answers every type with one fixed vibration —
  * 100 ms for a selection click, 150 ms for a medium impact, both at full
  * strength — so a light tap and a held button feel the same, and both feel like
- * a long buzz. This plugin is told what to play instead of asked to decide:
+ * a long buzz. This plugin takes the waveform instead and plays it through the
+ * three forms the vibrator guideline actually defines:
  *
- *  - The two designed patterns (`paymentSuccess`, `networkDisconnected`) on an
- *    HD motor: the whole pattern goes to the motor in one piece, with the
- *    intensity each pulse asked for (`VibratorPatternBuilder`) — these are the
- *    only waveforms whose strength carries meaning.
- *  - Everything else, and any device that will not take a pattern: the pulses
- *    are scheduled as short `time` vibrations. Durations stay ours, intensity
- *    does not, so those play at the device's own strength — which is what the
- *    light ticks want anyway.
- *  - A device that refuses either: nothing. Feedback never fails the action that
- *    asked for it, and it is not faked with a fallback that would feel different
- *    again.
+ *  - `time`: a fixed duration at the device's own strength. This is what the
+ *    ticks use, and the shortest we send is 20 ms: the waveform set is built
+ *    from 5-20 ms pulses, and 5 ms played nothing at all on the phone we tested.
+ *  - `file`: a haptic configuration file — the guideline's custom-vibration
+ *    form, available since API 10 — written from the pulses the Dart side sent,
+ *    so per-pulse intensity and timing survive. The two designed patterns
+ *    (`paymentSuccess`, `networkDisconnected`) use this, because they are the
+ *    waveforms whose strength carries meaning.
+ *  - `preset`: system effects (`haptic.clock.timer`, `haptic.notice.*`). Not
+ *    used: their character is the system's, not the one we designed, and a
+ *    device test is cheaper than guessing which ids exist on which phones.
+ *
+ * A device that will not take the file form is caught, replayed through `time`
+ * in the same call, and remembered — a rejected form costs a call, never the
+ * feedback. The motor-pattern builder (`VibratorPatternBuilder`) is deliberately
+ * absent: the guideline does not use it for this, and on the hardware we can
+ * test it played nothing at all.
  *
  * Sound is not played here: the OHOS engine's `playSystemSound` is an empty
  * implementation, so a sound path would have to be written from scratch.
  */
 export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHandler {
   /**
-   * The version the pattern types arrive with (`VibratorPatternBuilder`,
-   * `VibratorPattern`, and their events are documented from API 18; the
-   * reference also carries an API 22 revision of the effect form). A device that
-   * will not take it is caught and replayed on the scheduled path, so the
-   * ambiguity costs a call, never the feedback.
+   * The shortest pulse this platform will actually play. Asking for 5 ms on a
+   * phone here produced nothing at all; the shortest that was felt was around
+   * 20 ms, so that is the floor we send.
    */
-  private static readonly HD_PATTERN_API = 18;
+  private static readonly MIN_PULSE_MS = 20;
+  private static readonly MAX_PULSE_MS = 60;
+  /**
+   * A pulse at or below this reads as a tick, and the guideline's `transient`
+   * event is exactly that: a single short hit. Longer pulses are `continuous`,
+   * which is the only form that takes a duration.
+   */
+  private static readonly TRANSIENT_MS = 24;
+  /** Intensity and Frequency are both a percentage, 0-100. */
+  private static readonly MAX_PERCENT = 100;
+  /** 55 is where a motor with frequency control reaches resonance. */
+  private static readonly RESONANT_FREQUENCY = 55;
+  /** Capability not supported: stop asking this device for vibrations. */
+  private static readonly ERROR_UNSUPPORTED = 801;
+
   /**
    * The waveforms whose strength carries meaning — a card payment landing, and
    * the app noticing it went offline. The light ticks are deliberately not here:
-   * their feel comes from the duration, and the scheduled path already plays
-   * that exactly.
+   * their feel comes from the duration, and `time` already plays that exactly.
    */
   private static readonly DESIGNED_PATTERNS: string[] = [
     'paymentSuccess',
     'networkDisconnected',
   ];
-  /** A pulse this short reads as a tick; anything longer is a sustained event. */
-  private static readonly TRANSIENT_MS = 24;
-  /**
-   * The shortest pulse this platform will actually play. The waveform set is
-   * built from pulses of 5-20 ms (that is what makes them ticks), and asking for
-   * 5 ms on a phone here produced nothing at all — the shortest that was felt
-   * was around 20 ms, so that is the floor we send.
-   */
-  private static readonly MIN_PULSE_MS = 20;
-  private static readonly MAX_PULSE_MS = 60;
-  /** Capability not supported: stop asking this device for vibrations. */
-  private static readonly ERROR_UNSUPPORTED = 801;
 
   private channel: MethodChannel | null = null;
+  private context: Context | null = null;
   private timers: number[] = [];
   private unsupported: boolean = false;
-  private hdChecked: boolean = false;
-  private hdSupported: boolean = false;
+  private fileUnusable: boolean = false;
   private described: boolean = false;
+  private readonly files: Map<string, string> = new Map();
 
   getUniqueClassName(): string {
     return 'SystemFeedbackPlugin';
@@ -81,12 +127,14 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
   onAttachedToEngine(binding: FlutterPluginBinding): void {
     this.channel = new MethodChannel(binding.getBinaryMessenger(), 'techpie/feedback');
     this.channel.setMethodCallHandler(this);
+    this.context = binding.getApplicationContext();
   }
 
   onDetachedFromEngine(_binding: FlutterPluginBinding): void {
     this.cancel();
     this.channel?.setMethodCallHandler(null);
     this.channel = null;
+    this.context = null;
   }
 
   onMethodCall(call: MethodCall, result: MethodResult): void {
@@ -101,11 +149,12 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
     const pulses = this.parsePulses(call.argument('pulses'));
     this.describeDevice();
     if (vibration && !this.unsupported && pulses.length > 0) {
-      const pattern = this.isDesigned(id) && this.canPlayPattern();
-      console.info(`SystemFeedback: playing ${pulses.length} pulse(s) via ${pattern ? 'pattern' : 'time'}`);
-      if (pattern) {
-        this.playPattern(pulses);
+      const file = this.isDesigned(id) ? this.hapticFile(id, pulses) : '';
+      if (file.length > 0) {
+        console.info(`SystemFeedback: playing ${id} via file (${pulses.length} pulse(s))`);
+        this.playFile(file, pulses);
       } else {
+        console.info(`SystemFeedback: playing ${id} via time (${pulses.length} pulse(s))`);
         this.playScheduled(pulses);
       }
     }
@@ -137,71 +186,85 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
     return typeof value === 'number' ? value as number : 0;
   }
 
-  /** Whether this waveform is one of the two that want per-pulse strength. */
   private isDesigned(id: string): boolean {
     return SystemFeedbackPlugin.DESIGNED_PATTERNS.indexOf(id) >= 0;
   }
 
-  /** What this phone can do, once, in the log a device test can be read from. */
-  private describeDevice(): void {
-    if (this.described) {
-      return;
+  /**
+   * The haptic configuration file for a waveform, written once per id into the
+   * app's cache directory. An empty string means it could not be written, and
+   * the caller falls back to `time`.
+   */
+  private hapticFile(id: string, pulses: FeedbackPulse[]): string {
+    if (this.fileUnusable) {
+      return '';
     }
-    this.described = true;
-    this.probeHd();
-    console.info(`SystemFeedback: api=${deviceInfo.sdkApiVersion} hd=${this.hdSupported} ` +
-      `designed=${SystemFeedbackPlugin.DESIGNED_PATTERNS.join('|')}`);
-  }
-
-  /** Whether the motor reports HD haptic support (API 19 or newer only). */
-  private probeHd(): void {
-    if (this.hdChecked) {
-      return;
+    const cached = this.files.get(id);
+    if (cached !== undefined) {
+      return cached;
     }
-    this.hdChecked = true;
-    if (deviceInfo.sdkApiVersion < 19) {
-      return;
+    const cacheDir = this.context?.cacheDir;
+    if (cacheDir === undefined || cacheDir.length === 0) {
+      return '';
     }
+    const path = `${cacheDir}/techpie-haptics-${id}.json`;
     try {
-      const devices = vibrator.getVibratorInfoSync();
-      this.hdSupported = devices.some((device) => device.isHdHapticSupported === true);
+      const document = this.hapticDocument(id, pulses);
+      const file = fs.openSync(path, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+      fs.writeSync(file.fd, JSON.stringify(document));
+      fs.closeSync(file);
+      this.files.set(id, path);
+      return path;
     } catch (error) {
-      this.hdSupported = false;
+      console.error(`SystemFeedback: could not write the haptic file for ${id} (${error})`);
+      this.fileUnusable = true;
+      return '';
     }
   }
 
-  /** API 18 or newer, on a motor that reports HD haptic support. */
-  private canPlayPattern(): boolean {
-    if (deviceInfo.sdkApiVersion < SystemFeedbackPlugin.HD_PATTERN_API) {
-      return false;
-    }
-    this.probeHd();
-    return this.hdSupported;
-  }
-
-  private playPattern(pulses: FeedbackPulse[]): void {
-    try {
-      const builder = new vibrator.VibratorPatternBuilder();
-      for (const pulse of pulses) {
-        const duration = this.clampDuration(pulse.durationMs);
-        if (duration <= SystemFeedbackPlugin.TRANSIENT_MS) {
-          builder.addTransientEvent(pulse.atMs, { intensity: pulse.intensity });
-        } else {
-          builder.addContinuousEvent(pulse.atMs, duration, { intensity: pulse.intensity });
-        }
+  private hapticDocument(id: string, pulses: FeedbackPulse[]): HapticDocument {
+    const pattern: HapticPattern[] = [];
+    for (const pulse of pulses) {
+      const duration = this.clampDuration(pulse.durationMs);
+      const parameters: HapticParameters = {
+        Intensity: Math.max(1, Math.round(pulse.intensity * SystemFeedbackPlugin.MAX_PERCENT)),
+        Frequency: SystemFeedbackPlugin.RESONANT_FREQUENCY,
+      };
+      if (duration <= SystemFeedbackPlugin.TRANSIENT_MS) {
+        pattern.push({ Event: { Type: 'transient', StartTime: pulse.atMs, Parameters: parameters } });
+      } else {
+        pattern.push({
+          Event: { Type: 'continuous', StartTime: pulse.atMs, Duration: duration, Parameters: parameters },
+        });
       }
-      vibrator.startVibration({ type: 'pattern', pattern: builder.build() }, { id: 0, usage: 'touch' })
+    }
+    const channel: HapticChannel = { Parameters: { Index: 0 }, Pattern: pattern };
+    return {
+      MetaData: { Version: 1.0, ChannelNumber: 1, Description: `techpie ${id}` },
+      Channels: [channel],
+    };
+  }
+
+  private playFile(path: string, pulses: FeedbackPulse[]): void {
+    try {
+      const file = fs.openSync(path, fs.OpenMode.READ_ONLY);
+      const length = fs.statSync(path).size;
+      vibrator.startVibration(
+        { type: 'file', hapticFd: { fd: file.fd, offset: 0, length: length } },
+        { id: 0, usage: 'touch' },
+      )
+        .then(() => { fs.closeSync(file); })
         .catch((error: BusinessError) => {
-          // A pattern this device will not take must not become silence: replay
-          // the same pulses on the path that always works here.
-          this.failed('pattern', error);
-          this.hdSupported = false;
+          // A file this device will not take must not become silence: the same
+          // pulses are replayed on the path that always works here.
+          this.failed('file', error);
+          this.fileUnusable = true;
+          fs.closeSync(file);
           this.playScheduled(pulses);
         });
     } catch (error) {
-      // A device that cannot build the pattern at all: fall back for this play.
-      this.hdSupported = false;
-      this.hdChecked = true;
+      this.failed('file', error as BusinessError);
+      this.fileUnusable = true;
       this.playScheduled(pulses);
     }
   }
@@ -233,14 +296,25 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
     return durationMs;
   }
 
+  /** What this phone can do, once, in the log a device test can be read from. */
+  private describeDevice(): void {
+    if (this.described) {
+      return;
+    }
+    this.described = true;
+    console.info(`SystemFeedback: api=${deviceInfo.sdkApiVersion} ` +
+      `designed=${SystemFeedbackPlugin.DESIGNED_PATTERNS.join('|')} file=${!this.fileUnusable}`);
+  }
+
   private failed(kind: string, error: BusinessError): void {
-    if (error.code === SystemFeedbackPlugin.ERROR_UNSUPPORTED) {
+    if (error !== undefined && error.code === SystemFeedbackPlugin.ERROR_UNSUPPORTED) {
       // Capability not supported: this device has no vibrator we can drive.
       this.unsupported = true;
       console.warn(`SystemFeedback: vibration is unsupported here (${kind})`);
       return;
     }
-    console.error(`SystemFeedback: ${kind} vibration failed (${error.code})`);
+    console.error(`SystemFeedback: ${kind} vibration failed ` +
+      `(${error === undefined ? 'unknown' : error.code})`);
   }
 
   private cancel(): void {
