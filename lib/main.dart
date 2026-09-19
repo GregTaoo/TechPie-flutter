@@ -100,6 +100,7 @@ Future<void> _realMain(SharedPreferences prefs) async {
     thirdPartyAuthService,
     storageService,
     ecard: campusCardService,
+    logger: debugLogger,
   );
   campusCardService.onBindingChanged = syncService.forcePush;
   // It talks to GitHub rather than our backend, so it keeps its own client

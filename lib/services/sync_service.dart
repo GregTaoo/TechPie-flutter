@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import '../models/ecard_sync_binding.dart';
 import '../models/third_party_account.dart';
 import 'auth_service.dart';
+import 'debug_logger.dart';
 import 'storage_service.dart';
 import 'sync_crypto.dart';
 import 'sync_envelope.dart';
@@ -78,6 +79,7 @@ class SyncService extends ChangeNotifier {
   final StorageService _storage;
   final http.Client _client;
   final EcardSyncStore? _ecard;
+  final DebugLogger? _logger;
   CachedSyncKey? _cachedKey;
   bool _needsRestore = false;
   DateTime? _lastSyncAt;
@@ -90,8 +92,16 @@ class SyncService extends ChangeNotifier {
   // account older than our deletion is not resurrected.
   final List<SyncTombstone> _tombstones = [];
 
-  SyncService(this._auth, this._tpAuth, this._storage, {http.Client? client, EcardSyncStore? ecard})
-      : _ecard = ecard, _client = client ?? http.Client();
+  SyncService(
+    this._auth,
+    this._tpAuth,
+    this._storage, {
+    http.Client? client,
+    EcardSyncStore? ecard,
+    DebugLogger? logger,
+  })  : _ecard = ecard,
+        _client = client ?? http.Client(),
+        _logger = logger;
 
   bool get enabled => _storage.syncEnabled;
   bool get hasLocalKey => _cachedKey != null;
@@ -159,11 +169,18 @@ class SyncService extends ChangeNotifier {
   }
 
   void _debugLog(String s) {
-    // Visible in `flutter run` console. Sync HTTP traffic is NOT routed through
-    // LoggingHttpClient (to keep the blob / bearer out of the request log), so
-    // this is the only client-side trace of Casdoor responses. Safe to print:
-    // update-user responses are just {status,msg,data} — no secrets.
+    // Sync HTTP traffic deliberately bypasses LoggingHttpClient (the blob and
+    // the bearer stay out of the request log), so this is the only client-side
+    // trace of what Casdoor answered. It goes to the console *and* to the app's
+    // own log, so a device that cannot be attached to a terminal can still be
+    // read: settings → Developer → Debug mode → View Logs.
     if (kDebugMode) debugPrint('[sync] $s');
+    _logger?.log(
+      method: 'SYNC',
+      url: 'auth.geekpie.club',
+      tag: 'Sync',
+      responseBody: DebugLogger.redactSensitive(s),
+    );
   }
 
   // -- Casdoor HTTP -------------------------------------------------------------
