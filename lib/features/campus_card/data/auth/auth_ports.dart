@@ -80,7 +80,7 @@ final class DemoAuthPort implements AuthPort {
   @override
   Future<void> signOut() async {
     await _cleanup();
-    _snapshot = const AuthSnapshot(state: AuthState.signedOut);
+    _snapshot = const AuthSnapshot(state: AuthState.signedOut, reason: AuthChangeReason.userSignedOut);
     _changes.add(_snapshot);
   }
 }

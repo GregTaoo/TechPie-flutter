@@ -23,10 +23,143 @@ import 'package:techpie/features/campus_card/domain/ports/card_ports.dart';
 import 'package:techpie/features/campus_card/domain/ports/offline_ports.dart';
 import 'package:techpie/features/campus_card/domain/ports/payment_ports.dart';
 import 'package:techpie/features/campus_card/presentation/screens/payment_code_page.dart';
+import 'package:techpie/features/campus_card/presentation/widgets/apple_wallet_components.dart';
 
 final _now = DateTime.utc(2026, 9, 14, 12);
 
 void main() {
+  testWidgets('online failure preserves local generation already in flight', (tester) async {
+    final h = await _Harness.create();
+    h.credentials.gate = Completer<void>();
+    await h.mount(tester);
+    expect(h.credentials.reservations, 1);
+    h.online.pending.completeError(const AppFailure(FailureKind.network, 'offline'));
+    await _pump(tester);
+    h.credentials.gate!.complete();
+    await _pump(tester);
+    expect(find.text('离线付款码'), findsOneWidget);
+    expect(find.byKey(const Key('payment-code-qr')), findsOneWidget);
+    expect(h.credentials.reservations, 1);
+    await h.close(tester);
+  });
+
+  testWidgets('fast manual refresh shows a spinner without an offline-code detour', (tester) async {
+    final h = await _Harness.create();
+    await h.mount(tester);
+    h.online.pending.complete(_frame());
+    await _pump(tester);
+    final reservations = h.credentials.reservations;
+    h.online.retry = Completer<PaymentCodeFrame>();
+    await tester.tap(find.byKey(const Key('payment-code-qr')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byKey(const ValueKey('payment-code-refresh-spinner')), findsOneWidget);
+    expect(find.byKey(const Key('payment-code-qr')), findsNothing);
+    expect(h.credentials.reservations, reservations);
+    h.online.retry!.complete(_frame());
+    await _pump(tester);
+    await tester.pump(const Duration(seconds: 2));
+    expect(find.text('在线付款码'), findsOneWidget);
+    expect(h.credentials.reservations, reservations);
+    expect(h.online.calls, 2);
+    await h.close(tester);
+  });
+
+  for (final grant in ['valid', 'missing']) {
+    testWidgets('manual refresh degrades after 1.5 seconds (grant=$grant)', (tester) async {
+      final h = await _Harness.create(grantState: grant);
+      await h.mount(tester);
+      h.online.pending.complete(_frame());
+      await _pump(tester);
+      h.online.retry = Completer<PaymentCodeFrame>();
+      await tester.tap(find.byKey(const Key('payment-code-qr')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 1400));
+      expect(find.byKey(const ValueKey('payment-code-refresh-spinner')), findsOneWidget);
+      expect(find.text('离线付款码'), findsNothing);
+      await tester.pump(const Duration(milliseconds: 100));
+      await _pump(tester);
+      final image = tester.widget<Image>(find.descendant(
+        of: find.byKey(const Key('payment-online-status-indicator')),
+        matching: find.byType(Image),),);
+      expect((image.image as AssetImage).assetName, GeekPayAssets.warningOnline);
+      if (grant == 'valid') {
+        expect(find.text('离线付款码'), findsOneWidget);
+        expect(find.byKey(const Key('payment-code-qr')), findsOneWidget);
+      } else {
+        expect(find.byKey(const Key('payment-code-qr')), findsNothing);
+        expect(find.byKey(const ValueKey('payment-code-refresh-spinner')), findsOneWidget);
+      }
+      expect(h.online.calls, 2);
+      h.online.retry!.complete(_frame());
+      await _pump(tester);
+      expect(find.text('在线付款码'), findsOneWidget);
+      final readyImage = tester.widget<Image>(find.descendant(
+        of: find.byKey(const Key('payment-online-status-indicator')),
+        matching: find.byType(Image),),);
+      expect((readyImage.image as AssetImage).assetName, GeekPayAssets.online);
+      await h.close(tester);
+    });
+  }
+
+  testWidgets('pull refresh shares the loading grace and coalesces duplicate pulls', (tester) async {
+    final h = await _Harness.create();
+    await h.mount(tester);
+    h.online.pending.complete(_frame());
+    await _pump(tester);
+    h.online.retry = Completer<PaymentCodeFrame>();
+    final refresh = tester.widget<EcardSliverRefreshControl>(find.byType(EcardSliverRefreshControl, skipOffstage: false)).onRefresh;
+    final first = refresh();
+    final second = refresh();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byKey(const ValueKey('payment-code-refresh-spinner')), findsOneWidget);
+    expect(find.text('离线付款码'), findsNothing);
+    expect(h.online.calls, 2);
+    h.online.retry!.complete(_frame());
+    await _pump(tester);
+    await Future.wait([first, second]);
+    expect(find.text('在线付款码'), findsOneWidget);
+    await h.close(tester);
+  });
+
+  testWidgets('automatic rotation also waits before showing offline code despite old polling results', (tester) async {
+    final h = await _Harness.create();
+    await h.mount(tester);
+    h.online.pending.complete(_frame());
+    await _pump(tester);
+    h.online.retry = Completer<PaymentCodeFrame>();
+    await tester.pump(const Duration(seconds: 30));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byKey(const ValueKey('payment-code-refresh-spinner')), findsOneWidget);
+    await tester.pump(const Duration(seconds: 3));
+    await _pump(tester);
+    expect(find.text('离线付款码'), findsOneWidget);
+    expect(h.online.calls, 2);
+    h.online.retry!.complete(_frame());
+    await _pump(tester);
+    expect(find.text('在线付款码'), findsOneWidget);
+    await h.close(tester);
+  });
+
+  testWidgets('leaving the page cancels the refresh fallback timer', (tester) async {
+    final h = await _Harness.create();
+    await h.mount(tester);
+    h.online.pending.complete(_frame());
+    await _pump(tester);
+    final reservations = h.credentials.reservations;
+    h.online.retry = Completer<PaymentCodeFrame>();
+    await tester.tap(find.byKey(const Key('payment-code-qr')));
+    await tester.pump();
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 2));
+    expect(h.credentials.reservations, reservations);
+    h.online.retry!.complete(_frame());
+    await _pump(tester);
+    expect(tester.takeException(), isNull);
+    await h.close(tester);
+  });
+
   testWidgets('the local code is a head start, and the online one takes over',
       (tester) async {
     final h = await _Harness.create();

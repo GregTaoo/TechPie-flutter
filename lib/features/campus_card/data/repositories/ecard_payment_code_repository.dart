@@ -8,7 +8,7 @@ import '../api/ecard_api_client.dart';
 import '../api/qr_payload_codec.dart';
 
 final class EcardPaymentCodeRepository implements PaymentCodeRepository {
-  EcardPaymentCodeRepository(this._client, {Clock? clock})
+  EcardPaymentCodeRepository(this._client, {Clock? clock, this.onBalance})
       : _clock = clock ?? const Clock();
 
   static const _gatewayFallbackMessages = {'开放平台返回失败', '开放平台请求超时'};
@@ -27,6 +27,7 @@ final class EcardPaymentCodeRepository implements PaymentCodeRepository {
     caseSensitive: false,
   );
 
+  final Future<bool> Function(Map<String, Object?>, MoneyFen)? onBalance;
   final EcardTransport _client;
   final Clock _clock;
 
@@ -80,8 +81,22 @@ final class EcardPaymentCodeRepository implements PaymentCodeRepository {
         cause: error,
       );
     }
+    await validateEcardResponse(response);
+    MoneyFen? balance;
+    if (data['cardbal'] != null) {
+      try {
+        balance = MoneyFen.fromApiYuan(data['cardbal'], field: 'cardbal');
+      } on FormatException {
+        // An optional malformed balance must not hide a usable payment code.
+      }
+    }
+    final changed = balance != null && onBalance != null
+        ? await onBalance!(response, balance) : false;
+    await validateEcardResponse(response);
     return PaymentCodeFrame(
       payCode: payCode,
+      balance: balance,
+      balanceChanged: changed,
       rawQrCode: rawQrCode,
       qrPayload: payload,
       offlineAllowed: data['allowOfflineCode']?.toString() == '1',

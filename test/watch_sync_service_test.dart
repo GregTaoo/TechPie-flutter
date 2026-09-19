@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:techpie/features/campus_card/app/app_runtime.dart';
@@ -9,10 +10,12 @@ import 'package:techpie/features/campus_card/data/crypto/sm2_offline_crypto.dart
 import 'package:techpie/features/campus_card/data/mock/in_memory_ports.dart';
 import 'package:techpie/features/campus_card/data/storage/flutter_secure_credential_store.dart';
 import 'package:techpie/features/campus_card/data/storage/secure_offline_credential_repository.dart';
+import 'package:techpie/features/campus_card/domain/models/auth_models.dart';
 import 'package:techpie/features/campus_card/domain/models/card_models.dart';
 import 'package:techpie/features/campus_card/domain/models/offline_models.dart';
 import 'package:techpie/features/campus_card/domain/models/profile_models.dart';
 import 'package:techpie/features/campus_card/domain/money_fen.dart';
+import 'package:techpie/features/campus_card/domain/ports/auth_port.dart';
 import 'package:techpie/features/campus_card/domain/ports/card_ports.dart';
 import 'package:techpie/features/campus_card/domain/ports/offline_ports.dart';
 import 'package:techpie/services/watch_sync_service.dart';
@@ -22,6 +25,8 @@ void main() {
   const channel = MethodChannel('techpie/watch-test');
   late _Cards cards;
   late SecureSessionCredentialStore session;
+  late InMemorySecureCredentialStore secure;
+  late _EventsAuth eventsAuth;
   late WatchSyncService sync;
   late AppRuntime base;
   late List<MethodCall> calls;
@@ -34,7 +39,9 @@ void main() {
     enabled = false;
     ready = true;
     boundSubject = null;
-    session = SecureSessionCredentialStore(InMemorySecureCredentialStore());
+    secure = InMemorySecureCredentialStore();
+    session = SecureSessionCredentialStore(secure);
+    eventsAuth = _EventsAuth();
     await session.writeSession(
       sessionCookie: 'synthetic',
       openId: 'SYNTHETIC_OPENID_0123456789',
@@ -47,7 +54,7 @@ void main() {
     final runtime = AppRuntime(
       environment: base.environment,
       capabilities: base.capabilities,
-      auth: base.auth,
+      auth: eventsAuth,
       cards: cards,
       paymentCodes: base.paymentCodes,
       scanPayments: base.scanPayments,
@@ -79,10 +86,50 @@ void main() {
   });
   tearDown(() async {
     sync.dispose();
+    await eventsAuth.events.close();
     await base.offlinePayments.dispose();
     await base.dispose();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, null);
+  });
+
+  test('cache miss and slow refresh preserve enrollment then synchronize', () async {
+    enabled = true;
+    cards.cachePresent = false;
+    cards.pending = Completer<CampusCard?>();
+    final pending = sync.synchronize();
+    await pumpEventQueue();
+    expect(sync.enabled, isTrue);
+    expect(calls.where((c) => c.method == 'disable'), isEmpty);
+    cards.pending!.complete(cards.card);
+    await pending;
+    expect(calls.where((c) => c.method == 'publish'), hasLength(1));
+  });
+
+  test('missing verification pin preserves enrollment', () async {
+    enabled = true;
+    await secure.delete('geekpay.auth.verified_idserial');
+    await sync.synchronize();
+    expect(calls.where((c) => c.method == 'disable'), isEmpty);
+    expect(sync.enabled, isTrue);
+  });
+
+  test('transient expiration preserves authorization but explicit logout revokes it', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    enabled = true;
+    sync.initialize();
+    await pumpEventQueue();
+    calls.clear();
+    eventsAuth.events.add(const AuthSnapshot(state: AuthState.expired));
+    await pumpEventQueue();
+    expect(calls.where((c) => c.method == 'disable'), isEmpty);
+    expect(sync.enabled, isTrue);
+    eventsAuth.events.add(const AuthSnapshot(state: AuthState.signedOut, reason: AuthChangeReason.userSignedOut));
+    await pumpEventQueue();
+    expect(calls.where((c) => c.method == 'disable'), hasLength(1));
+    expect(sync.enabled, isFalse);
+    expect(sync.events.any((event) => event.text.contains('userSignedOut')), isTrue);
   });
 
   test('nothing is exported before explicit enrollment', () async {
@@ -123,7 +170,7 @@ void main() {
         AppRuntime(
             environment: base.environment,
             capabilities: base.capabilities,
-            auth: base.auth,
+            auth: eventsAuth,
             cards: cards,
             paymentCodes: base.paymentCodes,
             scanPayments: base.scanPayments,
@@ -194,11 +241,12 @@ void main() {
     expect(sync.enabled, isFalse);
   });
 
-  test('missing identity clears an existing watch authorization', () async {
+  test('missing identity pauses synchronization without revoking enrollment', () async {
     enabled = true;
     await session.clear();
     await sync.synchronize();
-    expect(calls.where((c) => c.method == 'disable'), hasLength(1));
+    expect(calls.where((c) => c.method == 'disable'), isEmpty);
+    expect(sync.enabled, isTrue);
     expect(calls.where((c) => c.method == 'publish'), isEmpty);
   });
 
@@ -221,6 +269,7 @@ void main() {
 }
 
 final class _Cards implements CacheFirstCardRepository {
+  bool cachePresent = true;
   Completer<CampusCard?>? pending;
   final card = CampusCard(
     id: 'DEMO-CARD-0001',
@@ -233,7 +282,7 @@ final class _Cards implements CacheFirstCardRepository {
     updatedAt: DateTime.utc(2026, 9, 1),
   );
   @override
-  Future<CampusCard?> readCachedCard() async => card;
+  Future<CampusCard?> readCachedCard() async => cachePresent ? card : null;
   @override
   Future<CampusCard?> refreshCard() => pending?.future ?? Future.value(card);
   @override
@@ -257,4 +306,12 @@ final class _NoRenewal implements OfflineAuthorizationRemotePort {
   Future<OfflineActivationResponse?> renew(
           OfflineAuthorization authorization,) =>
       throw StateError('Grant is still current');
+}
+
+class _EventsAuth implements AuthPort {
+  final events = StreamController<AuthSnapshot>.broadcast(sync: true);
+  @override
+  Stream<AuthSnapshot> get changes => events.stream;
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

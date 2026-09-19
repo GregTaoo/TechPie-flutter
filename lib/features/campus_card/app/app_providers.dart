@@ -3,12 +3,14 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../application/account_history_refresh.dart';
 import '../application/payment_code_controller.dart';
 import '../application/scan_payment_controller.dart';
 import '../core/config/debug_mode_controller.dart';
 import '../core/config/debug_mode_features.dart';
 import '../core/config/offline_authorization_banner_controller.dart';
 import '../core/config/payment_code_preferences.dart';
+import '../core/errors/app_failure.dart';
 import '../data/mock/debug_transactions.dart';
 import '../domain/models/auth_models.dart';
 import '../domain/models/bill_models.dart';
@@ -56,25 +58,13 @@ final class AuthController extends AsyncNotifier<AuthSnapshot> {
     ref.onDispose(() => _buildGeneration++);
     final runtime = ref.watch(appRuntimeProvider);
     final auth = runtime.auth;
-    final initial =
-        await auth.restoreLocal().timeout(const Duration(seconds: 10));
-    if (generation != _buildGeneration) return initial;
     final subscription = auth.changes.listen((snapshot) {
       _authRevision++;
       if (snapshot.state == AuthState.signingIn) {
         _invalidateAccountProviders();
         return;
       }
-      final previous = state.valueOrNull;
-      state = AsyncData(snapshot);
-      if (previous != null &&
-          (previous.session?.subjectId != snapshot.session?.subjectId ||
-              previous.session?.generation != snapshot.session?.generation)) {
-        _invalidateAccountProviders(
-          resetOfflineMode:
-              previous.session?.subjectId != snapshot.session?.subjectId,
-        );
-      }
+      _applySnapshot(snapshot);
       if (snapshot.state == AuthState.authenticated) {
         unawaited(_startBackgroundRestore(auth));
       }
@@ -86,10 +76,31 @@ final class AuthController extends AsyncNotifier<AuthSnapshot> {
         unawaited(_startBackgroundRestore(auth));
       }
     });
+    final lifecycleSubscription = runtime.lifecycle.changes.listen((value) {
+      if (value != AppLifecycleState.resumed || generation != _buildGeneration) return;
+      if (state.hasError) {
+        // A local credential read may have failed while protected data was
+        // locked. Rebuild the local binding before attempting network recovery.
+        ref.invalidateSelf();
+      } else if (!state.isLoading) {
+        unawaited(_startBackgroundRestore(auth));
+      }
+    });
     ref.onDispose(() {
       unawaited(subscription.cancel());
       unawaited(connectivitySubscription.cancel());
+      unawaited(lifecycleSubscription.cancel());
     });
+    final revision = _authRevision;
+    final AuthSnapshot initial;
+    try {
+      initial = await _restoreLocal(auth, runtime, generation);
+    } catch (_) {
+      if (revision != _authRevision && state.valueOrNull != null) return state.valueOrNull!;
+      rethrow;
+    }
+    if (generation != _buildGeneration) return initial;
+    if (revision != _authRevision && state.valueOrNull != null) return state.valueOrNull!;
     if (initial.state == AuthState.authenticated) {
       Future<void>.delayed(Duration.zero, () {
         if (generation == _buildGeneration) {
@@ -100,6 +111,36 @@ final class AuthController extends AsyncNotifier<AuthSnapshot> {
     return initial;
   }
 
+  void _applySnapshot(AuthSnapshot snapshot) {
+    final previous = state.valueOrNull;
+    state = AsyncData(snapshot);
+    if (previous != null &&
+        (previous.session?.subjectId != snapshot.session?.subjectId ||
+            previous.session?.generation != snapshot.session?.generation)) {
+      _invalidateAccountProviders(
+        resetOfflineMode:
+            previous.session?.subjectId != snapshot.session?.subjectId,
+      );
+    }
+  }
+
+  Future<AuthSnapshot> _restoreLocal(AuthPort auth, AppRuntime runtime, int generation) async {
+    for (var attempt = 0; ; attempt++) {
+      try {
+        return await auth.restoreLocal().timeout(const Duration(seconds: 10));
+      } catch (error) {
+        final temporary = error is TimeoutException ||
+            error is AppFailure && error.code == 'SECURE_STORAGE_UNAVAILABLE';
+        if (!temporary || attempt >= 2 || generation != _buildGeneration ||
+            runtime.lifecycle.current != AppLifecycleState.resumed) {
+          rethrow;
+        }
+        await Future<void>.delayed(Duration(milliseconds: 250 * (attempt + 1)));
+        if (generation != _buildGeneration) rethrow;
+      }
+    }
+  }
+
   Future<void> refreshFromServer() =>
       _startBackgroundRestore(ref.read(appRuntimeProvider).auth);
 
@@ -107,7 +148,10 @@ final class AuthController extends AsyncNotifier<AuthSnapshot> {
     final active = _backgroundRestore;
     if (active != null) return active;
     late final Future<void> operation;
-    operation = Future<void>.microtask(() => _refreshStoredSession(auth)).whenComplete(() {
+    final generation = _buildGeneration;
+    operation = Future<void>.microtask(() async {
+      if (generation == _buildGeneration) await _refreshStoredSession(auth);
+    }).whenComplete(() {
       if (identical(_backgroundRestore, operation)) _backgroundRestore = null;
     });
     _backgroundRestore = operation;
@@ -120,7 +164,7 @@ final class AuthController extends AsyncNotifier<AuthSnapshot> {
     try {
       final refreshed = await auth.restore();
       if (revision == _authRevision && generation == _buildGeneration) {
-        state = AsyncData(refreshed);
+        _applySnapshot(refreshed);
       }
     } catch (_) {
       // The locally verified identity and offline code remain available.
@@ -153,6 +197,7 @@ final class AuthController extends AsyncNotifier<AuthSnapshot> {
   }
 
   void _invalidateAccountProviders({bool resetOfflineMode = true}) {
+    ref.invalidate(accountHistoryRefreshProvider);
     ref.invalidate(cardControllerProvider);
     ref.invalidate(profileControllerProvider);
     ref.invalidate(transactionDetailProvider);
@@ -160,7 +205,10 @@ final class AuthController extends AsyncNotifier<AuthSnapshot> {
     ref.invalidate(offlineAuthorizationProvider);
     if (resetOfflineMode) ref.invalidate(manualOfflineModeProvider);
     ref.invalidate(paymentCodeControllerProvider);
-    ref.invalidate(scanPaymentControllerProvider);
+    // A same-account cookie replacement must not reset an in-flight scan to
+    // idle: that would restart the camera and could submit the code again.
+    // Existing challenge contexts still fail the API client's generation check.
+    if (resetOfflineMode) ref.invalidate(scanPaymentControllerProvider);
     ref.invalidate(spendingPasswordInitializationProvider);
     ref.invalidate(spendingLimitsControllerProvider);
   }
@@ -171,12 +219,22 @@ final cardControllerProvider =
 
 final class CardController extends AsyncNotifier<CampusCard?> {
   int _generation = 0;
+  int _snapshotRevision = 0;
 
   @override
   Future<CampusCard?> build() {
     final generation = ++_generation;
     ref.onDispose(() => _generation++);
-    return _loadCard(ref.watch(appRuntimeProvider), generation);
+    final runtime = ref.watch(appRuntimeProvider);
+    final cards = runtime.cards;
+    if (cards is CardSnapshotSource) {
+      final subscription = (cards as CardSnapshotSource).snapshots.listen((card) {
+        _snapshotRevision++;
+        state = AsyncData(card);
+      });
+      ref.onDispose(() => unawaited(subscription.cancel()));
+    }
+    return _loadCard(runtime, generation);
   }
 
   Future<CampusCard?> _loadCard(
@@ -184,6 +242,7 @@ final class CardController extends AsyncNotifier<CampusCard?> {
     int generation,
   ) async {
     final repository = runtime.cards;
+    final snapshotRevision = _snapshotRevision;
     final CampusCard? card;
     if (repository is CacheFirstCardRepository) {
       final cached = await repository.readCachedCard();
@@ -211,20 +270,20 @@ final class CardController extends AsyncNotifier<CampusCard?> {
       card = await repository.currentCard();
     }
     if (generation != _generation) return state.valueOrNull;
-    if (card == null) return null;
-    if (generation == _generation) {
-      unawaited(_maintainOfflineAuthorization(runtime, card));
-    }
-    return card;
+    final latest = snapshotRevision == _snapshotRevision ? card : state.valueOrNull;
+    if (latest == null) return null;
+    unawaited(_maintainOfflineAuthorization(runtime, latest));
+    return latest;
   }
 
   Future<void> _refreshCachedCard(
     CacheFirstCardRepository repository,
     int generation,
   ) async {
+    final snapshotRevision = _snapshotRevision;
     try {
       final refreshed = await repository.refreshCard();
-      if (generation == _generation && refreshed != null) {
+      if (generation == _generation && snapshotRevision == _snapshotRevision && refreshed != null) {
         state = AsyncData(refreshed);
       }
     } catch (_) {
@@ -293,6 +352,7 @@ final class CardController extends AsyncNotifier<CampusCard?> {
     // A post-payment refresh supersedes older startup/balance requests.
     final generation = ++_generation;
     final previous = state.valueOrNull;
+    final snapshotRevision = _snapshotRevision;
     final runtime = ref.read(appRuntimeProvider);
     final repository = runtime.cards;
     final result = await AsyncValue.guard(
@@ -302,10 +362,10 @@ final class CardController extends AsyncNotifier<CampusCard?> {
     );
     if (generation != _generation) return;
     if (result.hasError && previous != null) {
-      state = AsyncData(previous);
+      if (snapshotRevision == _snapshotRevision) state = AsyncData(previous);
       _throwAsyncError(result);
     }
-    state = result;
+    if (snapshotRevision == _snapshotRevision) state = result;
     _throwAsyncError(result);
   }
 }
@@ -610,6 +670,21 @@ final class OfflineAuthorizationController
   bool get _manualOffline => ref.read(manualOfflineModeProvider);
 }
 
+final accountHistoryRefreshProvider = Provider<AccountHistoryRefresh>((ref) {
+  ref.watch(appRuntimeProvider);
+  final coordinator = AccountHistoryRefresh(loadHistory: () async {
+    const range = (begin: null, end: null);
+    final provider = transactionFeedProvider(range);
+    final exists = ref.exists(provider);
+    final previous = exists ? ref.read(provider).valueOrNull?.items.map((item) => item.id).toSet() : null;
+    ref.invalidate(transactionFeedProvider);
+    final page = await ref.read(provider.future);
+    return previous != null && page.items.any((item) => !previous.contains(item.id));
+  },);
+  ref.onDispose(coordinator.dispose);
+  return coordinator;
+});
+
 final paymentCodeControllerProvider =
     NotifierProvider.autoDispose<PaymentCodeNotifier, PaymentCodeViewState>(
   PaymentCodeNotifier.new,
@@ -625,7 +700,15 @@ final class PaymentCodeNotifier
     _generation++;
     final controller =
         ref.watch(appRuntimeProvider).createPaymentCodeController();
-    final subscription = controller.states.listen((value) => state = value);
+    final history = ref.read(accountHistoryRefreshProvider);
+    final subscription = controller.states.listen((value) {
+      final nextFrame = value.frame;
+      final generated = nextFrame != null && !identical(nextFrame, state.frame);
+      state = value;
+      if (generated) {
+        unawaited(history.codeGenerated(balanceChanged: nextFrame.balanceChanged));
+      }
+    });
     _controller = controller;
     ref.listen(
       maximizePaymentCodeBrightnessProvider,
@@ -645,6 +728,7 @@ final class PaymentCodeNotifier
   Future<void> enter({bool online = true}) =>
       _guardPaymentAction(() => _controller.enter(online: online));
   Future<void> restart() => _guardPaymentAction(_controller.restart);
+  Future<void> refresh() => _guardPaymentAction(_controller.refresh);
   Future<void> activateAndRestart() =>
       _guardPaymentAction(_controller.activateAndRestart);
   Future<void> leave() => _guardPaymentAction(_controller.leave);
@@ -706,10 +790,7 @@ final class ScanPaymentNotifier extends AutoDisposeNotifier<ScanFlowState> {
     final cardRefresh = ref.read(cardControllerProvider.notifier).refresh();
     ref.invalidate(profileControllerProvider);
     ref.invalidate(transactionDetailProvider);
-    ref.invalidate(transactionFeedProvider);
-    final historyRefresh = ref.read(
-      transactionFeedProvider((begin: null, end: null)).future,
-    );
+    final historyRefresh = ref.read(accountHistoryRefreshProvider).refresh(fresh: true);
     await Future.wait<void>([
       cardRefresh.then<void>((_) {}, onError: (Object _) {}),
       historyRefresh.then<void>((_) {}, onError: (Object _) {}),

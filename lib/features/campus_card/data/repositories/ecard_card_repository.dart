@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import '../../core/async_mutex.dart';
 import '../../core/errors/app_failure.dart';
 import '../../domain/models/card_models.dart';
 import '../../domain/models/profile_models.dart';
@@ -12,7 +13,7 @@ import '../storage/secure_card_cache.dart';
 typedef LocalSecurityPurge = Future<void> Function();
 typedef VerifiedCardIdSerialReader = Future<String?> Function();
 
-final class EcardCardRepository implements CacheFirstCardRepository {
+final class EcardCardRepository implements CacheFirstCardRepository, CardSnapshotSource {
   EcardCardRepository(
     this._client, {
     required SecureCardCache cache,
@@ -28,7 +29,68 @@ final class EcardCardRepository implements CacheFirstCardRepository {
   final VerifiedCardIdSerialReader _verifiedIdSerialReader;
   final _changes = StreamController<void>.broadcast();
   Stream<void> get changes => _changes.stream;
-  Future<void> dispose() => _changes.close();
+  final _snapshots = StreamController<CampusCard?>.broadcast();
+  @override
+  Stream<CampusCard?> get snapshots => _snapshots.stream;
+  final _snapshotMutex = AsyncMutex();
+  CampusCard? _latestSnapshot;
+  String? _snapshotSubject;
+  int _balanceOrder = -1;
+  MoneyFen? _latestBalance;
+  Future<void> dispose() async {
+    await _changes.close();
+    await _snapshots.close();
+  }
+
+  String _subject(Object? response, String id) =>
+      response is EcardResponseMap ? response.session.subjectId : id;
+
+  void _selectSubject(String subject) {
+    if (_snapshotSubject == subject) return;
+    _snapshotSubject = subject;
+    _latestSnapshot = null;
+    _latestBalance = null;
+    _balanceOrder = -1;
+  }
+
+  Future<void> _saveSnapshot(CampusCard card, Object? response) async {
+    try {
+      await _cache.write(card,
+        expectedSubjectId: response is EcardResponseMap ? response.session.subjectId : null,
+        validateContext: () => validateEcardResponse(response),);
+    } catch (_) {
+      // Verified data can still update the UI when local persistence fails.
+    }
+    await validateEcardResponse(response);
+    _latestSnapshot = card;
+    if (!_snapshots.isClosed) _snapshots.add(card);
+    if (!_changes.isClosed) _changes.add(null);
+  }
+
+  Future<bool> acceptCodeBalance(Map<String, Object?> response, MoneyFen balance) =>
+      _snapshotMutex.protect(() async {
+    var changed = false;
+    await commitEcardResponse(response, () async {
+      final data = response['data'] is Map ? response['data'] as Map : response;
+      final id = data['idserial']?.toString() ??
+          (response is EcardResponseMap ? response.session.identity?.idSerial : null);
+      if (id == null) return;
+      await _assertVerifiedIdSerial(id);
+      _selectSubject(_subject(response, id));
+      final order = response is EcardResponseMap ? response.responseOrder : _balanceOrder + 1;
+      if (order < _balanceOrder) return;
+      final card = _latestSnapshot ?? await _cache.read();
+      final previous = _latestBalance ?? card?.balance;
+      changed = previous != null && previous != balance;
+      _latestBalance = balance;
+      _balanceOrder = order;
+      if (card != null && card.id == id) {
+        _latestSnapshot = card;
+        if (card.balance != balance) await _saveSnapshot(card.withBalance(balance), response);
+      }
+    });
+    return changed;
+  });
 
   @override
   Future<CampusCard?> currentCard() async =>
@@ -43,10 +105,22 @@ final class EcardCardRepository implements CacheFirstCardRepository {
     await validateEcardResponse(account);
     final rawCard = account['cardinfo'];
     if (rawCard == null) {
-      await commitEcardResponse(account, _clearCacheBestEffort);
-      await validateEcardResponse(account);
-      if (!_changes.isClosed) _changes.add(null);
-      return null;
+      return _snapshotMutex.protect(() async {
+        CampusCard? result;
+        await commitEcardResponse(account, () async {
+          final id = await _verifiedIdSerialReader();
+          _selectSubject(_subject(account, id ?? ''));
+          final order = account is EcardResponseMap ? account.responseOrder : _balanceOrder + 1;
+          if (order < _balanceOrder) { result = _latestSnapshot; return; }
+          await _clearCacheBestEffort();
+          _latestSnapshot = null;
+          _latestBalance = null;
+          _balanceOrder = order;
+          if (!_snapshots.isClosed) _snapshots.add(null);
+          if (!_changes.isClosed) _changes.add(null);
+        });
+        return result;
+      });
     }
     final card = requireObjectMap(rawCard, context: 'CARD_INFO');
     final user = account['userInfo'] is Map
@@ -82,23 +156,23 @@ final class EcardCardRepository implements CacheFirstCardRepository {
       lastTransactionAt: _parseCardDate(card['lasttxdate']),
       accountType: card['acctype']?.toString(),
     );
-    try {
-      await commitEcardResponse(
-        account,
-        () => _cache.write(
-          result,
-          expectedSubjectId:
-              account is EcardResponseMap ? account.session.subjectId : null,
-          validateContext: () => validateEcardResponse(account),
-        ),
-      );
-    } catch (_) {
-      // A cache write failure must not hide verified server data.
-    }
-    await _assertVerifiedIdSerial(id);
-    await validateEcardResponse(account);
-    if (!_changes.isClosed) _changes.add(null);
-    return result;
+    return _snapshotMutex.protect(() async {
+      late CampusCard accepted;
+      await commitEcardResponse(account, () async {
+        await _assertVerifiedIdSerial(id);
+        _selectSubject(_subject(account, id));
+        final order = account is EcardResponseMap ? account.responseOrder : _balanceOrder + 1;
+        if (order < _balanceOrder && _latestBalance != null) {
+          accepted = _latestSnapshot ?? result.withBalance(_latestBalance!);
+        } else {
+          accepted = result;
+          _latestBalance = result.balance;
+          _balanceOrder = order;
+        }
+        await _saveSnapshot(accepted, account);
+      });
+      return accepted;
+    });
   }
 
   @override

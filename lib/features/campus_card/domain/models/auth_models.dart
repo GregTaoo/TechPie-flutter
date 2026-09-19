@@ -75,9 +75,12 @@ final class AuthSession {
   final String? maskedIdentity;
 }
 
-final class AuthSnapshot {
-  const AuthSnapshot({required this.state, this.session, this.message});
+enum AuthChangeReason { userSignedOut, accountChanged }
 
+final class AuthSnapshot {
+  const AuthSnapshot({required this.state, this.session, this.message, this.reason});
+
+  final AuthChangeReason? reason;
   final AuthState state;
   final AuthSession? session;
   final String? message;

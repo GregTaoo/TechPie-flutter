@@ -140,6 +140,7 @@ final class SecureSessionCredentialStore implements SessionCredentialStore {
   SecureSessionCredentialStore(this._store);
 
   static const _sessionKey = 'geekpay.auth.session_cookie';
+  static const _lastActivityKey = 'geekpay.auth.last_activity';
   static const _openIdKey = 'geekpay.auth.openid';
   static const _channelKey = 'geekpay.auth.openid_channel';
   static const _orgIdKey = 'geekpay.auth.orgid';
@@ -150,6 +151,16 @@ final class SecureSessionCredentialStore implements SessionCredentialStore {
 
   @override
   Future<String?> readSessionCookie() => _store.read(_sessionKey);
+
+  @override
+  Future<DateTime?> readSessionLastActivity() async {
+    final value = await _store.read(_lastActivityKey);
+    return value == null ? null : DateTime.tryParse(value)?.toUtc();
+  }
+
+  @override
+  Future<void> writeSessionLastActivity(DateTime value) =>
+      _store.write(_lastActivityKey, value.toUtc().toIso8601String());
 
   @override
   Future<String?> readOpenId() => _store.read(_openIdKey);
@@ -173,10 +184,12 @@ final class SecureSessionCredentialStore implements SessionCredentialStore {
     required String orgId,
     required String verifiedIdSerial,
     required String verifiedCardId,
+    DateTime? lastActivityAt,
     EcardOpenIdChannel channel = EcardOpenIdChannel.wechat,
   }) =>
       _store.replaceAtomically({
         _sessionKey: sessionCookie,
+        _lastActivityKey: (lastActivityAt ?? DateTime.now()).toUtc().toIso8601String(),
         _openIdKey: openId,
         _channelKey: channel.method,
         _orgIdKey: orgId,
@@ -186,17 +199,18 @@ final class SecureSessionCredentialStore implements SessionCredentialStore {
 
   @override
   Future<void> stageOpenId(String openId, {EcardOpenIdChannel channel = EcardOpenIdChannel.wechat}) => _store.replaceAtomically({
-    _openIdKey: openId, _channelKey: channel.method, _orgIdKey: '2', _sessionKey: null,
+    _openIdKey: openId, _channelKey: channel.method, _orgIdKey: '2', _sessionKey: null, _lastActivityKey: null,
     _verifiedIdSerialKey: null, _verifiedCardIdKey: null,
   });
 
   @override
   Future<void> clearSessionCookie() =>
-      _store.replaceAtomically({_sessionKey: null});
+      _store.replaceAtomically({_sessionKey: null, _lastActivityKey: null});
 
   @override
   Future<void> clear() => _store.replaceAtomically({
         _sessionKey: null,
+        _lastActivityKey: null,
         _openIdKey: null,
         _channelKey: null,
         _orgIdKey: null,

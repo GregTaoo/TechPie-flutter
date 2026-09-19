@@ -12,6 +12,8 @@ abstract interface class SecureCredentialStore {
 
 abstract interface class SessionCredentialStore {
   Future<String?> readSessionCookie();
+  Future<DateTime?> readSessionLastActivity();
+  Future<void> writeSessionLastActivity(DateTime value);
   Future<String?> readOpenId();
   Future<EcardOpenIdChannel> readOpenIdChannel();
   Future<String?> readOrgId();
@@ -23,6 +25,7 @@ abstract interface class SessionCredentialStore {
     required String orgId,
     required String verifiedIdSerial,
     required String verifiedCardId,
+    DateTime? lastActivityAt,
     EcardOpenIdChannel channel = EcardOpenIdChannel.wechat,
   });
   Future<void> stageOpenId(String openId, {EcardOpenIdChannel channel = EcardOpenIdChannel.wechat});

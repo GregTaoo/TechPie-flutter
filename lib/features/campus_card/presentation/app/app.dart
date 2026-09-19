@@ -8,6 +8,7 @@ import '../../domain/models/auth_models.dart';
 import '../screens/card_manage_screen.dart';
 import '../screens/login_screen.dart';
 import '../screens/payment_code_page.dart';
+import '../screens/session_restore_screen.dart';
 import '../theme/theme.dart';
 
 /// Campus-card feature root.
@@ -76,7 +77,8 @@ final class _EntryGate extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final snapshot = ref.watch(authControllerProvider).valueOrNull;
+    final auth = ref.watch(authControllerProvider);
+    final snapshot = auth.valueOrNull;
     final entry = ref.watch(campusCardEntryProvider);
 
     ref.listen(authControllerProvider, (previous, next) {
@@ -90,13 +92,27 @@ final class _EntryGate extends ConsumerWidget {
       Navigator.of(context).popUntil((route) => identical(route, here));
     });
 
+    // A credential that could not be read is not a missing one: the binding is
+    // still saved, so this is the retry surface rather than the sign-in page.
+    if (snapshot == null && auth.hasError) return const SessionRestoreScreen();
+
     return switch (snapshot?.state) {
+      // Nothing read yet. Briefly true on every mount, and the old router waited
+      // on the same future, so the gate waits too rather than flashing a screen.
       null => const SizedBox.shrink(),
       AuthState.authenticated =>
         entry == CampusCardEntry.cardManagement
             ? const CardManageScreen()
             : const PaymentCodePage(),
-      _ => const LoginScreen(),
+      // Only a genuinely missing account is a sign-in: an expired session (or one
+      // that could not be read) means the saved binding is still there, so the
+      // restore screen offers the retry that fixes it instead of asking for the
+      // OPENID again.
+      AuthState.signedOut ||
+      AuthState.unconfigured ||
+      AuthState.signingIn =>
+        const LoginScreen(),
+      _ => const SessionRestoreScreen(),
     };
   }
 }

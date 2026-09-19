@@ -21,6 +21,7 @@ final class AppFailure implements Exception {
     this.safeMessage, {
     this.code,
     this.retryable = false,
+    this.requestNotSent = false,
     this.cause,
   });
 
@@ -28,6 +29,9 @@ final class AppFailure implements Exception {
   final String safeMessage;
   final String? code;
   final bool retryable;
+
+  /// Set only by the transport when no business request was dispatched.
+  final bool requestNotSent;
 
   /// Never display or report this value without an explicit redaction pass.
   final Object? cause;
@@ -42,4 +46,13 @@ extension AppFailureAvailability on AppFailure {
       kind == FailureKind.network ||
       kind == FailureKind.timeout ||
       (kind == FailureKind.server && retryable);
+}
+
+extension SessionRecoveryFailure on AppFailure {
+  bool get isRecoverableSessionFailure => const {
+    'AUTH_SESSION_SUBJECT_CHANGED', 'AUTH_PAYMENT_CONTEXT_EXPIRED',
+    'AUTH_VERIFIED_SESSION_MISSING', 'AUTH_IDENTITY_MISMATCH',
+    'AUTH_RESPONSE_IDENTITY_MISMATCH', 'AUTH_PINNED_IDENTITY_MISMATCH',
+    'AUTH_IDENTITY_FIELDS_MISSING', 'HTTP_401',
+  }.contains(code);
 }

@@ -53,6 +53,13 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
   StreamSubscription<bool>? _connectivitySubscription;
   StreamSubscription<AppLifecycleState>? _lifecycleSubscription;
   Timer? _onlineRetryTimer;
+  Timer? _refreshWaitTimer;
+  bool _refreshWaiting = false;
+  bool _deferOfflineDuringRefresh = true;
+  bool _refreshWaitExpired = false;
+  PaymentCodeFrame? _refreshPreviousFrame;
+  int _refreshWaitRevision = 0;
+
   bool _scannerOpen = false;
   /// Set once the online code has been ready during this visit: the head start
   /// is for the first code of a visit, not for every refresh.
@@ -62,6 +69,42 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
   bool _active = false;
   int _activityRevision = 0;
   late final ConfirmedDisconnectFeedback _disconnectFeedback;
+
+  bool get _allowAutomaticOffline =>
+      !_refreshWaiting || !_deferOfflineDuringRefresh || _refreshWaitExpired;
+
+  void _beginRefreshWait({bool deferOffline = true}) {
+    if (!mounted || !_active || _refreshWaiting) return;
+    final revision = ++_refreshWaitRevision;
+    _refreshWaitTimer?.cancel();
+    setState(() {
+      _refreshWaiting = true;
+      _deferOfflineDuringRefresh = deferOffline;
+      _refreshWaitExpired = false;
+      _refreshPreviousFrame = ref.read(paymentCodeControllerProvider).frame;
+      if (deferOffline) _offline = false;
+    });
+    _refreshWaitTimer = Timer(const Duration(milliseconds: 1500), () {
+      if (!mounted || !_active || revision != _refreshWaitRevision || !_refreshWaiting) return;
+      setState(() => _refreshWaitExpired = true);
+    });
+  }
+
+  void _endRefreshWait({bool rebuild = true}) {
+    _refreshWaitTimer?.cancel();
+    _refreshWaitTimer = null;
+    ++_refreshWaitRevision;
+    void clear() {
+      _refreshWaiting = false;
+      _refreshWaitExpired = false;
+      _refreshPreviousFrame = null;
+    }
+    if (rebuild && mounted) {
+      setState(clear);
+    } else {
+      clear();
+    }
+  }
 
   @override
   void initState() {
@@ -103,7 +146,10 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
     } else {
       setState(() => _active = next);
     }
-    if (!next) _onlineRetryTimer?.cancel();
+    if (!next) {
+      _onlineRetryTimer?.cancel();
+      _endRefreshWait(rebuild: false);
+    }
     final revision = ++_activityRevision;
     if (defer) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -126,6 +172,7 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
 
   @override
   void dispose() {
+    _endRefreshWait(rebuild: false);
     unawaited(_disconnectFeedback.dispose());
     unawaited(_lifecycleSubscription?.cancel());
     _onlineRetryTimer?.cancel();
@@ -162,12 +209,14 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
   Future<void> _refreshOnline() async {
     await ref.read(appRuntimeProvider).feedback.play(FeedbackEvent.selection);
     if (!mounted || !_active) return;
-    await ref.read(paymentCodeControllerProvider.notifier).restart();
+    _beginRefreshWait();
+    await ref.read(paymentCodeControllerProvider.notifier).refresh();
   }
 
   Future<void> _setOfflineMode(CampusCard card, bool enabled) async {
     await ref.read(appRuntimeProvider).feedback.play(FeedbackEvent.selection);
     if (!mounted) return;
+    _endRefreshWait();
     ref.read(manualOfflineModeProvider.notifier).setEnabled(enabled);
     if (!enabled) {
       // The local code stays on screen until a fresh online one is ready; only
@@ -209,7 +258,7 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
     bool automatic = false,
   }) async {
     if (_offlineBusy || !mounted || !_active) return;
-    if (automatic && _preferReadyOnlineCode()) return;
+    if (automatic && (!_allowAutomaticOffline || _preferReadyOnlineCode())) return;
     final revision = _activityRevision;
     setState(() {
       _offlineBusy = true;
@@ -226,7 +275,7 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
       final code = await controller.generate();
       if (!mounted || !_active || revision != _activityRevision) return;
       // Online generation may finish while local signing/storage is pending.
-      if (automatic && _preferReadyOnlineCode()) return;
+      if (automatic && (!_allowAutomaticOffline || _preferReadyOnlineCode())) return;
       setState(() {
         _offline = true;
         _offlinePayload = code.payload;
@@ -238,7 +287,9 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
       });
     } catch (error) {
       if (!mounted || !_active || revision != _activityRevision) return;
-      if (automatic && _preferReadyOnlineCode()) return;
+      if (automatic && (!_allowAutomaticOffline || _preferReadyOnlineCode())) {
+        return;
+      }
       final authorizationRequired = _isAuthorizationUnusable(error);
       setState(() {
         _offlineError =
@@ -295,6 +346,7 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
   bool _onlineCodeReady(PaymentCodeViewState payment) =>
       payment.phase == PaymentCodePhase.succeeded ||
       (payment.frame != null &&
+          (!_refreshWaiting || !identical(payment.frame, _refreshPreviousFrame)) &&
           payment.connectionState == PaymentConnectionState.online &&
           (payment.phase == PaymentCodePhase.displaying ||
               payment.phase == PaymentCodePhase.polling));
@@ -307,28 +359,47 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
       payment.phase == PaymentCodePhase.refreshing ||
       payment.phase == PaymentCodePhase.stopped;
 
-  Future<void> _refreshRecentTransactions() async {
-    ref.invalidate(transactionFeedProvider(_allTransactions));
-    await _loadRecentTransactions();
+  Future<void>? _pageRefresh;
+
+  Future<void> _refreshAll() {
+    final active = _pageRefresh;
+    if (active != null) return active;
+    late final Future<void> operation;
+    operation = _performPageRefresh().whenComplete(() {
+      if (identical(_pageRefresh, operation)) _pageRefresh = null;
+    });
+    _pageRefresh = operation;
+    return operation;
+  }
+
+  Future<void> _performPageRefresh() async {
+    final history = ref.read(accountHistoryRefreshProvider);
+    final cards = ref.read(cardControllerProvider.notifier);
+    final codes = ref.read(paymentCodeControllerProvider.notifier);
+    final before = ref.read(paymentCodeControllerProvider).frame;
+    history.hold();
+    try {
+      if (!ref.read(manualOfflineModeProvider)) {
+        _beginRefreshWait();
+        await codes.refresh();
+      }
+      if (!mounted || history.isDisposed) return;
+      final after = ref.read(paymentCodeControllerProvider).frame;
+      if (identical(before, after) || after?.balance == null) {
+        try { await cards.refresh(); } catch (_) { /* Keep the last balance. */ }
+      }
+    } finally {
+      await history.releaseAndRefresh();
+    }
   }
 
   Future<void> _refreshAfterPayment() async {
-    // Refresh through the card controller so its identity checks and cached
-    // balance stay intact while the confirmed success animation is displayed.
     final cardRefresh = ref.read(cardControllerProvider.notifier).refresh();
-    ref.invalidate(transactionFeedProvider);
+    final historyRefresh = ref.read(accountHistoryRefreshProvider).refresh(fresh: true);
     await Future.wait<void>([
-      _loadRecentTransactions(),
+      historyRefresh,
       cardRefresh.then<void>((_) {}, onError: (Object _) {}),
     ]);
-  }
-
-  Future<void> _loadRecentTransactions() async {
-    try {
-      await ref.read(transactionFeedProvider(_allTransactions).future);
-    } catch (_) {
-      // The activity feed reports its own error without changing the outcome.
-    }
   }
 
   @override
@@ -390,6 +461,24 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
             authorizationState == OfflineAuthorizationState.unavailable);
 
     ref.listen(paymentCodeControllerProvider, (previous, next) {
+      if (next.phase == PaymentCodePhase.initializing && !manualOffline) {
+        // Startup and recovery keep the existing offline-first behavior, but
+        // still report a delayed online response after the same threshold.
+        _beginRefreshWait(deferOffline: false);
+      }
+      if (next.phase == PaymentCodePhase.refreshing && previous?.frame != null &&
+          !_offline && !manualOffline) {
+        _beginRefreshWait();
+      }
+      if (_refreshWaiting && (next.phase == PaymentCodePhase.idle ||
+          next.phase == PaymentCodePhase.stopped ||
+          next.phase == PaymentCodePhase.activationRequired ||
+          next.phase == PaymentCodePhase.failed ||
+          next.phase == PaymentCodePhase.switchingOffline ||
+          next.phase == PaymentCodePhase.succeeded ||
+          next.frame != null && !identical(next.frame, _refreshPreviousFrame))) {
+        _endRefreshWait();
+      }
       if (next.phase == PaymentCodePhase.initializing && _offlineError != null) {
         setState(() => _offlineError = null);
       }
@@ -432,10 +521,19 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
     final offlineHeadStart = offlineCodeFirst == true &&
         !_onlineCodeWasReady &&
         !_onlineCodeReady(payment);
+    // A slow online answer also lets the local code through once the grace
+    // window has passed (`_refreshWaitExpired`), which is the degraded path the
+    // pass and the status sheet label. Both ways of showing the local code early
+    // are the same promise the user made when they turned 离线码优先 on, so off
+    // means off: no head start, no degradation — failures and manual mode are
+    // what is left.
+    final offlineDegraded = offlineCodeFirst == true && _refreshWaitExpired;
     if (_active &&
         card != null &&
         canGenerateOffline &&
-        (manualOffline || onlineFailed || offlineHeadStart) &&
+        (manualOffline ||
+            _allowAutomaticOffline &&
+                (onlineFailed || offlineHeadStart || offlineDegraded)) &&
         !_offline &&
         !_offlineBusy &&
         _offlineError == null) {
@@ -502,7 +600,7 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
                   ),
                   slivers: [
                     EcardSliverRefreshControl(
-                      onRefresh: _refreshRecentTransactions,
+                      onRefresh: _refreshAll,
                     ),
                     SliverPadding(
                       padding: const EdgeInsets.fromLTRB(
@@ -527,6 +625,8 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
                               waitingForOnlineCode: _offline &&
                                   !manualOffline &&
                                   _onlineInFlight(payment),
+                              refreshLoading: _refreshWaiting && _deferOfflineDuringRefresh && (!_refreshWaitExpired || !_offline),
+                              refreshDegraded: _refreshWaiting && _refreshWaitExpired,
                               offlineBusy: _offlineBusy,
                               offlinePayload: _offlinePayload,
                               offlineRemaining: _offlineRemaining,
@@ -722,7 +822,11 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
     required bool manualOffline,
     required bool canToggleOffline,
   }) async {
-    final stateLabel = switch (payment.connectionState) {
+    final stateLabel = _refreshWaiting &&
+            _refreshWaitExpired &&
+            payment.connectionState != PaymentConnectionState.disconnected
+        ? '在线码响应较慢，已降级'
+        : switch (payment.connectionState) {
       PaymentConnectionState.online => '网络正常',
       PaymentConnectionState.disconnected => '网络已断开',
       PaymentConnectionState.apiError => '服务响应异常',
@@ -873,8 +977,12 @@ final class _ExpandedPaymentPass extends StatelessWidget {
     required this.onRefreshOnline,
     required this.onRefreshOffline,
     required this.onActivateOnline,
+    this.refreshLoading = false,
+    this.refreshDegraded = false,
   });
 
+  final bool refreshLoading;
+  final bool refreshDegraded;
   final CampusCard card;
   final PaymentCodeViewState payment;
   final bool offline;
@@ -895,15 +1003,16 @@ final class _ExpandedPaymentPass extends StatelessWidget {
     final succeeded = !offline && payment.phase == PaymentCodePhase.succeeded;
     final result = payment.result;
     final payload = offline ? offlinePayload : payment.frame?.qrPayload;
-    final loading = offline
+    final loading = refreshLoading || (offline
         ? offlineBusy
         : payment.phase == PaymentCodePhase.initializing ||
             payment.phase == PaymentCodePhase.refreshing ||
-            payment.phase == PaymentCodePhase.stopped;
-    final showCodeMetadata = offline ||
+            payment.phase == PaymentCodePhase.stopped);
+    final showCodeMetadata = !refreshLoading && (offline ||
         payment.phase == PaymentCodePhase.displaying ||
         payment.phase == PaymentCodePhase.refreshing ||
-        payment.phase == PaymentCodePhase.polling;
+        payment.phase == PaymentCodePhase.polling);
+    final degraded = refreshDegraded && payment.connectionState != PaymentConnectionState.disconnected;
     final ownerName = card.detailsAvailable
         // The feature's copy is Chinese, and the host resolves its own locale
         // (English by default) independently of the device: shorten the name to
@@ -972,13 +1081,13 @@ final class _ExpandedPaymentPass extends StatelessWidget {
                                     behavior: HitTestBehavior.opaque,
                                     child: SizedBox.square(
                                       dimension: statusSize,
-                                      child: payment.connectionState ==
+                                      child: !degraded && payment.connectionState ==
                                               PaymentConnectionState.unknown
                                           ? const CupertinoActivityIndicator(
                                               color: Colors.white,
                                             )
                                           : Image.asset(
-                                              switch (payment.connectionState) {
+                                              degraded ? GeekPayAssets.warningOnline : switch (payment.connectionState) {
                                                 PaymentConnectionState.online =>
                                                   GeekPayAssets.online,
                                                 PaymentConnectionState

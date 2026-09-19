@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:clock/clock.dart';
 import 'package:dio/dio.dart';
 import 'package:techpie/services/api_base_url.dart';
 
@@ -19,6 +20,7 @@ typedef AuthPinnedIdSerialReader = Future<String?> Function();
 final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
   EcardOpenIdAuthPort({
     Dio? dio,
+    Clock? clock,
     EcardSessionIssuer? sessionIssuer,
     DecryptedHttpTraceInterceptor? httpTrace,
     EcardCipher? cipher,
@@ -26,7 +28,8 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
     required AuthSecurityCleanup purgeAccountBoundCredentials,
     AuthPinnedIdSerialReader? pinnedIdSerialReader,
     String baseUrl = 'https://ecard.shanghaitech.edu.cn',
-  })  : _sessionIssuer = sessionIssuer ?? GeekPieEcardSessionIssuer(
+  })  : _clock = clock ?? const Clock(),
+        _sessionIssuer = sessionIssuer ?? GeekPieEcardSessionIssuer(
           endpoint: () => Uri.parse('$prodApiBaseUrl/auth/third-party/ecard'),
         ),
         _dio = dio ??
@@ -50,8 +53,15 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
         _purgeAccountBoundCredentials = purgeAccountBoundCredentials,
         _pinnedIdSerialReader = pinnedIdSerialReader {
     installDecryptedHttpTrace(_dio, trace: httpTrace);
+    unawaited(_sessionMutex.protect(() async {
+      if (!_disposed) await _expireIdleSession();
+    }).catchError((Object _) {}),);
   }
 
+  static const sessionIdleTimeout = Duration(minutes: 30);
+  final Clock _clock;
+  Timer? _idleTimer;
+  bool _disposed = false;
   final Dio _dio;
   final EcardSessionIssuer _sessionIssuer;
   final EcardCipher _cipher;
@@ -60,7 +70,10 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
   final AuthPinnedIdSerialReader? _pinnedIdSerialReader;
   final AsyncMutex _sessionMutex = AsyncMutex();
   int _generation = 0;
+  int _accountRevision = 0;
+  int _accountOperations = 0;
   int get generation => _generation;
+  int get accountRevision => _accountRevision;
   String? _verifiedSessionCookie;
   Future<void>? _sessionRecovery;
   Future<AuthSnapshot>? _sessionRefresh;
@@ -77,6 +90,80 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
   Future<EcardSession?> readSession() => Zone.current[_commitZone] == true
       ? _readSession()
       : _sessionMutex.protect(_readSession);
+
+  Future<EcardVerifiedIdentity?> readRequestIdentity() {
+    final revision = _accountRevision;
+    // The authenticated event may start new requests before signIn returns.
+    // At that point its verified cookie has already been committed.
+    if (_accountOperations != 0 && _verifiedSessionCookie == null) {
+      return Future.error(const AppFailure(FailureKind.cancelled,
+          '校园卡账户正在变化，本次操作已取消。', code: 'AUTH_REQUEST_ACCOUNT_CHANGED',),);
+    }
+    return _sessionMutex.protect(() async {
+      if (revision != _accountRevision) {
+        throw const AppFailure(FailureKind.cancelled, '校园卡账户已变化，本次操作已取消。',
+            code: 'AUTH_REQUEST_ACCOUNT_CHANGED',);
+      }
+      return readCachedIdentity();
+    });
+  }
+
+  /// Called once at request entry; never used by response/provenance checks.
+  Future<EcardSession?> prepareSession() {
+    final accountRevision = _accountRevision;
+    return _sessionMutex.protect(() async {
+      if (accountRevision != _accountRevision) {
+        throw const AppFailure(FailureKind.authenticationExpired,
+          '请求期间校园卡账户已变化，请重试。', code: 'AUTH_SESSION_SUBJECT_CHANGED',);
+      }
+      final current = await _readSession();
+      if (current != null && current.identity != null) {
+        // Request entry is activity. Extend before identity verification so a
+        // request started just before the deadline is not expired mid-check.
+        final now = _clock.now().toUtc();
+        await _sessionStore.writeSessionLastActivity(now);
+        _scheduleExpiry(now);
+        return current;
+      }
+      final openId = await _sessionStore.readOpenId();
+      if (openId == null) return null;
+      await _replaceStoredSession(openId);
+      return _readSession();
+    });
+  }
+
+  Future<void> recordSessionActivity(EcardSession expected) =>
+      _sessionMutex.protect(() async {
+        final current = await _readSession();
+        if (current == null || !current.sameSession(expected)) {
+          throw const AppFailure(FailureKind.authenticationExpired,
+            '校园卡会话已失效，请重试。', code: 'AUTH_SESSION_SUBJECT_CHANGED',);
+        }
+        final now = _clock.now().toUtc();
+        await _sessionStore.writeSessionLastActivity(now);
+        _scheduleExpiry(now);
+      });
+
+  Future<void> _expireIdleSession() async {
+    final cookie = await _sessionStore.readSessionCookie();
+    if (cookie == null) return;
+    final last = await _sessionStore.readSessionLastActivity();
+    final now = _clock.now().toUtc();
+    if (last == null || now.isBefore(last) || now.difference(last) >= sessionIdleTimeout) {
+      await _clearSessionCookie();
+    } else {
+      _scheduleExpiry(last);
+    }
+  }
+
+  void _scheduleExpiry(DateTime lastActivity) {
+    _idleTimer?.cancel();
+    if (_disposed) return;
+    final remaining = sessionIdleTimeout - _clock.now().toUtc().difference(lastActivity.toUtc());
+    _idleTimer = Timer(remaining.isNegative ? Duration.zero : remaining, () {
+      unawaited(_sessionMutex.protect(_expireIdleSession).catchError((Object _) {}));
+    });
+  }
 
   Future<void> commitInSession(
           EcardSession expected, Future<void> Function() action,) =>
@@ -103,6 +190,7 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
       );
 
   Future<EcardSession?> _readSession() async {
+    await _expireIdleSession();
     final cookie = await _sessionStore.readSessionCookie();
     final openId = await _sessionStore.readOpenId();
     final orgId = await _sessionStore.readOrgId();
@@ -127,6 +215,7 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
   }
 
   Future<void> _clearSessionCookie() async {
+    _idleTimer?.cancel();
     _generation++;
     _verifiedSessionCookie = null;
     await _sessionStore.clearSessionCookie();
@@ -155,6 +244,7 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
   }
 
   Future<AuthSnapshot> _restoreFromServer() async {
+    await _expireIdleSession();
     final cookie = await _sessionStore.readSessionCookie();
     final openId = await _sessionStore.readOpenId();
     final orgId = await _sessionStore.readOrgId() ?? '2';
@@ -219,9 +309,12 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
 
   @override
   Future<AuthSnapshot> signIn(AuthCredential credential) {
+    _accountRevision++;
     _generation++;
     _verifiedSessionCookie = null;
-    return _sessionMutex.protect(() => _signIn(credential));
+    _accountOperations++;
+    return _sessionMutex.protect(() => _signIn(credential))
+        .whenComplete(() => _accountOperations--);
   }
 
   Future<AuthSnapshot> _signIn(AuthCredential credential) async {
@@ -239,7 +332,7 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
     final previousOpenId = await _sessionStore.readOpenId();
     final previousChannel = await _sessionStore.readOpenIdChannel();
     try {
-      final verified = await _authenticate(credential);
+      final verified = await _authenticateForUser(credential);
       if (previousOpenId != null && (previousOpenId != openId || previousChannel != credential.channel)) {
         // Validate the replacement first. A typo must not destroy the current
         // account or its usable offline authorization.
@@ -250,6 +343,7 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
       _generation++;
       await _sessionStore.writeSession(
         sessionCookie: verified.cookie,
+        lastActivityAt: _clock.now(),
         openId: openId,
         orgId: verified.orgId,
         verifiedIdSerial: verified.identity.idSerial,
@@ -257,7 +351,10 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
         channel: credential.channel,
       );
       _verifiedSessionCookie = verified.cookie;
-      return _emit(await _authenticated(openId, verified.orgId));
+      _scheduleExpiry(_clock.now());
+      return _emit(await _authenticated(openId, verified.orgId,
+        reason: previousOpenId != null && (previousOpenId != openId || previousChannel != credential.channel)
+            ? AuthChangeReason.accountChanged : null,),);
     } catch (error) {
       final identityMismatch =
           error is AppFailure && _isIdentityMismatch(error);
@@ -281,14 +378,14 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
   Future<void> verifyOpenId(String openId, {EcardOpenIdChannel channel = EcardOpenIdChannel.wechat}) => _sessionMutex.protect(() async {
         final credential = OpenIdAuthCredential(openId: openId.trim(), channel: channel);
         credential.validate();
-        await _authenticate(credential);
+        await _authenticateForUser(credential);
       });
 
   Future<_VerifiedEcardSession> _replaceStoredSession(String openId) async {
-    _generation++;
-    _verifiedSessionCookie = null;
+    await _clearSessionCookie();
+    final operationGeneration = _generation;
     final verified = await _authenticate(OpenIdAuthCredential(openId: openId, channel: await _sessionStore.readOpenIdChannel()));
-    if (await _sessionStore.readOpenId() != openId) {
+    if (operationGeneration != _generation || await _sessionStore.readOpenId() != openId) {
       throw const AppFailure(
         FailureKind.authenticationExpired,
         '校验期间登录账户发生变化，已丢弃本次会话。',
@@ -298,6 +395,7 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
     _generation++;
     await _sessionStore.writeSession(
       sessionCookie: verified.cookie,
+      lastActivityAt: _clock.now(),
       openId: openId,
       orgId: verified.orgId,
       verifiedIdSerial: verified.identity.idSerial,
@@ -305,8 +403,34 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
         channel: await _sessionStore.readOpenIdChannel(),
     );
     _verifiedSessionCookie = verified.cookie;
+    _scheduleExpiry(_clock.now());
     _emit(await _authenticated(openId, verified.orgId));
     return verified;
+  }
+
+  Future<_VerifiedEcardSession> _authenticateForUser(
+      OpenIdAuthCredential credential,) async {
+    final revision = _accountRevision;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        final session = await _authenticate(credential);
+        if (revision != _accountRevision) {
+          throw const AppFailure(FailureKind.cancelled, '校园卡账户已变化，本次操作已取消。',
+              code: 'AUTH_REQUEST_ACCOUNT_CHANGED',);
+        }
+        return session;
+      } on AppFailure catch (failure) {
+        if (attempt == 0 &&
+            revision == _accountRevision &&
+            failure.isRecoverableSessionFailure &&
+            failure.code != 'AUTH_SESSION_SUBJECT_CHANGED' &&
+            failure.code != 'HTTP_401') {
+          continue;
+        }
+        rethrow;
+      }
+    }
+    throw StateError('Unreachable authentication retry state');
   }
 
   Future<_VerifiedEcardSession> _authenticate(
@@ -343,8 +467,25 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
   }
 
   Future<void> rejectCurrentOnlineSession() {
+    final active = _sessionRecovery;
+    if (active != null) return active;
     _generation++;
-    return _sessionMutex.protect(_clearSessionCookie);
+    late final Future<void> recovery;
+    recovery = _sessionMutex.protect(() async {
+      await _clearSessionCookie();
+      final openId = await _sessionStore.readOpenId();
+      if (openId == null) return;
+      try {
+        await _replaceStoredSession(openId);
+      } on AppFailure {
+        // Keep the original identity pin. A rejected replacement must not
+        // adopt the identity carried by the inconsistent response.
+      }
+    }).whenComplete(() {
+      if (identical(_sessionRecovery, recovery)) _sessionRecovery = null;
+    });
+    _sessionRecovery = recovery;
+    return recovery;
   }
 
   Future<EcardVerifiedIdentity> verifyCurrentIdentity() {
@@ -361,6 +502,7 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
   }
 
   Future<EcardVerifiedIdentity> _verifyCurrentIdentity() async {
+    await _expireIdleSession();
     final cookie = await _sessionStore.readSessionCookie();
     final openId = await _sessionStore.readOpenId();
     final orgId = await _sessionStore.readOrgId() ?? '2';
@@ -395,28 +537,38 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
   /// Restore only an encrypted-sync login parameter. This is not a verified session.
   Future<void> importOpenId(String openId, {EcardOpenIdChannel channel = EcardOpenIdChannel.wechat}) {
     OpenIdAuthCredential(openId: openId, channel: channel).validate();
+    _accountRevision++;
     _generation++;
     _verifiedSessionCookie = null;
+    _accountOperations++;
     return _sessionMutex.protect(() async {
+      final previous = await _sessionStore.readOpenId();
+      final previousChannel = await _sessionStore.readOpenIdChannel();
       await _clearSessionAndAccountMaterial();
       await _sessionStore.stageOpenId(openId, channel: channel);
-      _emit(await _authenticated(openId, '2'));
-    });
+      _emit(await _authenticated(openId, '2', reason: previous != null &&
+          (previous != openId || previousChannel != channel) ? AuthChangeReason.accountChanged : null,),);
+    }).whenComplete(() => _accountOperations--);
   }
 
   @override
   Future<void> signOut() {
+    _accountRevision++;
     _generation++;
     _verifiedSessionCookie = null;
-    return _sessionMutex.protect(_signOut);
+    _accountOperations++;
+    return _sessionMutex.protect(_signOut)
+        .whenComplete(() => _accountOperations--);
   }
 
   Future<void> _signOut() async {
     await _clearSessionAndAccountMaterial();
-    _emit(const AuthSnapshot(state: AuthState.signedOut));
+    _emit(const AuthSnapshot(state: AuthState.signedOut, reason: AuthChangeReason.userSignedOut));
   }
 
   Future<void> dispose() async {
+    _disposed = true;
+    _idleTimer?.cancel();
     final verification = _identityVerification;
     if (verification != null) {
       try {
@@ -445,13 +597,13 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
   }
 
   Future<void> handleAuthenticationFailure(int statusCode) {
+    final active = _sessionRecovery;
+    if (statusCode == 401 && active != null) return active;
     _generation++;
     _verifiedSessionCookie = null;
     if (statusCode != 401) {
       return _sessionMutex.protect(_expireWithoutAutomaticRecovery);
     }
-    final active = _sessionRecovery;
-    if (active != null) return active;
     late final Future<void> recovery;
     recovery = _sessionMutex.protect(_recoverExpiredSession).whenComplete(() {
       if (identical(_sessionRecovery, recovery)) _sessionRecovery = null;
@@ -467,28 +619,33 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
       return;
     }
     await _clearSessionCookie();
-    _emit(
-      const AuthSnapshot(state: AuthState.expired, message: '登录状态已过期，正在自动恢复。'),
-    );
     try {
-      await _signIn(OpenIdAuthCredential(openId: openId, channel: await _sessionStore.readOpenIdChannel()));
-    } catch (_) {
-      // signIn already clears the invalid session and emits signedOut. The
-      // original business request remains failed and can be retried by the UI.
+      await _replaceStoredSession(openId);
+    } on AppFailure {
+      // Binding and offline credentials remain valid while online recovery
+      // is unavailable. Never send an automatic recovery through signIn's
+      // interactive account-switch state or reset a pending payment to idle.
     }
   }
 
   Future<void> _expireWithoutAutomaticRecovery() async {
-    await _sessionStore.clear();
-    _emit(
-      const AuthSnapshot(state: AuthState.expired, message: '登录状态已过期，请重新登录。'),
-    );
+    // A rejected online cookie is not a request to disconnect the saved account.
+    // Only explicit sign-out/unbinding may remove OpenID and identity pins.
+    await _clearSessionCookie();
+    final openId = await _sessionStore.readOpenId();
+    if (openId == null || openId.isEmpty) {
+      _emit(const AuthSnapshot(state: AuthState.signedOut));
+    } else {
+      _emit(await _authenticated(openId, await _sessionStore.readOrgId() ?? '2'));
+    }
   }
 
   bool _canRebindStoredOpenId(AppFailure failure) => const {
         'HTTP_401',
         'HTTP_403',
         'AUTH_BUSINESS_REJECTED',
+        'AUTH_IDENTITY_MISMATCH',
+        'AUTH_RESPONSE_IDENTITY_MISMATCH',
         'AUTH_IDENTITY_FIELDS_MISSING',
       }.contains(failure.code);
 
@@ -640,8 +797,9 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
     }
   }
 
-  Future<AuthSnapshot> _authenticated(String openId, String orgId) async => AuthSnapshot(
+  Future<AuthSnapshot> _authenticated(String openId, String orgId, {AuthChangeReason? reason}) async => AuthSnapshot(
         state: AuthState.authenticated,
+        reason: reason,
         session: AuthSession(
           subjectId: (await _sessionStore.readOpenIdChannel()).subjectId(openId),
           orgId: orgId,
@@ -661,6 +819,7 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
   }
 
   Future<void> _clearSessionAndAccountMaterial() async {
+    _idleTimer?.cancel();
     await _sessionStore.clear();
     await _purgeAccountBoundCredentials();
   }

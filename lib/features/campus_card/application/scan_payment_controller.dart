@@ -22,12 +22,14 @@ final class ScanPaymentController {
   bool _submitting = false;
   bool _disposed = false;
   int _epoch = 0;
+  String? _originalQrCode;
 
   ScanFlowState get state => _state;
   Stream<ScanFlowState> get states => _states.stream;
 
   Future<void> submitCode(String rawQrCode) async {
-    if (rawQrCode.trim().isEmpty) return;
+    if (rawQrCode.trim().isEmpty || _disposed || _submitting) return;
+    _originalQrCode = rawQrCode;
     await _submit(rawQrCode, password: null);
   }
 
@@ -106,12 +108,28 @@ final class ScanPaymentController {
     final context = password == null ? null : _state.pendingContext;
     _emit(const ScanFlowState(phase: ScanFlowPhase.submitting));
     try {
-      final result = await _repository.submit(
-        qrCode: qrCode,
-        payTime: _clock.now(),
-        password: password,
-        context: context,
-      );
+      ScanPaymentResult result;
+      try {
+        result = await _repository.submit(
+          qrCode: qrCode,
+          payTime: _clock.now(),
+          password: password,
+          context: context,
+        );
+      } on AppFailure catch (failure) {
+        if (_disposed || epoch != _epoch) return;
+        if (password == null ||
+            !failure.requestNotSent ||
+            failure.code != 'AUTH_PAYMENT_CONTEXT_EXPIRED' ||
+            _originalQrCode == null) {
+          rethrow;
+        }
+        // The password request never left this device. Rebuild the challenge
+        // from the original scan once; never reuse the stale server challenge
+        // or replay a payment whose result is unknown.
+        result = await _repository.submit(
+            qrCode: _originalQrCode!, payTime: _clock.now(),);
+      }
       if (_disposed || epoch != _epoch) return;
       switch (result) {
         case ScanPasswordRequired(:final serverQrCode, :final context):
@@ -149,6 +167,7 @@ final class ScanPaymentController {
   }
 
   void reset() {
+    _originalQrCode = null;
     _epoch++;
     _emit(const ScanFlowState.idle());
   }

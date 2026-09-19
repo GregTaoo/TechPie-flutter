@@ -13,3 +13,8 @@ abstract interface class CacheFirstCardRepository implements CardRepository {
   Future<CampusCard?> readCachedCard();
   Future<CampusCard?> refreshCard();
 }
+
+/// Verified snapshots committed by either the account or code endpoint.
+abstract interface class CardSnapshotSource {
+  Stream<CampusCard?> get snapshots;
+}

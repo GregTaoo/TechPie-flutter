@@ -18,6 +18,26 @@ void main() {
   const idSerial = 'DEMO-STUDENT-0001';
   const cardId = 'DEMO-CARD-0001';
 
+  test('login retries inconsistent identity before exposing an error', () async {
+    final adapter = _QueueAdapter([
+      _Reply.issued('JSESSIONID=bad', idSerial, cardId),
+      _Reply.encrypted(_quota(idSerial, 'DIFFERENT-CARD')),
+      _Reply.issued('JSESSIONID=good', idSerial, cardId),
+      _Reply.encrypted(_quota(idSerial, cardId)),
+    ]);
+    final store = SecureSessionCredentialStore(InMemorySecureCredentialStore());
+    final auth = EcardOpenIdAuthPort(dio: _dio(adapter), sessionIssuer: _issuer(adapter),
+      sessionStore: store, purgeAccountBoundCredentials: () async {},);
+    addTearDown(auth.dispose);
+    final states = <AuthState>[];
+    final subscription = auth.changes.listen((event) => states.add(event.state));
+    addTearDown(subscription.cancel);
+    await auth.signIn(const OpenIdAuthCredential(openId: openId));
+    expect(await store.readSessionCookie(), 'JSESSIONID=good');
+    expect(states, [AuthState.signingIn, AuthState.authenticated]);
+    expect(adapter.requests, hasLength(4));
+  });
+
   test('changing only the channel replaces the account and recovery keeps Alipay', () async {
     final adapter = _QueueAdapter([
       _Reply.issued('JSESSIONID=alipay-one', idSerial, cardId),
@@ -165,6 +185,8 @@ void main() {
     final adapter = _QueueAdapter([
       _Reply.issued('JSESSIONID=synthetic-session; Path=/', idSerial, cardId),
       _Reply.encrypted(_quota(idSerial, 'DIFFERENT-CARD')),
+      _Reply.issued('JSESSIONID=synthetic-session; Path=/', idSerial, cardId),
+      _Reply.encrypted(_quota(idSerial, 'DIFFERENT-CARD')),
     ]);
     final store = SecureSessionCredentialStore(InMemorySecureCredentialStore());
     final auth = EcardOpenIdAuthPort(
@@ -187,10 +209,11 @@ void main() {
     expect(await store.readSessionCookie(), isNull);
   });
 
-  test('background refresh rejects identity drift and keeps the local pin',
+  test('background refresh rejects a replacement that still violates the local pin',
       () async {
     final adapter = _QueueAdapter([
       _Reply.encrypted(_quota('OTHER-STUDENT', 'OTHER-CARD')),
+      _Reply.issued('JSESSIONID=wrong-replacement', 'OTHER-STUDENT', 'OTHER-CARD'),
     ]);
     final store = SecureSessionCredentialStore(InMemorySecureCredentialStore());
     await store.writeSession(
@@ -215,7 +238,7 @@ void main() {
         isA<AppFailure>().having(
           (failure) => failure.code,
           'code',
-          'AUTH_IDENTITY_MISMATCH',
+          'AUTH_PINNED_IDENTITY_MISMATCH',
         ),
       ),
     );
@@ -225,7 +248,7 @@ void main() {
     expect(await store.readOpenId(), openId);
     expect(await store.readVerifiedIdSerial(), idSerial);
     expect(await store.readVerifiedCardId(), cardId);
-    expect(adapter.requests, hasLength(1));
+    expect(adapter.requests, hasLength(2));
   });
 
   for (final restore in [true, false]) {
@@ -433,6 +456,8 @@ void main() {
     final adapter = _QueueAdapter([
       _Reply.issued('JSESSIONID=candidate-session; Path=/', idSerial, cardId),
       _Reply.encrypted(_quota('OTHER-STUDENT', 'OTHER-CARD')),
+      _Reply.issued('JSESSIONID=candidate-session; Path=/', idSerial, cardId),
+      _Reply.encrypted(_quota('OTHER-STUDENT', 'OTHER-CARD')),
     ]);
     final auth = EcardOpenIdAuthPort(
       sessionIssuer: _issuer(adapter),
@@ -572,7 +597,7 @@ void main() {
   );
 
   test(
-    '403 clears the session without pretending recovery succeeded',
+    '403 deletes only the online cookie and preserves the configured account',
     () async {
       final store = SecureSessionCredentialStore(
         InMemorySecureCredentialStore(),
@@ -594,7 +619,11 @@ void main() {
       await auth.handleAuthenticationFailure(403);
 
       expect(await store.readSessionCookie(), isNull);
-      expect(await store.readOpenId(), isNull);
+      expect(await store.readOpenId(), openId);
+      expect(await store.readVerifiedIdSerial(), idSerial);
+      expect(await store.readVerifiedCardId(), cardId);
+      expect((await auth.restoreLocal()).state, AuthState.authenticated);
+      expect(await auth.readSession(), isNull);
       expect(cleanupCalls, 0);
     },
   );
