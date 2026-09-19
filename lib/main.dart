@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:desktop_webview_window/desktop_webview_window.dart'
     show runWebViewTitleBarWidget;
 import 'package:dynamic_color/dynamic_color.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:techpie/utils/platform.dart';
@@ -67,7 +68,6 @@ Future<void> _realMain(SharedPreferences prefs) async {
   final campusCardService = CampusCardService(debugLogger: debugLogger, storage: storageService);
   final ecardBindService = EcardBindService();
   final ecardWidgetService = EcardWidgetService();
-  if (isIos() || isAndroid()) ecardWidgetService.initialize();
   final thirdPartyAuthService = ThirdPartyAuthService(
     storageService,
     httpClient,
@@ -144,12 +144,21 @@ Future<void> _realMain(SharedPreferences prefs) async {
     } catch (_) {}
   };
 
+  // Boot timings, debug only: this is exactly what the splash waits for. Work
+  // that the first frame does not need belongs after `runApp` below.
+  final bootWatch = Stopwatch()..start();
+  void bootMark(String phase) {
+    if (!kDebugMode) return;
+    debugPrint('[BOOT] $phase ${bootWatch.elapsedMilliseconds}ms');
+  }
+
+  bootMark('services built');
+
   // -- Boot critical path: local I/O only --
   // Hydrate everything from caches so the first frame paints with data.
   await authService.loadSession();
   await thirdPartyAuthService.initialize();
   thirdPartyAuthService.campusWebSession.attachAuth(authService);
-  await syncService.loadCachedKey();
   assignmentService.loadCached();
   await scheduleService.loadCachedData();
 
@@ -173,7 +182,12 @@ Future<void> _realMain(SharedPreferences prefs) async {
     ),
   );
 
+  bootMark('cached data ready');
+
   unawaited(campusCardService.refreshAccount());
+
+  // The home-screen widget only needs its handler once something could press it.
+  if (isIos() || isAndroid()) ecardWidgetService.initialize();
 
   // The pass is one tap away and its session is cold: fetch it in the
   // background now, so opening it costs one round trip instead of three. After
@@ -232,6 +246,8 @@ Future<void> _realMain(SharedPreferences prefs) async {
     // fires. If the device is enabled but has no key (new device with a cloud
     // backup), set the needsRestore flag so the UI can prompt for the master
     // password. All best-effort — sync failures never block boot.
+    await syncService.loadCachedKey();
+
     if (syncService.enabled && authService.isLoggedIn) {
       try {
         await syncService.pull();

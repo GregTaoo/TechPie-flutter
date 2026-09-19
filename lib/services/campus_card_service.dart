@@ -45,22 +45,40 @@ final class CampusCardService extends ChangeNotifier implements EcardSyncStore {
   })  : _secureStore = secureStore,
         _storage = storage,
         _sessionStore = SecureSessionCredentialStore(secureStore),
-        _runtime = runtimeFactory?.call() ??
-            buildRealRuntime(
-              AppEnvironment.production,
-              secureCredentialStore: secureStore,
-              sessionIssuer: GeekPieEcardSessionIssuer(endpoint: () => Uri.parse(
-                '${storage == null ? prodApiBaseUrl : apiBaseUrl(storage)}/auth/third-party/ecard',
-              ),),
-              httpTrace:
-                  debugLogger == null ? null : campusCardHttpTrace(debugLogger),
-            ) {
+        _runtimeFactory = runtimeFactory,
+        _debugLogger = debugLogger {
+    // Deliberately nothing here. This constructor runs inside `main`, before
+    // `runApp`, and the runtime it used to build is a whole feature: its own
+    // Dio, the request cipher, the e-card session issuer and the watch sync.
+    // Building it on first use moves all of that off the splash — the first use
+    // being the warm-up the boot fires once the first frame is up.
+  }
+
+  AppRuntime get _runtime => _runtimeInstance ??= _startRuntime();
+
+  AppRuntime _startRuntime() {
+    final runtime = _runtimeFactory?.call() ??
+        buildRealRuntime(
+          AppEnvironment.production,
+          secureCredentialStore: _secureStore,
+          sessionIssuer: GeekPieEcardSessionIssuer(endpoint: () => Uri.parse(
+            '${_storage == null ? prodApiBaseUrl : apiBaseUrl(_storage)}/auth/third-party/ecard',
+          ),),
+          httpTrace: _debugLogger == null
+              ? null
+              : campusCardHttpTrace(_debugLogger),
+        );
     unawaited(CoreErrorCatalog.initialize());
-    watchSync = WatchSyncService(_runtime, _sessionStore)..initialize();
-    _authSubscription = _runtime.auth.changes.listen((_) {
+    watchSync = WatchSyncService(runtime, _sessionStore)..initialize();
+    _authSubscription = runtime.auth.changes.listen((_) {
       unawaited(refreshAccount());
     });
+    return runtime;
   }
+
+  final CampusCardRuntimeFactory? _runtimeFactory;
+  final DebugLogger? _debugLogger;
+  AppRuntime? _runtimeInstance;
 
   final SecureCredentialStore _secureStore;
   final StorageService? _storage;
@@ -132,7 +150,6 @@ final class CampusCardService extends ChangeNotifier implements EcardSyncStore {
   });
 
   final SecureSessionCredentialStore _sessionStore;
-  final AppRuntime _runtime;
   late final WatchSyncService watchSync;
 
   StreamSubscription<AuthSnapshot>? _authSubscription;
@@ -245,10 +262,15 @@ final class CampusCardService extends ChangeNotifier implements EcardSyncStore {
 
   @override
   void dispose() {
-    watchSync.dispose();
+    // A service that was never used never built its runtime; there is nothing
+    // to unwind in that case.
+    final runtime = _runtimeInstance;
+    if (runtime != null) {
+      watchSync.dispose();
+      unawaited(runtime.dispose());
+    }
     unawaited(_authSubscription?.cancel());
     _authSubscription = null;
-    unawaited(_runtime.dispose());
     super.dispose();
   }
 }
