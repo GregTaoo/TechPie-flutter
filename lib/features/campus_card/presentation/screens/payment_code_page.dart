@@ -47,6 +47,13 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
       ref.read(paymentCodeControllerProvider.notifier);
   bool _offline = false;
   bool _offlineBusy = false;
+
+  // Debug-only timeline in milliseconds, shown under the pass in debug mode:
+  // how long the local code took to make, and how long the first frame showing
+  // a freshly received code took to arrive. With the request's own time from
+  // the controller these say where a slow pass actually spends its seconds.
+  int? _offlineGeneratedMs;
+  int? _codeShownAfterMs;
   String? _offlinePayload;
   String? _offlineError;
   int? _offlineRemaining;
@@ -272,12 +279,15 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
       // generate() validates the grant itself and publishes the grant it
       // consumed, so neither a pre-check nor a post-check reads secure storage
       // here: the refresh stays one pass over the keystore.
+      final localWatch = Stopwatch()..start();
       final code = await controller.generate();
+      localWatch.stop();
       if (!mounted || !_active || revision != _activityRevision) return;
       // Online generation may finish while local signing/storage is pending.
       if (automatic && (!_allowAutomaticOffline || _preferReadyOnlineCode())) return;
       setState(() {
         _offline = true;
+        _offlineGeneratedMs = localWatch.elapsedMilliseconds;
         _offlinePayload = code.payload;
         _offlineRemaining = ref
             .read(offlineAuthorizationProvider(card.id))
@@ -350,6 +360,21 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
           payment.connectionState == PaymentConnectionState.online &&
           (payment.phase == PaymentCodePhase.displaying ||
               payment.phase == PaymentCodePhase.polling));
+
+  /// Debug-only: how long the pass takes to paint a code it has just received.
+  /// The frame after the state change is the first one that can show it, so it
+  /// is measured from the callback rather than from the state itself.
+  void _measureCodeShown() {
+    if (!debugModeFeaturesAvailable || !ref.read(debugModeProvider)) return;
+    final received = DateTime.now();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(
+        () => _codeShownAfterMs =
+            DateTime.now().difference(received).inMilliseconds,
+      );
+    });
+  }
 
   /// Whether an online attempt is still on its way — as opposed to having
   /// produced a code, failed, or been stopped by the account state.
@@ -488,6 +513,7 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
       if (_onlineCodeReady(next) && !manualOffline) {
         _onlineRetryTimer?.cancel();
         if (_offline) setState(() => _offline = false);
+        _measureCodeShown();
       }
       if (next.phase == PaymentCodePhase.succeeded &&
           previous?.phase != PaymentCodePhase.succeeded) {
@@ -634,6 +660,8 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
                               reduceMotion: reduceMotion,
                               active: _active,
                               debugMode: debugMode,
+                              offlineGeneratedMs: _offlineGeneratedMs,
+                              codeShownAfterMs: _codeShownAfterMs,
                               onShowStatus: () => unawaited(
                                 _showStatusSheet(
                                   card: card,
@@ -975,6 +1003,8 @@ final class _ExpandedPaymentPass extends StatelessWidget {
     required this.reduceMotion,
     required this.active,
     this.debugMode = false,
+    this.offlineGeneratedMs,
+    this.codeShownAfterMs,
     required this.onShowStatus,
     required this.onRefreshOnline,
     required this.onRefreshOffline,
@@ -996,9 +1026,12 @@ final class _ExpandedPaymentPass extends StatelessWidget {
   final bool reduceMotion;
   final bool active;
 
-  /// Debug builds only: show how long the last code took to fetch, so a slow
-  /// refresh can be measured where it is felt instead of guessed at.
+  /// Debug builds only: show where the last code's seconds went, so a slow pass
+  /// is measured where it is felt instead of guessed at: the request, the local
+  /// code that led it, and the frame that finally showed the result.
   final bool debugMode;
+  final int? offlineGeneratedMs;
+  final int? codeShownAfterMs;
   final VoidCallback onShowStatus;
   final VoidCallback onRefreshOnline;
   final VoidCallback onRefreshOffline;
@@ -1265,7 +1298,9 @@ final class _ExpandedPaymentPass extends StatelessWidget {
                                       payment.requestLatency != null) ...[
                                     SizedBox(height: width * 0.004),
                                     Text(
-                                      '${payment.requestLatency!.inMilliseconds} ms',
+                                      'request ${payment.requestLatency!.inMilliseconds}ms'
+                                      '${offlineGeneratedMs == null ? '' : ' · local ${offlineGeneratedMs}ms'}'
+                                      '${codeShownAfterMs == null ? '' : ' · frame ${codeShownAfterMs}ms'}',
                                       style: TextStyle(
                                         color: GpTokens.campusRed
                                             .withValues(alpha: 0.38),

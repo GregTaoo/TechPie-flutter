@@ -354,6 +354,16 @@ void main() {
     await rig.dispose(tester);
   });
 
+  testWidgets('debug mode shows where the code spent its time', (tester) async {
+    final rig = await _Rig.mount(tester, debugMode: true);
+
+    // The request's own time comes from the controller, against which the local
+    // code and the frame are read; together they say which part is slow.
+    expect(find.textContaining(RegExp(r'request \d+ms')), findsOneWidget);
+
+    await rig.dispose(tester);
+  });
+
   testWidgets('password rejection silently refreshes without outcome messages',
       (tester) async {
     final rig = await _Rig.mount(tester);
@@ -421,11 +431,13 @@ class _Rig {
     bool maximizeBrightness = false,
     CardRepository? cards,
     TransactionHistoryPort? transactions,
+    bool debugMode = false,
   }) async {
     SharedPreferences.setMockInitialValues(
       {
         if (maximizeBrightness)
           'geekpay.maximize_payment_code_brightness': true,
+        if (debugMode) 'geekpay.debug_mode': true,
       },
     );
     final base = await buildDemoRuntime();
