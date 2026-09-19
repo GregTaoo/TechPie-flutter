@@ -22,6 +22,7 @@ final class SettingsScreen extends ConsumerWidget {
     final skipScanConfirmation = ref.watch(skipScanConfirmationProvider);
     final maximizeBrightness =
         ref.watch(maximizePaymentCodeBrightnessProvider).valueOrNull;
+    final offlineCodeFirst = ref.watch(offlineCodeFirstProvider).valueOrNull;
     return Scaffold(
       body: AppleWalletPage(
         child: ApplePinnedHeaderLayout(
@@ -42,6 +43,29 @@ final class SettingsScreen extends ConsumerWidget {
               52,
             ),
             children: [
+              AppleSection(
+                footer: '开启后付款码先用本机离线码显示（每次生成消耗一次离线授权），'
+                    '在线码就绪后自动切换。默认开启。',
+                children: [
+                  AppleListRow(
+                    icon: GpPlatformIcons.offline(context),
+                    label: '离线码优先',
+                    verticalPadding: 4,
+                    trailing: _SettingsSwitch(
+                      key: const Key('offline-code-first'),
+                      value: offlineCodeFirst ?? true,
+                      onChanged: offlineCodeFirst == null
+                          ? null
+                          : (enabled) => unawaited(
+                                ref
+                                    .read(offlineCodeFirstProvider.notifier)
+                                    .setEnabled(enabled),
+                              ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
               AppleSection(
                 footer: '开启后，显示付款码时使用最大亮度，离开后恢复。默认关闭，使用系统亮度。',
                 children: [

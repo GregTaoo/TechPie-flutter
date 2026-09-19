@@ -22,3 +22,31 @@ final class MaximizePaymentCodeBrightnessController
     state = AsyncData(enabled);
   }
 }
+
+/// Whether the pass shows a locally generated code straight away and hands the
+/// surface over to the online code as soon as it arrives ("离线码优先"). On by
+/// default: the local code is the fast path, the online one takes over.
+///
+/// Producing a local code consumes one offline authorization, so this is a
+/// deliberate trade the user makes: an instant code on a slow campus network,
+/// paid for in offline uses.
+final offlineCodeFirstProvider =
+    AsyncNotifierProvider<OfflineCodeFirstController, bool>(
+  OfflineCodeFirstController.new,
+);
+
+final class OfflineCodeFirstController extends AsyncNotifier<bool> {
+  static const preferenceKey = 'geekpay.offline_code_first';
+
+  @override
+  Future<bool> build() async {
+    final preferences = await SharedPreferences.getInstance();
+    return preferences.getBool(preferenceKey) ?? true;
+  }
+
+  Future<void> setEnabled(bool enabled) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setBool(preferenceKey, enabled);
+    state = AsyncData(enabled);
+  }
+}

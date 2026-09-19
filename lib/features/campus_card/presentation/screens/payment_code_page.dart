@@ -13,6 +13,7 @@ import '../../application/confirmed_disconnect_feedback.dart';
 import '../../core/config/debug_mode_controller.dart';
 import '../../core/config/debug_mode_features.dart';
 import '../../core/config/offline_authorization_banner_controller.dart';
+import '../../core/config/payment_code_preferences.dart';
 import '../../core/errors/app_failure.dart';
 import '../../domain/models/card_models.dart';
 import '../../domain/models/offline_models.dart';
@@ -53,6 +54,9 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
   StreamSubscription<AppLifecycleState>? _lifecycleSubscription;
   Timer? _onlineRetryTimer;
   bool _scannerOpen = false;
+  /// Set once the online code has been ready during this visit: the head start
+  /// is for the first code of a visit, not for every refresh.
+  bool _onlineCodeWasReady = false;
   bool _visible = false;
   bool _foreground = false;
   bool _active = false;
@@ -295,6 +299,14 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
           (payment.phase == PaymentCodePhase.displaying ||
               payment.phase == PaymentCodePhase.polling));
 
+  /// Whether an online attempt is still on its way — as opposed to having
+  /// produced a code, failed, or been stopped by the account state.
+  bool _onlineInFlight(PaymentCodeViewState payment) =>
+      payment.phase == PaymentCodePhase.idle ||
+      payment.phase == PaymentCodePhase.initializing ||
+      payment.phase == PaymentCodePhase.refreshing ||
+      payment.phase == PaymentCodePhase.stopped;
+
   Future<void> _refreshRecentTransactions() async {
     ref.invalidate(transactionFeedProvider(_allTransactions));
     await _loadRecentTransactions();
@@ -357,6 +369,10 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
     final transactions = ref.watch(transactionFeedProvider(_allTransactions));
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
     final manualOffline = ref.watch(manualOfflineModeProvider);
+    // Null while the stored preference is being read: the head start waits for
+    // the answer rather than spending a grant the user turned off.
+    final offlineCodeFirst =
+        ref.watch(offlineCodeFirstProvider).valueOrNull;
     final debugMode =
         debugModeFeaturesAvailable && ref.watch(debugModeProvider);
     final offlineAuthorization =
@@ -406,13 +422,20 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
     if (onlineFailed && _onlineRetryTimer?.isActive != true) {
       _scheduleOnlineRetry();
     }
-    // The local code is a fallback, not a head start: it appears when the online
-    // attempt has failed (or when the user asked for offline), never while the
-    // online code is still on its way.
+    if (_onlineCodeReady(payment)) _onlineCodeWasReady = true;
+    // 离线码优先 turns the local code into a head start: it is produced while the
+    // online code is on its way and handed over the moment that one is ready.
+    // Off, the local code is only ever a fallback — it appears when the online
+    // attempt failed, or when the user asked for offline. Either way a grant is
+    // never spent twice for the same visit: once the online code has been ready,
+    // a refresh does not start another local one.
+    final offlineHeadStart = offlineCodeFirst == true &&
+        !_onlineCodeWasReady &&
+        !_onlineCodeReady(payment);
     if (_active &&
         card != null &&
         canGenerateOffline &&
-        (manualOffline || onlineFailed) &&
+        (manualOffline || onlineFailed || offlineHeadStart) &&
         !_offline &&
         !_offlineBusy &&
         _offlineError == null) {
@@ -499,6 +522,11 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
                               // the automatic fallback, or a failed local refresh
                               // would hand the surface back to the online code.
                               offline: manualOffline || _offline,
+                              // Offline code on screen while the online one is
+                              // still being fetched: the pass says so.
+                              waitingForOnlineCode: _offline &&
+                                  !manualOffline &&
+                                  _onlineInFlight(payment),
                               offlineBusy: _offlineBusy,
                               offlinePayload: _offlinePayload,
                               offlineRemaining: _offlineRemaining,
@@ -834,6 +862,7 @@ final class _ExpandedPaymentPass extends StatelessWidget {
     required this.card,
     required this.payment,
     required this.offline,
+    required this.waitingForOnlineCode,
     required this.offlineBusy,
     required this.offlinePayload,
     required this.offlineRemaining,
@@ -849,6 +878,7 @@ final class _ExpandedPaymentPass extends StatelessWidget {
   final CampusCard card;
   final PaymentCodeViewState payment;
   final bool offline;
+  final bool waitingForOnlineCode;
   final bool offlineBusy;
   final String? offlinePayload;
   final int? offlineRemaining;
@@ -1089,11 +1119,15 @@ final class _ExpandedPaymentPass extends StatelessWidget {
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
-                                  if (!offline || offlineRemaining != null) ...[
+                                  if (!offline ||
+                                      offlineRemaining != null ||
+                                      waitingForOnlineCode) ...[
                                     SizedBox(height: width * 0.004),
                                     if (offline)
                                       Text(
-                                        '剩余次数: $offlineRemaining',
+                                        waitingForOnlineCode
+                                            ? '在线码加载中'
+                                            : '剩余次数: $offlineRemaining',
                                         style: TextStyle(
                                           color: GpTokens.campusRed
                                               .withValues(alpha: 0.62),

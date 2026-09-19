@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math';
+
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,6 +10,7 @@ import 'package:techpie/features/campus_card/app/app_providers.dart';
 import 'package:techpie/features/campus_card/app/app_runtime.dart';
 import 'package:techpie/features/campus_card/app/demo_runtime_factory.dart';
 import 'package:techpie/features/campus_card/application/offline_payment_service.dart';
+import 'package:techpie/features/campus_card/core/config/payment_code_preferences.dart';
 import 'package:techpie/features/campus_card/core/errors/app_failure.dart';
 import 'package:techpie/features/campus_card/data/crypto/sm2_offline_crypto.dart';
 import 'package:techpie/features/campus_card/data/mock/in_memory_ports.dart';
@@ -25,9 +27,34 @@ import 'package:techpie/features/campus_card/presentation/screens/payment_code_p
 final _now = DateTime.utc(2026, 9, 14, 12);
 
 void main() {
-  testWidgets('the online code is awaited, and a failure shows the local one',
+  testWidgets('the local code is a head start, and the online one takes over',
       (tester) async {
     final h = await _Harness.create();
+    await h.mount(tester);
+    // The pass is usable at once, and says the online code is still on its way.
+    expect(find.text('离线付款码'), findsOneWidget);
+    expect(find.text('在线码加载中'), findsOneWidget);
+    expect(find.byKey(const Key('payment-code-qr')), findsOneWidget);
+    expect(h.credentials.reservations, 1);
+    expect(h.online.calls, 1);
+
+    // The online code arrives and replaces both the code and the note.
+    h.online.pending.complete(_frame());
+    await _pump(tester);
+    expect(find.text('在线付款码'), findsOneWidget);
+    expect(find.text('在线码加载中'), findsNothing);
+    expect(find.text('离线付款码'), findsNothing);
+    expect(
+      h.container.read(paymentCodeControllerProvider).frame!.qrPayload,
+      'ONLINE-CODE',
+    );
+    expect(h.credentials.reservations, 1);
+    await h.close(tester);
+  });
+
+  testWidgets('with 离线码优先 off the pass waits for the online code',
+      (tester) async {
+    final h = await _Harness.create(offlineCodeFirst: false);
     await h.mount(tester);
     expect(h.remote.renewals, 1);
     expect(h.online.calls, 1);
@@ -50,16 +77,35 @@ void main() {
     expect(find.text('在线付款码'), findsOneWidget);
     expect(find.byKey(const Key('payment-code-qr')), findsOneWidget);
     expect(h.credentials.reservations, 0);
-    expect(
-      h.container.read(paymentCodeControllerProvider).frame!.qrPayload,
-      'ONLINE-CODE',
-    );
+    await h.close(tester);
+  });
+
+  testWidgets('a refresh after the online code was ready spends no second grant',
+      (tester) async {
+    final h = await _Harness.create();
+    await h.mount(tester);
+    h.online.pending.complete(_frame());
+    await _pump(tester);
+    expect(find.text('在线付款码'), findsOneWidget);
+    expect(h.credentials.reservations, 1);
+
+    // The head start belongs to the first code of a visit: refreshing the online
+    // one must not sign — and spend — a local code again.
+    h.online.retry = Completer<PaymentCodeFrame>();
+    await tester.tap(find.byKey(const Key('payment-code-qr')));
+    await _pump(tester);
+    expect(find.text('离线付款码'), findsNothing);
+    expect(h.credentials.reservations, 1);
+    h.online.retry!.complete(_frame());
+    await _pump(tester);
+    expect(find.text('在线付款码'), findsOneWidget);
+    expect(h.credentials.reservations, 1);
     await h.close(tester);
   });
 
   testWidgets('a failed online load is what shows the local code',
       (tester) async {
-    final h = await _Harness.create();
+    final h = await _Harness.create(offlineCodeFirst: false);
     await h.mount(tester);
     expect(find.byKey(const Key('payment-code-qr')), findsNothing);
     h.online.pending
@@ -75,7 +121,7 @@ void main() {
     testWidgets(
         'late local generation cannot replace ready online code (failure=$failed)',
         (tester) async {
-      final h = await _Harness.create();
+      final h = await _Harness.create(offlineCodeFirst: false);
       await h.mount(tester);
       // The failed online attempt starts the local code, held here so it lands
       // after the retry has already delivered the online one.
@@ -205,7 +251,7 @@ void main() {
 
   testWidgets('manual offline mode refreshes the local code, not the online one',
       (tester) async {
-    final h = await _Harness.create();
+    final h = await _Harness.create(offlineCodeFirst: false);
     await h.mount(tester);
     // Let the online code arrive first so the mode switch reads "off".
     h.online.pending.complete(_frame());
@@ -280,7 +326,7 @@ void main() {
   });
 
   testWidgets('manual offline mode never touches the network', (tester) async {
-    final h = await _Harness.create();
+    final h = await _Harness.create(offlineCodeFirst: false);
     await h.mount(tester);
     h.online.pending.complete(_frame());
     await _pump(tester);
@@ -338,7 +384,7 @@ void main() {
 
   testWidgets('a failed local refresh keeps the offline surface and its retry',
       (tester) async {
-    final h = await _Harness.create();
+    final h = await _Harness.create(offlineCodeFirst: false);
     await h.mount(tester);
     h.online.pending.complete(_frame());
     await _pump(tester);
@@ -402,8 +448,15 @@ class _Harness {
   final _Remote remote;
   final _Online online;
   final ProviderContainer container;
-  static Future<_Harness> create({String grantState = 'valid'}) async {
-    SharedPreferences.setMockInitialValues({});
+  static Future<_Harness> create({
+    String grantState = 'valid',
+    // The app ships with 离线码优先 on; a test that is about the fallback-only
+    // flow turns it off explicitly rather than assuming it.
+    bool offlineCodeFirst = true,
+  }) async {
+    SharedPreferences.setMockInitialValues({
+      OfflineCodeFirstController.preferenceKey: offlineCodeFirst,
+    });
     final base = await buildDemoRuntime();
     final credentials = _Credentials(
       SecureOfflineCredentialRepository(InMemorySecureCredentialStore()),
