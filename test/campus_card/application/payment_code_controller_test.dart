@@ -13,7 +13,19 @@ import 'package:techpie/features/campus_card/domain/ports/platform_ports.dart';
 
 import '../support/fake_ecard_transport.dart';
 
+/// The cadence the app ships with. The tests below advance time by this much to
+/// reach a poll, so they follow the product decision instead of repeating it.
+const pollInterval = PaymentCodeController.defaultPollInterval;
+
 void main() {
+  test('the shipped poll cadence stays deliberately slow', () {
+    // While the pass is open the poll is the app's steady traffic. A change here
+    // is a product decision, not a detail: it should be made on purpose.
+    expect(PaymentCodeController.defaultPollInterval, const Duration(seconds: 5));
+    expect(PaymentCodeController.defaultRefreshInterval,
+        const Duration(seconds: 30),);
+  });
+
   test('manual refresh joins an automatic generation already in flight', () {
     fakeAsync((async) {
       final repository = _RefreshAndPollRepository();
@@ -45,11 +57,11 @@ void main() {
       final controller = PaymentCodeController(repository: repository);
       unawaited(controller.start());
       async.flushMicrotasks();
-      async.elapse(const Duration(seconds: 3));
+      async.elapse(pollInterval);
       async.flushMicrotasks();
       expect(repository.generateCalls, 2);
       expect(controller.state.phase, PaymentCodePhase.displaying);
-      async.elapse(const Duration(seconds: 3));
+      async.elapse(pollInterval);
       async.flushMicrotasks();
       expect(repository.generateCalls, 2);
       expect(controller.state.phase, PaymentCodePhase.switchingOffline);
@@ -68,7 +80,7 @@ void main() {
       expect(repository.generateCalls, 1);
       expect(controller.state.phase, PaymentCodePhase.displaying);
 
-      async.elapse(const Duration(seconds: 3));
+      async.elapse(pollInterval);
       async.flushMicrotasks();
       expect(repository.pollCalls, 1);
 
@@ -78,7 +90,7 @@ void main() {
           confirmedLocallyAt: DateTime.utc(2026, 8, 31),
         ),
       );
-      async.elapse(const Duration(seconds: 3));
+      async.elapse(pollInterval);
       async.flushMicrotasks();
 
       expect(controller.state.phase, PaymentCodePhase.succeeded);
@@ -171,11 +183,11 @@ void main() {
       unawaited(controller.start());
       async.flushMicrotasks();
 
-      async.elapse(const Duration(seconds: 3));
+      async.elapse(pollInterval);
       async.flushMicrotasks();
       expect(repository.pollCalls, 1);
 
-      async.elapse(const Duration(seconds: 27));
+      async.elapse(PaymentCodeController.defaultRefreshInterval - pollInterval);
       async.flushMicrotasks();
       expect(repository.generateCalls, 2);
       expect(controller.state.generation, 2);
@@ -365,7 +377,7 @@ void main() {
 
       unawaited(controller.start());
       async.flushMicrotasks();
-      async.elapse(const Duration(seconds: 3));
+      async.elapse(pollInterval);
       async.flushMicrotasks();
 
       expect(repository.generateCalls, 2);
@@ -384,7 +396,7 @@ void main() {
       controller.states.listen((value) => phases.add(value.phase));
       unawaited(controller.start());
       async.flushMicrotasks();
-      async.elapse(const Duration(seconds: 3));
+      async.elapse(pollInterval);
       async.flushMicrotasks();
 
       expect(controller.state.phase, PaymentCodePhase.displaying);
@@ -393,7 +405,7 @@ void main() {
       expect(controller.state.result, isNull);
       expect(controller.state.connectionState, PaymentConnectionState.online);
       repository.nextPoll = const PaymentPending();
-      async.elapse(const Duration(seconds: 3));
+      async.elapse(pollInterval);
       async.flushMicrotasks();
 
       expect(repository.generateCalls, 2);
@@ -452,7 +464,8 @@ void main() {
       controller.states.listen(states.add);
       unawaited(controller.start());
       async.flushMicrotasks();
-      async.elapse(const Duration(seconds: 12));
+      // Four polls: the same code must survive every one of them.
+      async.elapse(pollInterval * 4);
       async.flushMicrotasks();
 
       expect(

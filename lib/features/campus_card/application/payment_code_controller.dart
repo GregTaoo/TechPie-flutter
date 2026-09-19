@@ -9,10 +9,19 @@ import '../domain/ports/platform_ports.dart';
 final class PaymentCodeController {
   PaymentCodeController({
     required PaymentCodeRepository repository,
-    this.refreshInterval = const Duration(seconds: 30),
-    this.pollInterval = const Duration(seconds: 3),
+    this.refreshInterval = defaultRefreshInterval,
+    this.pollInterval = defaultPollInterval,
     this.successDisplayDuration = const Duration(seconds: 3),
   }) : _repository = repository;
+
+  /// How long a code is shown before it is replaced. The pass counts down from
+  /// the same value, so a longer one would leave an expired code on screen.
+  static const defaultRefreshInterval = Duration(seconds: 30);
+
+  /// How often a displayed code asks whether it has been paid. This is the app's
+  /// steady cost while the pass is open, so it is deliberately not the fastest
+  /// answer the terminal would allow.
+  static const defaultPollInterval = Duration(seconds: 5);
 
   final PaymentCodeRepository _repository;
   final Duration refreshInterval;

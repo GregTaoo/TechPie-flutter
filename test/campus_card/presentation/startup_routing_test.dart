@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:techpie/features/campus_card/app/app_providers.dart';
 import 'package:techpie/features/campus_card/app/app_runtime.dart';
 import 'package:techpie/features/campus_card/app/demo_runtime_factory.dart';
+import 'package:techpie/features/campus_card/application/payment_code_controller.dart';
 import 'package:techpie/features/campus_card/core/config/app_environment.dart';
 import 'package:techpie/features/campus_card/core/errors/app_failure.dart';
 import 'package:techpie/features/campus_card/data/mock/in_memory_ports.dart';
@@ -207,7 +208,7 @@ void main() {
         confirmedLocallyAt: DateTime.utc(2026, 9, 6),
       ),
     );
-    await tester.pump(const Duration(seconds: 3));
+    await tester.pump(PaymentCodeController.defaultPollInterval);
     await tester.pump();
     expect(
       tester

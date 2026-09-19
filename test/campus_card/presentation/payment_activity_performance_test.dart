@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:techpie/features/campus_card/app/app_providers.dart';
 import 'package:techpie/features/campus_card/app/app_runtime.dart';
 import 'package:techpie/features/campus_card/app/demo_runtime_factory.dart';
+import 'package:techpie/features/campus_card/application/payment_code_controller.dart';
 import 'package:techpie/features/campus_card/core/config/payment_code_preferences.dart';
 import 'package:techpie/features/campus_card/data/mock/in_memory_ports.dart';
 import 'package:techpie/features/campus_card/data/repositories/ecard_payment_code_repository.dart';
@@ -28,6 +29,9 @@ import 'package:techpie/features/campus_card/presentation/widgets/apple_wallet_c
 
 import '../support/fake_ecard_transport.dart';
 import '../support/successful_payment_poll.dart';
+
+/// The cadence the app ships with; a poll is reached by waiting this long.
+const pollInterval = PaymentCodeController.defaultPollInterval;
 
 void main() {
   testWidgets('a late account refresh failure cannot restore a balance superseded by code data', (tester) async {
@@ -116,7 +120,7 @@ void main() {
       ..enqueue('POST', '/virtualcard/queryOrderStatus', successfulPaymentPoll);
     rig.repository.pendingPoll =
         EcardPaymentCodeRepository(transport).pollTransaction('synthetic-code');
-    await tester.pump(const Duration(seconds: 3));
+    await tester.pump(pollInterval);
     await tester.pump(const Duration(milliseconds: 100));
     expect(find.byKey(const ValueKey('success')), findsOneWidget);
     expect(find.textContaining('8.80'), findsOneWidget);
@@ -157,7 +161,7 @@ void main() {
       ..enqueue('POST', '/virtualcard/queryOrderStatus', successfulPaymentPoll);
     rig.repository.pendingPoll =
         EcardPaymentCodeRepository(transport).pollTransaction('synthetic-code');
-    await tester.pump(const Duration(seconds: 3));
+    await tester.pump(pollInterval);
     await tester.pump(const Duration(milliseconds: 100));
     expect(find.byKey(const ValueKey('success')), findsOneWidget);
     expect(rig.container.read(cardControllerProvider).valueOrNull!.balance,
@@ -196,7 +200,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     final before = rig.repository.polls;
-    await tester.pump(const Duration(seconds: 3));
+    await tester.pump(pollInterval);
     expect(rig.repository.polls, before + 1);
     expect(rig.brightness.value, 1);
     await rig.dispose(tester);
@@ -244,7 +248,7 @@ void main() {
     final rig = await _Rig.mount(tester);
     final poll = Completer<PaymentCodePollResult>();
     rig.repository.pendingPoll = poll.future;
-    await tester.pump(const Duration(seconds: 3));
+    await tester.pump(pollInterval);
     final before = rig.qrPainter(tester);
     final art = tester.widget(find.byKey(const Key('payment-card-top-art')));
     poll.complete(const PaymentPending());
@@ -356,7 +360,7 @@ void main() {
     rig.repository.pendingPoll = Future.value(
       const PaymentNotCompleted(reason: '密码错误'),
     );
-    await tester.pump(const Duration(seconds: 3));
+    await tester.pump(pollInterval);
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('payment-not-completed')), findsNothing);
@@ -375,7 +379,7 @@ void main() {
     );
 
     rig.repository.pendingPoll = null;
-    await tester.pump(const Duration(seconds: 3));
+    await tester.pump(pollInterval);
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('payment-code-qr')), findsOneWidget);
     expect(

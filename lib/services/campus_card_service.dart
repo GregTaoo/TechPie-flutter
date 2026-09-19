@@ -60,6 +60,18 @@ final class CampusCardService extends ChangeNotifier implements EcardSyncStore {
     _authSubscription = _runtime.auth.changes.listen((_) {
       unawaited(refreshAccount());
     });
+    // Warm the campus session at boot instead of on the first request that needs
+    // it. A cold session pays its issuance and identity check before any business
+    // request can start — the whole feature shares one session lock — which is
+    // the wait felt when the pass is opened for the first time. Failing here is
+    // not an error: the pass simply repeats the work when it needs it.
+    unawaited(() async {
+      try {
+        await _runtime.auth.restore();
+      } catch (_) {
+        // The stored binding, and any offline code, remain available.
+      }
+    }());
   }
 
   final SecureCredentialStore _secureStore;
