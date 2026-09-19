@@ -189,10 +189,10 @@ Future<void> _realMain(SharedPreferences prefs) async {
   // The home-screen widget only needs its handler once something could press it.
   if (isIos() || isAndroid()) ecardWidgetService.initialize();
 
-  // The pass is one tap away and its session is cold: fetch it in the
-  // background now, so opening it costs one round trip instead of three. After
-  // `runApp`, so the splash is already on screen.
-  unawaited(campusCardService.warmSession());
+  // Build the campus-card runtime now that the first frame is up, so tapping the
+  // pass does not pay for it. Nothing session-related happens here: a request
+  // that needs a session issues one itself.
+  campusCardService.prepare();
 
   // -- Background: renew tokens first (main SSO session + third-party in
   // parallel — they touch independent state), then fan out fetches that

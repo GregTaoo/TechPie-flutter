@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -29,6 +30,7 @@ class CampusCardPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (kDebugMode) debugPrint('[ecard] page opened');
     final services = runtime == null ? ServiceProvider.of(context) : null;
     final value = runtime ?? services!.campusCardService.runtime;
     return CampusCardHostScope(

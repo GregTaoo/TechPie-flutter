@@ -57,6 +57,7 @@ final class CampusCardService extends ChangeNotifier implements EcardSyncStore {
   AppRuntime get _runtime => _runtimeInstance ??= _startRuntime();
 
   AppRuntime _startRuntime() {
+    final watch = Stopwatch()..start();
     final runtime = _runtimeFactory?.call() ??
         buildRealRuntime(
           AppEnvironment.production,
@@ -73,6 +74,9 @@ final class CampusCardService extends ChangeNotifier implements EcardSyncStore {
     _authSubscription = runtime.auth.changes.listen((_) {
       unawaited(refreshAccount());
     });
+    if (kDebugMode) {
+      debugPrint('[ecard] runtime built ${watch.elapsedMilliseconds}ms');
+    }
     return runtime;
   }
 
@@ -175,19 +179,15 @@ final class CampusCardService extends ChangeNotifier implements EcardSyncStore {
     notifyListeners();
   }
 
-  /// Fetches the campus session in the background, so the first request of a
-  /// pass does not pay for the session's issuance and identity check on top of
-  /// its own round trip. Called after the first frame rather than from the
-  /// constructor: the warm-up reads the keystore, whose platform channel queues
-  /// calls, so starting before startup has finished would delay it. A failure
-  /// is not an error — the pass repeats the work when it needs it.
-  Future<void> warmSession() async {
-    try {
-      await _runtime.auth.restore();
-    } catch (_) {
-      // The stored binding, and any offline code, remain available.
-    }
-  }
+  /// Builds the runtime, so opening a pass does not pay for it. Called after the
+  /// first frame: the constructor runs inside `main`, and building a whole
+  /// feature there would hold up the splash.
+  ///
+  /// Deliberately *not* a session warm-up. A request that needs a session issues
+  /// one itself, and doing it here meant fetching a session the user might never
+  /// ask for while holding the session lock — so opening the pass waited on a
+  /// round trip nobody requested.
+  void prepare() => _runtime;
 
   Future<String?> readOpenId() => _sessionStore.readOpenId();
   Future<EcardOpenIdChannel> readOpenIdChannel() => _sessionStore.readOpenIdChannel();
