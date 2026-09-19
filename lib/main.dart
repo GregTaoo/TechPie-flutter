@@ -175,6 +175,11 @@ Future<void> _realMain(SharedPreferences prefs) async {
 
   unawaited(campusCardService.refreshAccount());
 
+  // The pass is one tap away and its session is cold: fetch it in the
+  // background now, so opening it costs one round trip instead of three. After
+  // `runApp`, so the splash is already on screen.
+  unawaited(campusCardService.warmSession());
+
   // -- Background: renew tokens first (main SSO session + third-party in
   // parallel — they touch independent state), then fan out fetches that
   // depend on those tokens. The whole block is unawaited so the splash

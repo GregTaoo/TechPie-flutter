@@ -60,18 +60,6 @@ final class CampusCardService extends ChangeNotifier implements EcardSyncStore {
     _authSubscription = _runtime.auth.changes.listen((_) {
       unawaited(refreshAccount());
     });
-    // Warm the campus session at boot instead of on the first request that needs
-    // it. A cold session pays its issuance and identity check before any business
-    // request can start — the whole feature shares one session lock — which is
-    // the wait felt when the pass is opened for the first time. Failing here is
-    // not an error: the pass simply repeats the work when it needs it.
-    unawaited(() async {
-      try {
-        await _runtime.auth.restore();
-      } catch (_) {
-        // The stored binding, and any offline code, remain available.
-      }
-    }());
   }
 
   final SecureCredentialStore _secureStore;
@@ -168,6 +156,20 @@ final class CampusCardService extends ChangeNotifier implements EcardSyncStore {
     _channel = channel;
     _maskedOpenId = masked;
     notifyListeners();
+  }
+
+  /// Fetches the campus session in the background, so the first request of a
+  /// pass does not pay for the session's issuance and identity check on top of
+  /// its own round trip. Called after the first frame rather than from the
+  /// constructor: the warm-up reads the keystore, whose platform channel queues
+  /// calls, so starting before startup has finished would delay it. A failure
+  /// is not an error — the pass repeats the work when it needs it.
+  Future<void> warmSession() async {
+    try {
+      await _runtime.auth.restore();
+    } catch (_) {
+      // The stored binding, and any offline code, remain available.
+    }
   }
 
   Future<String?> readOpenId() => _sessionStore.readOpenId();
