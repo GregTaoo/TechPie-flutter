@@ -38,6 +38,11 @@ final class DecryptedHttpTraceInterceptor extends Interceptor {
   static const _requestIdKey = 'geekpay.decryptedTrace.requestId';
   static const _startedAtKey = 'geekpay.decryptedTrace.startedAt';
 
+  /// A caller that spends time before the request is sent — preparing a session,
+  /// checking an identity — can put that cost here, so the trace reports it
+  /// beside the wire time instead of hiding it.
+  static const prepMicrosKey = 'geekpay.decryptedTrace.prepMicros';
+
   var _nextRequestId = 0;
 
   @override
@@ -86,6 +91,8 @@ final class DecryptedHttpTraceInterceptor extends Interceptor {
       'path': options.uri.path,
       'statusCode': response.statusCode,
       'durationMicros': _durationMicros(options),
+      if (options.extra[prepMicrosKey] case final prepMicros?)
+        'prepMicros': prepMicros,
       'headers': response.headers.map,
       'payload': decodedResponse,
       if (_scanCodeFingerprint(options.uri.path, decodedResponse)
@@ -111,6 +118,8 @@ final class DecryptedHttpTraceInterceptor extends Interceptor {
       'path': options.uri.path,
       'statusCode': response?.statusCode,
       'durationMicros': _durationMicros(options),
+      if (options.extra[prepMicrosKey] case final prepMicros?)
+        'prepMicros': prepMicros,
       'dioExceptionType': err.type.name,
       'message': err.message,
       'headers': response?.headers.map,

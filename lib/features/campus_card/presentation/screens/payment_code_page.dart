@@ -633,6 +633,7 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
                               offlineError: _offlineError,
                               reduceMotion: reduceMotion,
                               active: _active,
+                              debugMode: debugMode,
                               onShowStatus: () => unawaited(
                                 _showStatusSheet(
                                   card: card,
@@ -973,6 +974,7 @@ final class _ExpandedPaymentPass extends StatelessWidget {
     required this.offlineError,
     required this.reduceMotion,
     required this.active,
+    this.debugMode = false,
     required this.onShowStatus,
     required this.onRefreshOnline,
     required this.onRefreshOffline,
@@ -993,6 +995,10 @@ final class _ExpandedPaymentPass extends StatelessWidget {
   final String? offlineError;
   final bool reduceMotion;
   final bool active;
+
+  /// Debug builds only: show how long the last code took to fetch, so a slow
+  /// refresh can be measured where it is felt instead of guessed at.
+  final bool debugMode;
   final VoidCallback onShowStatus;
   final VoidCallback onRefreshOnline;
   final VoidCallback onRefreshOffline;
@@ -1253,6 +1259,19 @@ final class _ExpandedPaymentPass extends StatelessWidget {
                                           fontSize: metadataValueSize,
                                         ),
                                       ),
+                                  ],
+                                  if (debugMode &&
+                                      !offline &&
+                                      payment.requestLatency != null) ...[
+                                    SizedBox(height: width * 0.004),
+                                    Text(
+                                      '${payment.requestLatency!.inMilliseconds} ms',
+                                      style: TextStyle(
+                                        color: GpTokens.campusRed
+                                            .withValues(alpha: 0.38),
+                                        fontSize: metadataValueSize * 0.85,
+                                      ),
+                                    ),
                                   ],
                                 ],
                               ),

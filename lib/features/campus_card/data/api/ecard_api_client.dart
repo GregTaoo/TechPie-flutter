@@ -278,6 +278,10 @@ final class EcardApiClient implements EcardTransport {
     PaymentRequestContext? permission,
   }) async {
     data = Map<String, Object?>.unmodifiable(data);
+    // How long the request spends before a byte leaves the device — the session
+    // reads and the identity check — is reported by the trace beside the wire
+    // time, which is what tells a slow refresh apart from a slow server.
+    final prepStartedAt = DateTime.now().microsecondsSinceEpoch;
     // Capture before queueing. Queued A requests must never run as account B.
     final invocationGeneration = _sessionGenerationReader?.call();
     final queuedSession = await (_sessionPreparer?.call() ?? _sessionReader());
@@ -372,6 +376,10 @@ final class EcardApiClient implements EcardTransport {
             headers: {
               'cookie': session.sessionCookie,
               'orgid': session.orgId,
+            },
+            extra: {
+              DecryptedHttpTraceInterceptor.prepMicrosKey:
+                  DateTime.now().microsecondsSinceEpoch - prepStartedAt,
             },
           ),
         );
