@@ -97,6 +97,8 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
   private static readonly TRANSIENT_MS = 24;
   /** Intensity and Frequency are both a percentage, 0-100. */
   private static readonly MAX_PERCENT = 100;
+  /** `VibratorPatternBuilder` and its events arrive with API 18. */
+  private static readonly PATTERN_API = 18;
   /** 55 is where a motor with frequency control reaches resonance. */
   private static readonly RESONANT_FREQUENCY = 55;
   /** Capability not supported: stop asking this device for vibrations. */
@@ -117,6 +119,7 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
   private timers: number[] = [];
   private unsupported: boolean = false;
   private fileUnusable: boolean = false;
+  private patternUnusable: boolean = false;
   private described: boolean = false;
   private readonly files: Map<string, string> = new Map();
 
@@ -149,14 +152,17 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
     const pulses = this.parsePulses(call.argument('pulses'));
     this.describeDevice();
     if (vibration && !this.unsupported && pulses.length > 0) {
-      const file = this.isDesigned(id) ? this.hapticFile(id, pulses) : '';
-      if (file.length > 0) {
-        console.info(`SystemFeedback: playing ${id} via file (${pulses.length} pulse(s))`);
-        this.playFile(file, pulses);
-      } else {
-        console.info(`SystemFeedback: playing ${id} via time (${pulses.length} pulse(s))`);
-        this.playScheduled(pulses);
+      if (this.isDesigned(id)) {
+        const file = this.hapticFile(id, pulses);
+        if (file.length > 0) {
+          console.info(`SystemFeedback: playing ${id} via file (${pulses.length} pulse(s))`);
+          this.playFile(file, pulses);
+          result.success(null);
+          return;
+        }
       }
+      console.info(`SystemFeedback: playing ${id} via time (${pulses.length} pulse(s))`);
+      this.playScheduled(pulses);
     }
     result.success(null);
   }
@@ -256,15 +262,68 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
         .then(() => { fs.closeSync(file); })
         .catch((error: BusinessError) => {
           // A file this device will not take must not become silence: the same
-          // pulses are replayed on the path that always works here.
+          // pulses are replayed on the other forms before giving up.
           this.failed('file', error);
           this.fileUnusable = true;
           fs.closeSync(file);
-          this.playScheduled(pulses);
+          this.playAfterFile(pulses);
         });
     } catch (error) {
       this.failed('file', error as BusinessError);
       this.fileUnusable = true;
+      this.playAfterFile(pulses);
+    }
+  }
+
+  /** What to do when the file form is not available here. */
+  private playAfterFile(pulses: FeedbackPulse[]): void {
+    if (deviceInfo.sdkApiVersion >= SystemFeedbackPlugin.PATTERN_API &&
+        !this.patternUnusable) {
+      console.info('SystemFeedback: falling back to the pattern form');
+      this.playPattern(pulses);
+      return;
+    }
+    this.playScheduled(pulses);
+  }
+
+  /**
+   * The programming form of the same idea (the guideline's own sample): the
+   * builder arrives with API 18. Its transient parameter wants the strength as a
+   * percentage — 0-100, the same scale the configuration file uses — plus a
+   * frequency and the channel index, and the attribute names the device.
+   */
+  private playPattern(pulses: FeedbackPulse[]): void {
+    try {
+      const builder = new vibrator.VibratorPatternBuilder();
+      for (const pulse of pulses) {
+        const duration = this.clampDuration(pulse.durationMs);
+        const intensity = Math.max(1, Math.round(pulse.intensity * SystemFeedbackPlugin.MAX_PERCENT));
+        if (duration <= SystemFeedbackPlugin.TRANSIENT_MS) {
+          builder.addTransientEvent(pulse.atMs, {
+            intensity: intensity,
+            frequency: SystemFeedbackPlugin.RESONANT_FREQUENCY,
+            index: 0,
+          });
+        } else {
+          builder.addContinuousEvent(pulse.atMs, duration, {
+            intensity: intensity,
+            frequency: SystemFeedbackPlugin.RESONANT_FREQUENCY,
+            index: 0,
+          });
+        }
+      }
+      vibrator.startVibration(
+        { type: 'pattern', pattern: builder.build() },
+        { id: 0, deviceId: -1, usage: 'touch' },
+      )
+        .catch((error: BusinessError) => {
+          this.failed('pattern', error);
+          this.patternUnusable = true;
+          this.playScheduled(pulses);
+        });
+    } catch (error) {
+      this.failed('pattern', error as BusinessError);
+      this.patternUnusable = true;
       this.playScheduled(pulses);
     }
   }
