@@ -129,6 +129,9 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
   private soundPlayer: media.AVPlayer | null = null;
   private soundPath: string = '';
   private soundWatchdog: number = -1;
+  /** Bumped whenever a sound is stopped or replaced, so a late player cannot
+   *  stop the sound that replaced it. */
+  private soundGeneration: number = 0;
 
   getUniqueClassName(): string {
     return 'SystemFeedbackPlugin';
@@ -441,13 +444,38 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
       return;
     }
     this.soundPath = path;
+    const generation = ++this.soundGeneration;
     media.createAVPlayer()
       .then((player: media.AVPlayer) => {
+        if (generation !== this.soundGeneration) {
+          // Superseded while the player was being created.
+          player.release().catch((error: BusinessError) => {
+            console.debug(`SystemFeedback: early release returned ${error.code}`);
+          });
+          return;
+        }
         this.soundPlayer = player;
         player.on('stateChange', (state: string) => {
+          if (generation !== this.soundGeneration) {
+            return;
+          }
+          console.info(`SystemFeedback: sound state=${state}`);
           if (state === 'initialized') {
+            // AVPlayer will not play straight from 'initialized': prepare first
+            // and play once it is 'prepared' (playing early is 5400102,
+            // "operation not allowed", which is what this used to do).
+            player.prepare().catch((error: BusinessError) => {
+              if (generation === this.soundGeneration) {
+                this.soundFailed(error);
+              }
+            });
+          } else if (state === 'prepared') {
             console.info(`SystemFeedback: playing sound ${asset}`);
-            player.play().catch((error: BusinessError) => { this.soundFailed(error); });
+            player.play().catch((error: BusinessError) => {
+              if (generation === this.soundGeneration) {
+                this.soundFailed(error);
+              }
+            });
           } else if (state === 'completed' || state === 'error') {
             this.stopSound();
           }
@@ -456,9 +484,17 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
         // Some devices never report completion; the declared window is the
         // authority, with a little room for the tail.
         const window = durationMs > 0 ? durationMs : 1000;
-        this.soundWatchdog = setTimeout(() => { this.stopSound(); }, window + 250);
+        this.soundWatchdog = setTimeout(() => {
+          if (generation === this.soundGeneration) {
+            this.stopSound();
+          }
+        }, window + 250);
       })
-      .catch((error: BusinessError) => { this.soundFailed(error); });
+      .catch((error: BusinessError) => {
+        if (generation === this.soundGeneration) {
+          this.soundFailed(error);
+        }
+      });
   }
 
   private soundFailed(error: BusinessError): void {
@@ -468,6 +504,7 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
   }
 
   private stopSound(): void {
+    this.soundGeneration++;
     if (this.soundWatchdog !== -1) {
       clearTimeout(this.soundWatchdog);
       this.soundWatchdog = -1;
