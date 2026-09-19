@@ -9,6 +9,12 @@ import resourceManager from '@ohos.resourceManager';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { Context } from '@kit.AbilityKit';
 
+/** A vibration that waits for its sound to start before it plays. */
+interface PendingVibration {
+  id: string;
+  pulses: FeedbackPulse[];
+}
+
 /** One vibration pulse, as the Dart side sends it (lib/utils/haptics.dart). */
 interface FeedbackPulse {
   atMs: number;
@@ -107,6 +113,8 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
   private static readonly RESONANT_FREQUENCY = 55;
   /** Capability not supported: stop asking this device for vibrations. */
   private static readonly ERROR_UNSUPPORTED = 801;
+  /** How long a vibration waits for its sound before playing anyway. */
+  private static readonly SOUND_START_WAIT_MS = 120;
 
   /**
    * The waveforms whose strength carries meaning — a card payment landing, and
@@ -132,6 +140,15 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
   /** Bumped whenever a sound is stopped or replaced, so a late player cannot
    *  stop the sound that replaced it. */
   private soundGeneration: number = 0;
+  /**
+   * A vibration waiting for its sound to start. The two are meant to land
+   * together: the sound assets begin with a few milliseconds of silence, and the
+   * player needs to create, prepare and start before any of it is audible, so a
+   * vibration fired immediately would lead by tens of milliseconds. It fires
+   * when the player reaches 'playing', and at the latest after the wait below.
+   */
+  private pendingVibration: PendingVibration | null = null;
+  private vibrationFallback: number = -1;
 
   getUniqueClassName(): string {
     return 'SystemFeedbackPlugin';
@@ -161,24 +178,22 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
     const id: string = typeof rawId === 'string' ? rawId as string : '';
     const pulses = this.parsePulses(call.argument('pulses'));
     this.describeDevice();
+    const wantsVibration = vibration && !this.unsupported && pulses.length > 0;
     if (call.argument('sound') === true) {
       const rawAsset: Object | null = call.argument('soundAsset');
       const asset: string = typeof rawAsset === 'string' ? rawAsset as string : '';
       const durationMs = this.toNumber(call.argument('soundDurationMs'));
-      this.playSound(asset, durationMs);
-    }
-    if (vibration && !this.unsupported && pulses.length > 0) {
-      if (this.isDesigned(id)) {
-        const file = this.hapticFile(id, pulses);
-        if (file.length > 0) {
-          console.info(`SystemFeedback: playing ${id} via file (${pulses.length} pulse(s))`);
-          this.playFile(file, pulses);
-          result.success(null);
-          return;
-        }
+      if (wantsVibration) {
+        // The vibration waits for the sound's first audible sample: it is fired
+        // when the player reaches 'playing', and at the latest after
+        // SOUND_START_WAIT_MS so a slow or failing sound can never swallow it.
+        this.pendingVibration = { id: id, pulses: pulses };
+        this.vibrationFallback = setTimeout(() => { this.vibratePending(); },
+          SystemFeedbackPlugin.SOUND_START_WAIT_MS);
       }
-      console.info(`SystemFeedback: playing ${id} via time (${pulses.length} pulse(s))`);
-      this.playScheduled(pulses);
+      this.playSound(asset, durationMs);
+    } else if (wantsVibration) {
+      this.startVibration(id, pulses);
     }
     result.success(null);
   }
@@ -420,6 +435,32 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
       `(${error === undefined ? 'unknown' : error.code})`);
   }
 
+  /** Fires the vibration that was waiting for a sound, once, if there is one. */
+  private vibratePending(): void {
+    if (this.vibrationFallback !== -1) {
+      clearTimeout(this.vibrationFallback);
+      this.vibrationFallback = -1;
+    }
+    const pending = this.pendingVibration;
+    this.pendingVibration = null;
+    if (pending !== null) {
+      this.startVibration(pending.id, pending.pulses);
+    }
+  }
+
+  private startVibration(id: string, pulses: FeedbackPulse[]): void {
+    if (this.isDesigned(id)) {
+      const file = this.hapticFile(id, pulses);
+      if (file.length > 0) {
+        console.info(`SystemFeedback: playing ${id} via file (${pulses.length} pulse(s))`);
+        this.playFile(file, pulses);
+        return;
+      }
+    }
+    console.info(`SystemFeedback: playing ${id} via time (${pulses.length} pulse(s))`);
+    this.playScheduled(pulses);
+  }
+
   /**
    * Plays one of the app's sound assets through AVPlayer, from the copy the
    * build leaves in the module's rawfile (`flutter_assets/<asset>` — the hap
@@ -469,6 +510,10 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
                 this.soundFailed(error);
               }
             });
+          } else if (state === 'playing') {
+            // The first sample is audible now: this is what the vibration was
+            // waiting for.
+            this.vibratePending();
           } else if (state === 'prepared') {
             console.info(`SystemFeedback: playing sound ${asset}`);
             player.play().catch((error: BusinessError) => {
@@ -500,6 +545,8 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
   private soundFailed(error: BusinessError): void {
     console.error(`SystemFeedback: sound failed ` +
       `(${error === undefined ? 'unknown' : error.code})`);
+    // A sound that will not play must not take the vibration with it.
+    this.vibratePending();
     this.stopSound();
   }
 
@@ -528,6 +575,11 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
   }
 
   private cancel(): void {
+    if (this.vibrationFallback !== -1) {
+      clearTimeout(this.vibrationFallback);
+      this.vibrationFallback = -1;
+    }
+    this.pendingVibration = null;
     this.stopSound();
     for (const timer of this.timers) {
       clearTimeout(timer);
