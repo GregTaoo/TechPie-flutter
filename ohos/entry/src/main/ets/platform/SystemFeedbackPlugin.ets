@@ -5,6 +5,7 @@ import vibrator from '@ohos.vibrator';
 import deviceInfo from '@ohos.deviceInfo';
 import fs from '@ohos.file.fs';
 import media from '@ohos.multimedia.media';
+import audioHaptic from '@ohos.multimedia.audioHaptic';
 import resourceManager from '@ohos.resourceManager';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { Context } from '@kit.AbilityKit';
@@ -134,6 +135,7 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
   private patternUnusable: boolean = false;
   private described: boolean = false;
   private readonly files: Map<string, string> = new Map();
+  private readonly sounds: Map<string, string> = new Map();
   private soundPlayer: media.AVPlayer | null = null;
   private soundPath: string = '';
   private soundWatchdog: number = -1;
@@ -148,6 +150,9 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
    * when the player reaches 'playing', and at the latest after the wait below.
    */
   private pendingVibration: PendingVibration | null = null;
+  /** Player from the audio-haptic manager, and the source it was made from. */
+  private togetherPlayer: audioHaptic.AudioHapticPlayer | null = null;
+  private togetherSource: number = -1;
   private vibrationFallback: number = -1;
 
   getUniqueClassName(): string {
@@ -183,15 +188,11 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
       const rawAsset: Object | null = call.argument('soundAsset');
       const asset: string = typeof rawAsset === 'string' ? rawAsset as string : '';
       const durationMs = this.toNumber(call.argument('soundDurationMs'));
-      if (wantsVibration) {
-        // The vibration waits for the sound's first audible sample: it is fired
-        // when the player reaches 'playing', and at the latest after
-        // SOUND_START_WAIT_MS so a slow or failing sound can never swallow it.
-        this.pendingVibration = { id: id, pulses: pulses };
-        this.vibrationFallback = setTimeout(() => { this.vibratePending(); },
-          SystemFeedbackPlugin.SOUND_START_WAIT_MS);
-      }
-      this.playSound(asset, durationMs);
+      // The system pairs an audio file with a haptic file and plays them
+      // together (AudioHaptic), which is the alignment this used to do by hand:
+      // the vibration waits for the sound's first audible sample there, and the
+      // manual path below stays as the fallback for a device or form it refuses.
+      this.playTogether(id, asset, pulses, wantsVibration, durationMs);
     } else if (wantsVibration) {
       this.startVibration(id, pulses);
     }
@@ -462,6 +463,132 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
   }
 
   /**
+   * Plays a sound and its waveform as one thing through the audio-haptic manager:
+   * `registerSource` pairs the two files and the system plays them together, so
+   * there is no timing to get wrong here. Registered per play and unregistered
+   * when the player is released, which keeps the 128-source limit far away.
+   *
+   * Anything it refuses falls back to the manual pair (AVPlayer + the vibration
+   * path), which is what shipped before this and is confirmed working on
+   * hardware: a sound may lose its system alignment, never its playback.
+   */
+  private playTogether(
+    id: string,
+    asset: string,
+    pulses: FeedbackPulse[],
+    vibration: boolean,
+    durationMs: number,
+  ): void {
+    const haptic = this.isDesigned(id) ? this.hapticFile(id, pulses) : '';
+    const audio = this.soundFile(asset);
+    if (haptic.length === 0 || audio.length === 0) {
+      this.playSound(id, asset, pulses, vibration, durationMs);
+      return;
+    }
+    const manager = audioHaptic.getAudioHapticManager();
+    let source = -1;
+    manager.registerSource(audio, haptic)
+      .then((registered: number) => {
+        source = registered;
+        if (registered < 0) {
+          throw new Error('audio-haptic source limit reached');
+        }
+        try {
+          // A feedback sound wants the low-latency path.
+          manager.setAudioLatencyMode(registered,
+            audioHaptic.AudioLatencyMode.AUDIO_LATENCY_MODE_FAST);
+        } catch (error) {
+          console.debug('SystemFeedback: latency mode was refused');
+        }
+        return manager.createPlayer(registered, { muteHaptics: !vibration });
+      })
+      .then((player: audioHaptic.AudioHapticPlayer) => {
+        this.stopTogether();
+        this.togetherPlayer = player;
+        this.togetherSource = source;
+        console.info(`SystemFeedback: playing ${id} as audio+haptic (source ${source})`);
+        player.start().catch((error: BusinessError) => {
+          this.togetherFailed(id, asset, pulses, vibration, durationMs, error);
+        });
+        const window = durationMs > 0 ? durationMs : 1000;
+        this.soundWatchdog = setTimeout(() => { this.stopTogether(); }, window + 300);
+      })
+      .catch((error: BusinessError) => {
+        this.togetherFailed(id, asset, pulses, vibration, durationMs, error);
+      });
+  }
+
+  private togetherFailed(
+    id: string,
+    asset: string,
+    pulses: FeedbackPulse[],
+    vibration: boolean,
+    durationMs: number,
+    error: BusinessError,
+  ): void {
+    console.error(`SystemFeedback: audio+haptic failed ` +
+      `(${error === undefined ? 'unknown' : error.code}); falling back`);
+    this.stopTogether();
+    this.playSound(id, asset, pulses, vibration, durationMs);
+  }
+
+  private stopTogether(): void {
+    if (this.soundWatchdog !== -1) {
+      clearTimeout(this.soundWatchdog);
+      this.soundWatchdog = -1;
+    }
+    const player = this.togetherPlayer;
+    this.togetherPlayer = null;
+    if (player !== null) {
+      player.release().catch((error: BusinessError) => {
+        console.debug(`SystemFeedback: together release returned ${error.code}`);
+      });
+    }
+    const source = this.togetherSource;
+    this.togetherSource = -1;
+    if (source >= 0) {
+      audioHaptic.getAudioHapticManager().unregisterSource(source)
+        .catch((error: BusinessError) => {
+          console.debug(`SystemFeedback: unregister returned ${error.code}`);
+        });
+    }
+  }
+
+  /** The asset, copied once into the cache so both players can read a real path. */
+  private soundFile(asset: string): string {
+    const cached = this.sounds.get(asset);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const resources = this.context?.resourceManager;
+    const cacheDir = this.context?.cacheDir;
+    if (resources === undefined || cacheDir === undefined || cacheDir.length === 0) {
+      return '';
+    }
+    const path = `${cacheDir}/techpie-sound-${asset.split('/').pop() ?? 'sound.wav'}`;
+    try {
+      if (!fs.accessSync(path)) {
+        const raw = resources.getRawFdSync(`flutter_assets/${asset}`);
+        const buffer = new ArrayBuffer(raw.length);
+        const read = fs.readSync(raw.fd, buffer, { offset: raw.offset, length: raw.length });
+        const file = fs.openSync(path, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+        fs.writeSync(file.fd, buffer, { length: read });
+        fs.closeSync(file);
+        resources.closeRawFdSync(`flutter_assets/${asset}`);
+      }
+      this.sounds.set(asset, path);
+      return path;
+    } catch (error) {
+      console.error(`SystemFeedback: could not stage the sound ${asset} (${error})`);
+      return '';
+    }
+  }
+
+  /**
+   * The manual pair: the sound through AVPlayer, and the vibration held until
+   * the player reports that it is actually playing (or SOUND_START_WAIT_MS has
+   * passed, so a slow or failing sound can never swallow it).
+   *
    * Plays one of the app's sound assets through AVPlayer, from the copy the
    * build leaves in the module's rawfile (`flutter_assets/<asset>` — the hap
    * carries it, verified).
@@ -471,10 +598,24 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
    * descriptor is closed when the player is released rather than right after the
    * call, so playback cannot read a closed file.
    */
-  private playSound(asset: string, durationMs: number): void {
+  private playSound(
+    id: string,
+    asset: string,
+    pulses: FeedbackPulse[],
+    vibration: boolean,
+    durationMs: number,
+  ): void {
     const resources = this.context?.resourceManager;
     if (resources === undefined || asset.length === 0) {
       return;
+    }
+    if (vibration) {
+      // The vibration waits for the sound's first audible sample: it is fired
+      // when the player reaches 'playing', and at the latest after
+      // SOUND_START_WAIT_MS so a slow or failing sound can never swallow it.
+      this.pendingVibration = { id: id, pulses: pulses };
+      this.vibrationFallback = setTimeout(() => { this.vibratePending(); },
+        SystemFeedbackPlugin.SOUND_START_WAIT_MS);
     }
     const path = `flutter_assets/${asset}`;
     let descriptor: resourceManager.RawFileDescriptor;
@@ -580,6 +721,7 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
       this.vibrationFallback = -1;
     }
     this.pendingVibration = null;
+    this.stopTogether();
     this.stopSound();
     for (const timer of this.timers) {
       clearTimeout(timer);
