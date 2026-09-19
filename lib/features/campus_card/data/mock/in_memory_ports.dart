@@ -12,8 +12,15 @@ final class InMemorySecureCredentialStore implements SecureCredentialStore {
 
   Map<String, String> snapshotForTesting() => Map.unmodifiable(_values);
 
+  /// How many reads the code under test performed. A keystore read is a platform
+  /// channel call, so a change that removes them from a hot path is worth
+  /// pinning.
+  int readsForTesting = 0;
   @override
-  Future<String?> read(String key) async => _values[key];
+  Future<String?> read(String key) async {
+    readsForTesting++;
+    return _values[key];
+  }
 
   @override
   Future<void> write(String key, String value) => _mutex.protect(() async {

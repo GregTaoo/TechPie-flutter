@@ -79,7 +79,28 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
   int get generation => _generation;
   int get accountRevision => _accountRevision;
   String? _verifiedSessionCookie;
+
+  /// The session [_readSession] last built.
+  ///
+  /// Reading it back from the platform store costs a dozen channel calls — the
+  /// cookie, the account, the channel and the identity pin — and it happened
+  /// twice for every request, once as the request entered and once as it
+  /// recorded activity. On a phone that is seconds in front of a request the
+  /// server answers in a tenth of that.
+  ///
+  /// The store stays the authority: every path that clears the session or writes
+  /// a new one drops this, and the idle check reads the store directly.
+  EcardSession? _sessionCache;
+  int _sessionCacheGeneration = -1;
+  int _sessionCacheRevision = -1;
   DateTime? _lastActivityWrittenAt;
+
+  /// The process's idea of when the session was last used. This is the deadline
+  /// the idle check compares against, and it is deliberately not
+  /// [_lastActivityWrittenAt]: that one is the write throttle's basis and only
+  /// moves when a write happens, so a session restored with fresh activity would
+  /// be expired against a stale one.
+  DateTime? _lastActivityAt;
   Future<void>? _sessionRecovery;
   Future<AuthSnapshot>? _sessionRefresh;
   Future<EcardVerifiedIdentity>? _identityVerification;
@@ -160,6 +181,7 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
       await _sessionStore.writeSessionLastActivity(now);
       _lastActivityWrittenAt = now;
     }
+    _lastActivityAt = now;
     _scheduleExpiry(now);
   }
 
@@ -171,6 +193,9 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
     if (last == null || now.isBefore(last) || now.difference(last) >= sessionIdleTimeout) {
       await _clearSessionCookie();
     } else {
+      // This is the process's idea of the last activity now, so the next check
+      // does not have to read the store again.
+      _lastActivityAt = last;
       _scheduleExpiry(last);
     }
   }
@@ -209,23 +234,58 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
       );
 
   Future<EcardSession?> _readSession() async {
-    await _expireIdleSession();
+    // The deadline is checked before the cache is believed, or a session would
+    // outlive its own expiry. Once this process has marked activity the check is
+    // memory-only; a cold start has nothing to compare against and asks the
+    // store.
+    final lastActivity = _lastActivityAt;
+    if (lastActivity == null) {
+      await _expireIdleSession();
+    } else if (_clock.now().toUtc().difference(lastActivity) >=
+        sessionIdleTimeout) {
+      await _clearSessionCookie();
+      return null;
+    }
+    final cached = _sessionCache;
+    // A session this process cleared, replaced or switched accounts under has a
+    // stale stamp: both counters move on those paths, so the cache is rebuilt
+    // rather than trusted.
+    if (cached != null &&
+        _sessionCacheGeneration == _generation &&
+        _sessionCacheRevision == _accountRevision) {
+      return cached;
+    }
     final cookie = await _sessionStore.readSessionCookie();
     final openId = await _sessionStore.readOpenId();
     final orgId = await _sessionStore.readOrgId();
     if (cookie == null || openId == null || orgId == null) return null;
-    return EcardSession(
+    final channel = await _sessionStore.readOpenIdChannel();
+    final session = EcardSession(
       sessionCookie: cookie,
       openId: openId,
       orgId: orgId,
-      subjectId: (await _sessionStore.readOpenIdChannel()).subjectId(openId),
+      subjectId: channel.subjectId(openId),
       generation: _generation,
       identity: await readCachedIdentity(),
-      channel: await _sessionStore.readOpenIdChannel(),
+      channel: channel,
     );
+    _sessionCache = session;
+    _sessionCacheGeneration = _generation;
+    _sessionCacheRevision = _accountRevision;
+    return session;
   }
 
   Future<EcardVerifiedIdentity?> readCachedIdentity() async {
+    // The client asks for the request's identity on every request, and building
+    // it means four store reads. The session this port already built carries the
+    // same identity, and both counters that could invalidate it move on every
+    // path that clears, replaces or switches the session.
+    final cached = _sessionCache?.identity;
+    if (cached != null &&
+        _sessionCacheGeneration == _generation &&
+        _sessionCacheRevision == _accountRevision) {
+      return cached;
+    }
     final openId = await _sessionStore.readOpenId();
     final baseline = await _storedIdentity();
     return openId == null || baseline == null
@@ -237,6 +297,8 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
     _idleTimer?.cancel();
     _generation++;
     _verifiedSessionCookie = null;
+    _sessionCache = null;
+    _lastActivityAt = null;
     await _sessionStore.clearSessionCookie();
   }
 
@@ -369,6 +431,8 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
         verifiedCardId: verified.identity.cardId,
         channel: credential.channel,
       );
+      _sessionCache = null;
+      _lastActivityAt = _clock.now().toUtc();
       _verifiedSessionCookie = verified.cookie;
       _scheduleExpiry(_clock.now());
       return _emit(await _authenticated(openId, verified.orgId,
@@ -421,6 +485,8 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
       verifiedCardId: verified.identity.cardId,
         channel: await _sessionStore.readOpenIdChannel(),
     );
+    _sessionCache = null;
+    _lastActivityAt = _clock.now().toUtc();
     _verifiedSessionCookie = verified.cookie;
     _scheduleExpiry(_clock.now());
     _emit(await _authenticated(openId, verified.orgId));

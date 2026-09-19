@@ -162,6 +162,21 @@ void main() {
     expect(await h.store.readSessionLastActivity(), h.now);
   });
 
+  test('a request does not go back to the session store', () async {
+    final h = await _Harness.create();
+    addTearDown(h.close);
+    await h.client.get(_read, {});
+    final afterFirst = h.secure.readsForTesting;
+    await h.client.get(_read, {});
+    await h.client.get(_read, {});
+
+    // The session is held in memory: the store stays the authority for a cold
+    // start and for changes, but not for every request. Before this each request
+    // read it a dozen times, twice over, in front of a request that takes a
+    // tenth of the time the reads did.
+    expect(h.secure.readsForTesting, afterFirst);
+  });
+
   test('legacy cookies without activity metadata are replaced before use',
       () async {
     final h = await _Harness.create();
