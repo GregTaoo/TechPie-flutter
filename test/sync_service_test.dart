@@ -302,6 +302,9 @@ void main() {
 
     // Device A: unbind gradescope. This records a tombstone + force-pushes.
     await fx.tpAuth.unbind(ThirdPartyPlatform.gradescope);
+    // The push the unbind triggers is deliberately fire-and-forget, so wait for
+    // the cloud to hold what this test is about (a tombstone, no account).
+    await fx.sync.push();
     // Cloud blob now carries a tombstone, no gradescope account.
 
     // Device B: restore (gets the post-deletion state) — should have no
@@ -313,6 +316,44 @@ void main() {
       isNull,
       reason: 'tombstone on device A must remove the binding on device B',
     );
+  });
+  test('a push keeps what a newer build wrote in the cloud', () async {
+    final ecard = _EcardStore(null);
+    final fx = await _Fixture.withSession(ecard: ecard);
+    // What a newer build left behind: the eCard login parameter plus a field
+    // this build has never heard of.
+    const futureField = {'accountList': ['one', 'two']};
+    final seeded = SyncEnvelope(
+      v: 3,
+      accounts: const [],
+      tombstones: const [],
+      ecard: EcardSyncBinding(
+        openId: 'SYNTHETIC_OPENID_0001',
+        updatedAt: DateTime.utc(2026),
+        deviceId: 'newer-device',
+      ),
+      unknown: const {'futureField': futureField},
+    ).encode();
+    fx.server.properties['techpie_sync'] =
+        await SyncCrypto.encryptWithSalt(seeded, 'pw');
+
+    // This device restores (adopting the binding) and then pushes its own
+    // state back.
+    final outcome = await fx.sync.restoreWithMasterPassword('pw');
+    expect(outcome.ok, isTrue);
+    expect(ecard.value?.openId, 'SYNTHETIC_OPENID_0001');
+    await fx.sync.push();
+
+    final blob = fx.server.properties['techpie_sync']!;
+    final plain = await SyncCrypto.decryptWithSalt(blob, 'pw');
+    expect(plain, isNotNull);
+    final written = jsonDecode(plain!) as Map<String, dynamic>;
+    expect(
+      written['futureField'],
+      futureField,
+      reason: 'a field this build cannot read must survive its push',
+    );
+    expect(written['v'], SyncSchema.current);
   });
 }
 

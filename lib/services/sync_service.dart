@@ -466,25 +466,33 @@ class SyncService extends ChangeNotifier {
       return const SyncCasdoorResult(false, msg: '云同步未开启或缺少主密码');
     }
     var payload = await _serializeEnvelope();
-    if (_ecard != null) {
-      // Preserve a newer remote eCard edit/deletion even when an offline device
-      // pushes an older local snapshot. Other platforms keep their existing flow.
-      try {
-        final remoteBlob = await _readBlob(requireReadableAccount: true);
-        if (remoteBlob != null) {
-          final dot = remoteBlob.indexOf('.');
-          final plain = dot < 0 ? null : await SyncCrypto.decrypt(remoteBlob.substring(dot + 1), _cachedKey!.key);
-          final remote = plain == null ? null : SyncEnvelope.decode(plain);
-          if (remote == null) throw StateError('无法解密云端同步状态，请先恢复云同步');
-          final local = SyncEnvelope.decode(payload)!;
-          payload = SyncEnvelope(v: local.v, accounts: local.accounts, tombstones: local.tombstones,
-            ecard: local.ecard?.merge(remote.ecard) ?? remote.ecard,).encode();
-        }
-      } catch (_) {
-        _lastError = '无法核对云端 eCard 版本，请先恢复或重试云同步';
-        notifyListeners();
-        return SyncCasdoorResult(false, msg: _lastError);
+    // Read-modify-write against the copy in the cloud: this device may be behind
+    // it (a newer eCard edit or deletion, or a field a newer build wrote), and a
+    // blind push would delete what this device has never seen.
+    try {
+      final remoteBlob = await _readBlob(requireReadableAccount: true);
+      if (remoteBlob != null) {
+        final dot = remoteBlob.indexOf('.');
+        final plain = dot < 0 ? null : await SyncCrypto.decrypt(remoteBlob.substring(dot + 1), _cachedKey!.key);
+        final remote = plain == null ? null : SyncEnvelope.decode(plain);
+        if (remote == null) throw StateError('无法解密云端同步状态，请先恢复云同步');
+        final local = SyncEnvelope.decode(payload)!;
+        payload = SyncEnvelope(
+          v: local.v,
+          accounts: local.accounts,
+          tombstones: local.tombstones,
+          // Without an eCard store this build has no opinion on the binding, so
+          // the cloud's copy is the one that stands.
+          ecard: _ecard == null
+              ? remote.ecard
+              : (local.ecard?.merge(remote.ecard) ?? remote.ecard),
+          unknown: remote.unknown,
+        ).encode();
       }
+    } catch (_) {
+      _lastError = '无法核对云端备份，请先恢复或重试云同步';
+      notifyListeners();
+      return SyncCasdoorResult(false, msg: _lastError);
     }
     // Reuse the cached salt so other devices' cached keys keep working.
     final salted = base64.encode(_cachedKey!.salt);
@@ -584,6 +592,7 @@ class SyncService extends ChangeNotifier {
   /// encoded form; envelope encode is deterministic.
   bool _envelopeEquals(SyncEnvelope a, SyncEnvelope b) {
     if (jsonEncode(a.ecard?.toJson()) != jsonEncode(b.ecard?.toJson())) return false;
+    if (jsonEncode(a.unknown) != jsonEncode(b.unknown)) return false;
     if (a.accounts.length != b.accounts.length) return false;
     if (a.tombstones.length != b.tombstones.length) return false;
     // Account order is platform-stable within an envelope.
