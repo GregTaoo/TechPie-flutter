@@ -18,6 +18,7 @@ import 'package:techpie/features/campus_card/presentation/scanner/scan_result_co
 import 'package:techpie/features/campus_card/presentation/scanner/scanner_geometry.dart';
 import 'package:techpie/features/campus_card/presentation/scanner/scanner_modal.dart';
 import 'package:techpie/features/campus_card/presentation/scanner/six_digit_password_panel.dart';
+import 'package:techpie/widgets/scanner/scan_overlay.dart';
 
 import '../support/fake_ecard_transport.dart';
 import '../support/scan_password_challenge.dart';
@@ -167,6 +168,41 @@ void main() {
       expect(result, isA<FadeTransition>());
       expect((result as FadeTransition).child, isA<Text>());
     });
+  });
+
+  testWidgets('the frame lands on the code the scanner just read',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final scanner = InMemoryScannerPort();
+    final (base, runtime) = await _scannerRuntime(scanner);
+    addTearDown(base.dispose);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [appRuntimeProvider.overrideWithValue(runtime)],
+        child: MaterialApp(home: ScannerModal(onClose: () {})),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    scanner.emit(
+      'SYNTHETIC-SCAN-CODE',
+      corners: const [Offset(0.2, 0.2), Offset(0.8, 0.8)],
+    );
+    await tester.pumpAndSettle();
+
+    final painter = tester
+        .widget<CustomPaint>(find.byKey(const Key('scanner-mask')))
+        .painter! as ScanOverlayPainter;
+    expect(
+      painter.target,
+      isNotNull,
+      reason: 'the scanner port carries where the code was',
+    );
+    expect(
+      painter.absorbed,
+      greaterThan(0.9),
+      reason: 'and the frame ends up on it',
+    );
   });
 
   testWidgets('closing the scanner releases its camera after unmount',

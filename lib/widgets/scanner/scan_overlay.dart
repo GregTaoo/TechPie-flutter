@@ -304,7 +304,13 @@ final class ScanOverlayPainter extends CustomPainter {
     final length = bracketLength(math.min(box.width, box.height), progress);
     final bracket = Paint()
       ..color = accent.withValues(alpha: math.min(1, progress))
-      ..style = PaintingStyle.fill;
+      // Telegram's bracket reads as a thick line with round ends and a rounded
+      // elbow; a stroked L gives exactly that, where a filled path only
+      // approximates it.
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
 
     _bracket(canvas, bracket, box.topLeft, 1, 1, stroke, length);
     _bracket(canvas, bracket, box.topRight, -1, 1, stroke, length);
@@ -312,10 +318,9 @@ final class ScanOverlayPainter extends CustomPainter {
     _bracket(canvas, bracket, box.bottomRight, -1, -1, stroke, length);
   }
 
-  /// One corner, drawn the way Telegram draws it: three arcs of radius
-  /// `stroke / 2` (the arm ends), and the outer corner as an arc of radius
-  /// `stroke` centred at `(1.5 × stroke, 1.5 × stroke)` inside the corner, so
-  /// the tick looks extruded rather than mitred.
+  /// One corner: a thick line from the end of the vertical arm, round the
+  /// elbow, to the end of the horizontal arm. Round caps and a round join are
+  /// what make it read as a rounded tick rather than a box corner.
   void _bracket(
     Canvas canvas,
     Paint paint,
@@ -326,25 +331,10 @@ final class ScanOverlayPainter extends CustomPainter {
     double length,
   ) {
     final half = stroke / 2;
-    Offset at(double x, double y) =>
-        Offset(corner.dx + dx * x, corner.dy + dy * y);
     final path = Path()
-      // The two arm ends are rounded.
-      ..moveTo(at(0, length).dx, at(0, length).dy)
-      ..arcToPoint(at(0, length).translate(dx * half, 0), radius: Radius.circular(half))
-      ..lineTo(at(half, length).dx, at(half, length).dy)
-      // The inner elbow.
-      ..lineTo(at(half, half).dx, at(half, half).dy)
-      ..lineTo(at(length, half).dx, at(length, half).dy)
-      // The arm end on the other side.
-      ..arcToPoint(at(length, 0), radius: Radius.circular(half))
-      // The outer corner: the arc Telegram centres at 1.5 × stroke.
-      ..arcToPoint(
-        at(0, half),
-        radius: Radius.circular(stroke),
-        largeArc: false,
-      )
-      ..close();
+      ..moveTo(corner.dx + dx * half, corner.dy + dy * length)
+      ..lineTo(corner.dx + dx * half, corner.dy + dy * half)
+      ..lineTo(corner.dx + dx * length, corner.dy + dy * half);
     canvas.drawPath(path, paint);
   }
 

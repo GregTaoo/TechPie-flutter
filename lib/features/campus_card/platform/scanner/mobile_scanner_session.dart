@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show Offset, Size;
 
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -35,7 +36,8 @@ final class MobileScannerSession implements ScannerPort {
 
   final MobileScannerController controller;
   final ImagePicker _imagePicker;
-  final StreamController<String> _codes = StreamController<String>.broadcast(
+  final StreamController<ScannerReading> _codes =
+      StreamController<ScannerReading>.broadcast(
     sync: true,
   );
   late final StreamSubscription<BarcodeCapture> _subscription;
@@ -45,7 +47,7 @@ final class MobileScannerSession implements ScannerPort {
   Future<void>? _disposeFuture;
 
   @override
-  Stream<String> get scannedCodes => _codes.stream;
+  Stream<ScannerReading> get scannedCodes => _codes.stream;
 
   @override
   Future<void> start() => _transitions.protect(_start);
@@ -116,8 +118,30 @@ final class MobileScannerSession implements ScannerPort {
   }
 
   void _acceptCapture(BarcodeCapture capture) {
-    final value = _firstValue(capture);
-    if (value != null && !_codes.isClosed) _codes.add(value);
+    if (_codes.isClosed) return;
+    for (final barcode in capture.barcodes) {
+      final value = barcode.rawValue;
+      if (value == null || value.isEmpty) continue;
+      _codes.add(
+        ScannerReading(
+          value,
+          corners: _normalisedCorners(barcode, capture.size),
+        ),
+      );
+      return;
+    }
+  }
+
+  /// The decoded corners in 0..1 against the frame they were read from — the
+  /// same space the viewfinder draws in, so the frame can land on the code.
+  List<Offset>? _normalisedCorners(Barcode barcode, Size frame) {
+    final corners = barcode.corners;
+    if (corners.isEmpty) return null;
+    if (frame.width <= 0 || frame.height <= 0) return null;
+    return [
+      for (final point in corners)
+        Offset(point.dx / frame.width, point.dy / frame.height),
+    ];
   }
 
   String? _firstValue(BarcodeCapture? capture) {

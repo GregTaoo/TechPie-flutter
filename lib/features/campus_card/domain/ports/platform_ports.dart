@@ -1,9 +1,21 @@
+import 'dart:ui' show Offset;
+
 import '../models/feedback_models.dart';
 
 enum AppLifecycleState { resumed, inactive, paused, detached }
 
+/// One decode: the text, and where it was in the frame it was read from, in
+/// normalised 0..1 coordinates so a viewfinder can land on it whatever size the
+/// preview is drawn at.
+final class ScannerReading {
+  const ScannerReading(this.value, {this.corners});
+
+  final String value;
+  final List<Offset>? corners;
+}
+
 abstract interface class ScannerPort {
-  Stream<String> get scannedCodes;
+  Stream<ScannerReading> get scannedCodes;
   Future<void> start();
   Future<void> stop();
   Future<void> setTorch(bool enabled);

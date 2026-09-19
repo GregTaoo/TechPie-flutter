@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show Offset;
 
 import '../../core/async_mutex.dart';
 import '../../domain/models/feedback_models.dart';
@@ -126,7 +127,8 @@ final class InMemoryLifecyclePort implements AppLifecyclePort {
 }
 
 final class InMemoryScannerPort implements ScannerPort {
-  final StreamController<String> _codes = StreamController<String>.broadcast(
+  final StreamController<ScannerReading> _codes =
+      StreamController<ScannerReading>.broadcast(
     sync: true,
   );
   bool running = false;
@@ -134,10 +136,10 @@ final class InMemoryScannerPort implements ScannerPort {
   String? nextImageCode;
 
   @override
-  Stream<String> get scannedCodes => _codes.stream;
+  Stream<ScannerReading> get scannedCodes => _codes.stream;
 
-  void emit(String code) {
-    if (running) _codes.add(code);
+  void emit(String code, {List<Offset>? corners}) {
+    if (running) _codes.add(ScannerReading(code, corners: corners));
   }
 
   @override

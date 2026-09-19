@@ -73,10 +73,11 @@ class _ScannerModalState extends ConsumerState<ScannerModal>
   late final ScanOverlayController _overlay =
       ScanOverlayController(vsync: this);
   late final ScannerPort? _scanner;
-  StreamSubscription<String>? _codeSub;
+  StreamSubscription<ScannerReading>? _codeSub;
   StreamSubscription<AppLifecycleState>? _lifecycleSub;
   bool _scanning = false;
   bool _accepting = true;
+  List<Offset>? _foundCorners;
   bool _torchOn = false;
   String? _lastCode;
   String? _pendingConfirmationCode;
@@ -172,18 +173,22 @@ class _ScannerModalState extends ConsumerState<ScannerModal>
     if (scanner == null) return;
     try {
       final code = await scanner.scanImage();
-      if (code != null && mounted) _handleCode(code);
+      // An image has no place in the preview, so there is nothing to land on.
+      if (code != null && mounted) _handleCode(ScannerReading(code));
     } catch (_) {
       if (mounted) setState(() => _error = '相册');
     }
   }
 
-  void _handleCode(String code) {
+  void _handleCode(ScannerReading reading) {
+    final code = reading.value;
     if (!mounted || code.isEmpty || !_accepting || code == _lastCode) return;
     _accepting = false;
     _lastCode = code;
     // The frame reacts to having found something before the camera is stopped,
-    // so the payer sees it land.
+    // so the payer sees it land — on the code's own corners when the plugin
+    // reported them.
+    setState(() => _foundCorners = reading.corners);
     _overlay.setFound(true);
     unawaited(() async {
       await ref
@@ -264,6 +269,7 @@ class _ScannerModalState extends ConsumerState<ScannerModal>
               appearing: _overlay.appearing,
               dismissed: _overlay.dismissed,
               absorbed: _overlay.absorbed,
+              target: _foundCorners,
               child: runtime.scanner == null
                   ? const Center(
                       child: Padding(
