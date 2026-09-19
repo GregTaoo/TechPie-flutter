@@ -15,6 +15,7 @@ import 'package:techpie/features/campus_card/domain/models/payment_models.dart';
 import 'package:techpie/features/campus_card/domain/models/scan_models.dart';
 import 'package:techpie/features/campus_card/domain/ports/payment_ports.dart';
 import 'package:techpie/features/campus_card/presentation/scanner/scan_result_content.dart';
+import 'package:techpie/features/campus_card/presentation/scanner/scanner_geometry.dart';
 import 'package:techpie/features/campus_card/presentation/scanner/scanner_modal.dart';
 import 'package:techpie/features/campus_card/presentation/scanner/six_digit_password_panel.dart';
 
@@ -213,11 +214,15 @@ void main() {
       );
       expect(
         alpha(10, 10),
-        closeTo(122, 1),
-        reason: 'The outside dimming is unchanged.',
+        // Telegram's scrim is 50% black; the guide used to be 48%.
+        closeTo(128, 2),
+        reason: 'The outside stays dimmed while the frame is up.',
       );
+      // The corner tick is a 4dp arm running 20dp from the window's corner
+      // (Telegram's length), so its middle is 10px along and 2px in.
+      final window = scannerWindowForSize(const Size(400, 800));
       expect(
-        alpha(70, 189),
+        alpha(window.left.round() + 10, window.top.round() + 2),
         255,
         reason: 'The white corner marks remain visible.',
       );

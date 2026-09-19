@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../utils/adaptive_motion.dart';
+import '../../../../widgets/scanner/scan_overlay.dart';
 import '../../app/app_providers.dart';
 import '../../core/config/scan_payment_preferences.dart';
 import '../../domain/models/card_models.dart';
@@ -67,7 +68,10 @@ final class ScannerModal extends ConsumerStatefulWidget {
   ConsumerState<ScannerModal> createState() => _ScannerModalState();
 }
 
-class _ScannerModalState extends ConsumerState<ScannerModal> {
+class _ScannerModalState extends ConsumerState<ScannerModal>
+    with TickerProviderStateMixin {
+  late final ScanOverlayController _overlay =
+      ScanOverlayController(vsync: this);
   late final ScannerPort? _scanner;
   StreamSubscription<String>? _codeSub;
   StreamSubscription<AppLifecycleState>? _lifecycleSub;
@@ -86,11 +90,16 @@ class _ScannerModalState extends ConsumerState<ScannerModal> {
       if (!mounted) return;
       _subscribeLifecycle();
       unawaited(_startCamera());
+      // Telegram starts its opening spring when the camera session reports it
+      // is ready. Starting it a frame after the camera is asked for keeps the
+      // animation independent of how the scanner port reports readiness.
+      _overlay.startAppearing();
     });
   }
 
   @override
   void dispose() {
+    _overlay.dispose();
     unawaited(_stopCamera());
     unawaited(_codeSub?.cancel());
     unawaited(_lifecycleSub?.cancel());
@@ -173,6 +182,9 @@ class _ScannerModalState extends ConsumerState<ScannerModal> {
     if (!mounted || code.isEmpty || !_accepting || code == _lastCode) return;
     _accepting = false;
     _lastCode = code;
+    // The frame reacts to having found something before the camera is stopped,
+    // so the payer sees it land.
+    _overlay.setFound(true);
     unawaited(() async {
       await ref
           .read(appRuntimeProvider)
@@ -244,20 +256,28 @@ class _ScannerModalState extends ConsumerState<ScannerModal> {
       body: Stack(
         children: [
           Positioned.fill(
-            child: runtime.scanner == null
-                ? const Center(
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 32),
-                      child: Text(
-                        '相机不可用',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.white),
+            child: ScanOverlay(
+              painterKey: const Key('scanner-mask'),
+              // The frame shows the region the camera is told to read, at
+              // whichever size it is painted — both go through this function.
+              windowFor: scannerWindowForSize,
+              appearing: _overlay.appearing,
+              dismissed: _overlay.dismissed,
+              absorbed: _overlay.absorbed,
+              child: runtime.scanner == null
+                  ? const Center(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 32),
+                        child: Text(
+                          '相机不可用',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.white),
+                        ),
                       ),
-                    ),
-                  )
-                : ScannerViewport(session: runtime.scanner!),
+                    )
+                  : ScannerViewport(session: runtime.scanner!),
+            ),
           ),
-          const Positioned.fill(child: _ScannerMask()),
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(18, 8, 18, 24),
@@ -641,61 +661,6 @@ final class _ScannerControl extends StatelessWidget {
       ],
     );
   }
-}
-
-final class _ScannerMask extends StatelessWidget {
-  const _ScannerMask();
-
-  @override
-  Widget build(BuildContext context) {
-    return CustomPaint(
-      key: const Key('scanner-mask'),
-      painter: _ScannerMaskPainter(),
-    );
-  }
-}
-
-final class _ScannerMaskPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final rect = scannerWindowForSize(size);
-    final mask = Path()
-      ..fillType = PathFillType.evenOdd
-      ..addRect(Offset.zero & size)
-      ..addRRect(RRect.fromRectAndRadius(rect, const Radius.circular(26)));
-    canvas.drawPath(
-      mask,
-      Paint()..color = Colors.black.withValues(alpha: 0.48),
-    );
-
-    final corner = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 4
-      ..strokeCap = StrokeCap.round;
-    const length = 34.0;
-    final path = Path()
-      ..moveTo(rect.left, rect.top + length)
-      ..lineTo(rect.left, rect.top + 12)
-      ..quadraticBezierTo(rect.left, rect.top, rect.left + 12, rect.top)
-      ..lineTo(rect.left + length, rect.top)
-      ..moveTo(rect.right - length, rect.top)
-      ..lineTo(rect.right - 12, rect.top)
-      ..quadraticBezierTo(rect.right, rect.top, rect.right, rect.top + 12)
-      ..lineTo(rect.right, rect.top + length)
-      ..moveTo(rect.left, rect.bottom - length)
-      ..lineTo(rect.left, rect.bottom - 12)
-      ..quadraticBezierTo(rect.left, rect.bottom, rect.left + 12, rect.bottom)
-      ..lineTo(rect.left + length, rect.bottom)
-      ..moveTo(rect.right - length, rect.bottom)
-      ..lineTo(rect.right - 12, rect.bottom)
-      ..quadraticBezierTo(rect.right, rect.bottom, rect.right, rect.bottom - 12)
-      ..lineTo(rect.right, rect.bottom - length);
-    canvas.drawPath(path, corner);
-  }
-
-  @override
-  bool shouldRepaint(_ScannerMaskPainter old) => false;
 }
 
 final class _LightResultOverlay extends StatelessWidget {
