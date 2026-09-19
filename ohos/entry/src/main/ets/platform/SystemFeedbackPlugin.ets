@@ -213,18 +213,46 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
     if (cacheDir === undefined || cacheDir.length === 0) {
       return '';
     }
-    const path = `${cacheDir}/techpie-haptics-${id}.json`;
     try {
       const document = this.hapticDocument(id, pulses);
-      const file = fs.openSync(path, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
-      fs.writeSync(file.fd, JSON.stringify(document));
-      fs.closeSync(file);
+      const json = JSON.stringify(document);
+      // Keyed by content, not only by name: a waveform we tune later must not
+      // keep playing the file an older build wrote.
+      const path = `${cacheDir}/techpie-haptics-${id}-${SystemFeedbackPlugin.fingerprint(json)}.json`;
+      const previous = this.files.get(id);
+      if (previous !== undefined && previous !== path) {
+        this.remove(previous);
+      }
       this.files.set(id, path);
+      if (!fs.accessSync(path)) {
+        const file = fs.openSync(path, fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC);
+        fs.writeSync(file.fd, json);
+        fs.closeSync(file);
+      }
       return path;
     } catch (error) {
       console.error(`SystemFeedback: could not write the haptic file for ${id} (${error})`);
       this.fileUnusable = true;
       return '';
+    }
+  }
+
+  /** A short, stable name for one configuration, so a changed one is a new file. */
+  private static fingerprint(text: string): string {
+    let hash = 2166136261;
+    for (let index = 0; index < text.length; index++) {
+      hash = ((hash ^ text.charCodeAt(index)) * 16777619) & 0xFFFFFFFF;
+    }
+    return hash.toString(16);
+  }
+
+  private remove(path: string): void {
+    try {
+      if (fs.accessSync(path)) {
+        fs.unlinkSync(path);
+      }
+    } catch (error) {
+      console.debug(`SystemFeedback: could not remove ${path}`);
     }
   }
 
