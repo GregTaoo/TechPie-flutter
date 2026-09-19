@@ -57,6 +57,7 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
   private unsupported: boolean = false;
   private hdChecked: boolean = false;
   private hdSupported: boolean = false;
+  private described: boolean = false;
 
   getUniqueClassName(): string {
     return 'SystemFeedbackPlugin';
@@ -81,6 +82,7 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
     this.cancel();
     const vibration = call.argument('vibration') === true;
     const pulses = this.parsePulses(call.argument('pulses'));
+    this.describeDevice();
     if (vibration && !this.unsupported && pulses.length > 0) {
       const pattern = this.canPlayPattern();
       console.info(`SystemFeedback: playing ${pulses.length} pulse(s) via ${pattern ? 'pattern' : 'time'}`);
@@ -129,21 +131,41 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
    */
   private static readonly USE_PATTERN_API = false;
 
+  /** What this phone can do, once, in the log a device test can be read from. */
+  private describeDevice(): void {
+    if (this.described) {
+      return;
+    }
+    this.described = true;
+    this.probeHd();
+    console.info(`SystemFeedback: api=${deviceInfo.sdkApiVersion} hd=${this.hdSupported} ` +
+      `pattern=${SystemFeedbackPlugin.USE_PATTERN_API}`);
+  }
+
+  /** Whether the motor reports HD haptic support (API 19 or newer only). */
+  private probeHd(): void {
+    if (this.hdChecked) {
+      return;
+    }
+    this.hdChecked = true;
+    if (deviceInfo.sdkApiVersion < 19) {
+      return;
+    }
+    try {
+      const devices = vibrator.getVibratorInfoSync();
+      this.hdSupported = devices.some((device) => device.isHdHapticSupported === true);
+    } catch (error) {
+      this.hdSupported = false;
+    }
+  }
+
   /** API 22 or newer, on a motor that reports HD haptic support. */
   private canPlayPattern(): boolean {
     if (!SystemFeedbackPlugin.USE_PATTERN_API ||
         deviceInfo.sdkApiVersion < SystemFeedbackPlugin.HD_PATTERN_API) {
       return false;
     }
-    if (!this.hdChecked) {
-      this.hdChecked = true;
-      try {
-        const devices = vibrator.getVibratorInfoSync();
-        this.hdSupported = devices.some((device) => device.isHdHapticSupported === true);
-      } catch (error) {
-        this.hdSupported = false;
-      }
-    }
+    this.probeHd();
     return this.hdSupported;
   }
 
