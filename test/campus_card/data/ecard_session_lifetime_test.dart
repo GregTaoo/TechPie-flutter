@@ -193,16 +193,19 @@ void main() {
     });
   });
 
-  test('quota drift renews via TechPie before any business request is sent',
+  test('a read the pass performs costs one request and leaves the session alone',
       () async {
     final h = await _Harness.create();
     addTearDown(h.close);
     final old = await h.auth.readSession();
+    // Drift is not the read's business any more: it has no side effect to
+    // protect, and its response is checked against the pinned identity. Acting
+    // requests — generating or spending a code — still ask first.
     h.adapter.wrongQuotaOnce = true;
     await h.client.get(_read, {});
-    expect(h.adapter.paths, [_quota, _issuerPath, _quota, _read]);
-    expect(h.adapter.issues, 1);
-    expect((await h.auth.readSession())!.sameSession(old!), isFalse);
+    expect(h.adapter.paths, [_read]);
+    expect(h.adapter.issues, 0);
+    expect((await h.auth.readSession())!.sameSession(old!), isTrue);
     expect(await h.store.readVerifiedIdSerial(), 'STUDENT-A');
   });
 
@@ -234,13 +237,25 @@ void main() {
       () async {
     final h = await _Harness.create();
     addTearDown(h.close);
-    h.adapter.wrongQuotaOnce = true;
+    // The read is sent — it no longer asks first — and its response is what
+    // rejects the replacement: recovery renews, the renewal is refused for
+    // carrying another account, and the pin survives.
+    h.adapter.wrongReadOnce = true;
     h.adapter.wrongIssuer = true;
     await expectLater(h.client.get(_read, {}), throwsA(isA<AppFailure>()));
     expect(await h.store.readSessionCookie(), isNull);
     expect(await h.store.readVerifiedIdSerial(), 'STUDENT-A');
-    expect(h.adapter.issues, 2);
-    expect(h.adapter.paths.contains(_read), isFalse);
+    expect(h.adapter.paths.contains(_read), isTrue);
+  });
+
+  test('an endpoint that is not one of the pass reads still asks first',
+      () async {
+    final h = await _Harness.create();
+    addTearDown(h.close);
+    // The exemption is a list of reads, not a rule about the caller: anything
+    // else keeps the pre-flight check.
+    await h.client.post('/virtualcard/openVirtualCardSelf', const {});
+    expect(h.adapter.paths, [_quota, '/virtualcard/openVirtualCardSelf']);
   });
 
   test('simultaneous mismatch rejection shares one recovery', () async {

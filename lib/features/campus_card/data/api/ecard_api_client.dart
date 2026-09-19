@@ -179,6 +179,16 @@ final class EcardApiClient implements EcardTransport {
     '/virtualcard/openQrcodeQuotaModify',
   };
 
+  // The reads the pass itself performs — the balance and the recent transactions.
+  // They cannot act as another account, and their responses are checked against
+  // the pinned identity afterwards, so they use the identity the session already
+  // carries instead of paying for a check before every one of them. Anything not
+  // listed here is treated as acting on the account.
+  static const _readingEndpoints = {
+    '/myaccount/openMyAccountApp',
+    '/selftrade/queryCardSelfTradeList',
+  };
+
   @override
   Future<Object?> get(
     String path,
@@ -328,9 +338,17 @@ final class EcardApiClient implements EcardTransport {
       if (scanning) _challenge = null;
       var session = queuedSession;
       final readsQuota = endpoint == '/virtualcard/openQrcodeQuotaModify';
+      // The identity this request is checked against. The session already
+      // carries one, which is enough for the identity probe itself and for a
+      // read the pass performs: neither can act as another account, and both
+      // are checked afterwards. Generating or spending a code asks for the
+      // pre-flight check first — what it creates cannot be taken back by a
+      // mismatch found later.
+      final carriesOwnIdentity = session.identity != null &&
+          (readsQuota || _readingEndpoints.contains(endpoint));
       final identity = polling
           ? lease!.identity
-          : readsQuota && session.identity != null
+          : carriesOwnIdentity
               ? session.identity!
               : await _identityGuard();
       var verifiedSession = await _sessionReader();
