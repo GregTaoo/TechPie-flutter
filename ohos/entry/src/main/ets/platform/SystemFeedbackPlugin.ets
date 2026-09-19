@@ -20,7 +20,7 @@ interface FeedbackPulse {
  * strength — so a light tap and a held button feel the same, and both feel like
  * a long buzz. This plugin is told what to play instead of asked to decide:
  *
- *  - API 19 and an HD motor: the whole pattern goes to the motor in one piece,
+ *  - API 22 and an HD motor: the whole pattern goes to the motor in one piece,
  *    with the intensity the waveform asked for (`VibratorPatternBuilder`).
  *  - Anything older, or a motor without HD support: the pulses are scheduled as
  *    short `time` vibrations. Durations stay ours, intensity does not, so those
@@ -33,11 +33,21 @@ interface FeedbackPulse {
  * implementation, so a sound path would have to be written from scratch.
  */
 export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHandler {
-  /** `VibratorPatternBuilder` and per-pulse intensity arrive with API 19. */
-  private static readonly HD_PATTERN_API = 19;
+  /**
+   * The version that can start a built pattern. `VibrateEffect` carries the
+   * pattern form in the API 22 revision of the reference, so anything older
+   * takes the scheduled path below instead of a call that may be rejected.
+   */
+  private static readonly HD_PATTERN_API = 22;
   /** A pulse this short reads as a tick; anything longer is a sustained event. */
   private static readonly TRANSIENT_MS = 24;
-  private static readonly MIN_PULSE_MS = 5;
+  /**
+   * The shortest pulse this platform will actually play. The waveform set is
+   * built from pulses of 5-20 ms (that is what makes them ticks), and asking for
+   * 5 ms on a phone here produced nothing at all — the shortest that was felt
+   * was around 20 ms, so that is the floor we send.
+   */
+  private static readonly MIN_PULSE_MS = 20;
   private static readonly MAX_PULSE_MS = 60;
   /** Capability not supported: stop asking this device for vibrations. */
   private static readonly ERROR_UNSUPPORTED = 801;
@@ -72,7 +82,9 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
     const vibration = call.argument('vibration') === true;
     const pulses = this.parsePulses(call.argument('pulses'));
     if (vibration && !this.unsupported && pulses.length > 0) {
-      if (this.canPlayPattern()) {
+      const pattern = this.canPlayPattern();
+      console.info(`SystemFeedback: playing ${pulses.length} pulse(s) via ${pattern ? 'pattern' : 'time'}`);
+      if (pattern) {
         this.playPattern(pulses);
       } else {
         this.playScheduled(pulses);
@@ -106,9 +118,21 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
     return typeof value === 'number' ? value as number : 0;
   }
 
-  /** API 19 or newer, on a motor that reports HD haptic support. */
+  /**
+   * Whether to hand the whole pattern to the motor.
+   *
+   * Off for now, deliberately: on the one device we could test, every waveform
+   * that went through the pattern path played nothing at all, while the
+   * scheduled path below is audible on the same phone. The code and the version
+   * guards stay here — turning this on is the whole change — until a device with
+   * HD haptics reports that the pattern form actually plays.
+   */
+  private static readonly USE_PATTERN_API = false;
+
+  /** API 22 or newer, on a motor that reports HD haptic support. */
   private canPlayPattern(): boolean {
-    if (deviceInfo.sdkApiVersion < SystemFeedbackPlugin.HD_PATTERN_API) {
+    if (!SystemFeedbackPlugin.USE_PATTERN_API ||
+        deviceInfo.sdkApiVersion < SystemFeedbackPlugin.HD_PATTERN_API) {
       return false;
     }
     if (!this.hdChecked) {
@@ -135,7 +159,13 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
         }
       }
       vibrator.startVibration({ type: 'pattern', pattern: builder.build() }, { id: 0, usage: 'touch' })
-        .catch((error: BusinessError) => { this.failed('pattern', error); });
+        .catch((error: BusinessError) => {
+          // A pattern this device will not take must not become silence: replay
+          // the same pulses on the path that always works here.
+          this.failed('pattern', error);
+          this.hdSupported = false;
+          this.playScheduled(pulses);
+        });
     } catch (error) {
       // A device that cannot build the pattern at all: fall back for this play.
       this.hdSupported = false;
