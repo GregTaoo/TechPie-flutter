@@ -13,6 +13,7 @@ import 'services/assignment_service.dart';
 import 'services/auth_service.dart';
 import 'services/campus_card_service.dart';
 import 'services/debug_logger.dart';
+import 'services/ecard_bind_service.dart';
 import 'services/ecard_widget_service.dart';
 import 'services/egate_app_service.dart';
 import 'services/http_client.dart';
@@ -64,6 +65,7 @@ Future<void> _realMain(SharedPreferences prefs) async {
   final authService = AuthService(storageService, httpClient, uniAuthService);
   final themeService = ThemeService(storageService);
   final campusCardService = CampusCardService(debugLogger: debugLogger, storage: storageService);
+  final ecardBindService = EcardBindService();
   final ecardWidgetService = EcardWidgetService();
   if (isIos() || isAndroid()) ecardWidgetService.initialize();
   final thirdPartyAuthService = ThirdPartyAuthService(
@@ -166,6 +168,7 @@ Future<void> _realMain(SharedPreferences prefs) async {
       syncService: syncService,
       updateService: updateService,
       campusCardService: campusCardService,
+      ecardBindService: ecardBindService,
       ecardWidgetService: ecardWidgetService,
     ),
   );
@@ -279,6 +282,7 @@ class TechPieApp extends StatefulWidget {
   final SyncService syncService;
   final UpdateService updateService;
   final CampusCardService campusCardService;
+  final EcardBindService ecardBindService;
   final EcardWidgetService? ecardWidgetService;
 
   const TechPieApp({
@@ -296,6 +300,7 @@ class TechPieApp extends StatefulWidget {
     required this.syncService,
     required this.updateService,
     required this.campusCardService,
+    required this.ecardBindService,
     this.ecardWidgetService,
   });
 
@@ -413,6 +418,7 @@ class _TechPieAppState extends State<TechPieApp> with WidgetsBindingObserver {
         syncService: widget.syncService,
         updateService: widget.updateService,
         campusCardService: widget.campusCardService,
+        ecardBindService: widget.ecardBindService,
         ecardWidgetService: widget.ecardWidgetService,
         child: MaterialApp(
           navigatorKey: _navigatorKey,

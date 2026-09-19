@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:techpie/features/campus_card/app/app_runtime.dart';
 import 'package:techpie/features/campus_card/app/demo_runtime_factory.dart';
 import 'package:techpie/features/campus_card/core/errors/app_failure.dart';
+import 'package:techpie/features/campus_card/data/auth/ecard_bind_code_client.dart';
 import 'package:techpie/features/campus_card/data/mock/in_memory_ports.dart';
 import 'package:techpie/features/campus_card/data/storage/flutter_secure_credential_store.dart';
 import 'package:techpie/features/campus_card/domain/models/auth_models.dart';
@@ -16,6 +17,8 @@ import 'package:techpie/services/assignment_service.dart';
 import 'package:techpie/services/auth_service.dart';
 import 'package:techpie/services/campus_card_service.dart';
 import 'package:techpie/services/debug_logger.dart';
+import 'package:techpie/services/ecard_bind_hijack.dart';
+import 'package:techpie/services/ecard_bind_service.dart';
 import 'package:techpie/services/egate_app_service.dart';
 import 'package:techpie/services/http_client.dart';
 import 'package:techpie/services/oa_gym_service.dart';
@@ -35,13 +38,22 @@ import 'package:techpie/widgets/adaptive_select.dart';
 /// identity port, so a regression in the credential path fails here.
 void main() {
   const openId = 'SYNTHETIC_OPENID_0123456789ABCDEF';
+  const bindOpenId = 'SYNTHETIC_OPENID_FROM_CODE';
 
   late InMemorySecureCredentialStore secureStore;
   late SecureSessionCredentialStore sessionStore;
   late _ScriptedAuthPort auth;
   late CampusCardService service;
+  late _ScriptedTunnel tunnel;
 
-  Future<Widget> mount() async {
+  /// Mounts the editor on a phone-width, tall surface: the page is taller than
+  /// the default 800x600 test window, and a ListView never builds what falls
+  /// below the fold — which would silently hide the controls under test.
+  Future<Widget> mount(WidgetTester tester) async {
+    tester.view.physicalSize = const Size(780, 2600);
+    tester.view.devicePixelRatio = 2;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     SharedPreferences.setMockInitialValues({});
     final prefs = await SharedPreferences.getInstance();
     final storage = StorageService(prefs);
@@ -88,6 +100,21 @@ void main() {
     // wires them.
     final sync = SyncService(hostAuth, tpAuth, storage, ecard: service);
 
+    tunnel = _ScriptedTunnel();
+    final bindService = EcardBindService(
+      hijack: tunnel,
+      client: EcardBindCodeClient(
+        send: (method, url, headers, body) async => method == 'GET'
+            ? (200, '{"ok": true, "codes": 0}')
+            : (
+                200,
+                '{"ok":true,"openid":"$bindOpenId","usertype":"8","orgid":"2"}',
+              ),
+      ),
+      // The platform resolver is a network call; the page cares what it answers.
+      resolve: (host) async => <String>['119.78.254.196'],
+    );
+
     return ServiceProvider(
       authService: hostAuth,
       debugLogger: logger,
@@ -102,6 +129,7 @@ void main() {
       syncService: sync,
       updateService: UpdateService(),
       campusCardService: service,
+      ecardBindService: bindService,
       child: const MaterialApp(home: CampusCardAccountPage()),
     );
   }
@@ -109,7 +137,7 @@ void main() {
   testWidgets('loads the stored OPENID and channel, and offers an update', (
     WidgetTester tester,
   ) async {
-    final app = await mount();
+    final app = await mount(tester);
     await service.connect(openId, channel: EcardOpenIdChannel.alipay);
 
     await tester.pumpWidget(app);
@@ -127,11 +155,11 @@ void main() {
   testWidgets('checking the OPENID verifies it without storing anything', (
     WidgetTester tester,
   ) async {
-    final app = await mount();
+    final app = await mount(tester);
     await tester.pumpWidget(app);
     await tester.pumpAndSettle();
 
-    await tester.enterText(find.byType(TextField), openId);
+    await tester.enterText(find.byKey(const Key('openid-field')), openId);
     await tester.tap(find.text('检查登录'));
     await tester.pumpAndSettle();
 
@@ -144,11 +172,11 @@ void main() {
   testWidgets('saving connects the account and stores the OPENID', (
     WidgetTester tester,
   ) async {
-    final app = await mount();
+    final app = await mount(tester);
     await tester.pumpWidget(app);
     await tester.pumpAndSettle();
 
-    await tester.enterText(find.byType(TextField), openId);
+    await tester.enterText(find.byKey(const Key('openid-field')), openId);
     await tester.tap(find.text('连接 eCard'));
     await tester.pumpAndSettle();
 
@@ -161,12 +189,12 @@ void main() {
   testWidgets('a rejected OPENID is reported inline and stored nowhere', (
     WidgetTester tester,
   ) async {
-    final app = await mount();
+    final app = await mount(tester);
     auth.verifyFailure = const FormatException('malformed OPENID');
     await tester.pumpWidget(app);
     await tester.pumpAndSettle();
 
-    await tester.enterText(find.byType(TextField), 'not-an-openid');
+    await tester.enterText(find.byKey(const Key('openid-field')), 'not-an-openid');
     await tester.tap(find.text('检查登录'));
     await tester.pumpAndSettle();
 
@@ -178,7 +206,7 @@ void main() {
   testWidgets('a failed save reports the reason and stays unconfigured', (
     WidgetTester tester,
   ) async {
-    final app = await mount();
+    final app = await mount(tester);
     auth.signInFailure = const AppFailure(
       FailureKind.network,
       '网络不可用，请稍后重试',
@@ -187,7 +215,7 @@ void main() {
     await tester.pumpWidget(app);
     await tester.pumpAndSettle();
 
-    await tester.enterText(find.byType(TextField), openId);
+    await tester.enterText(find.byKey(const Key('openid-field')), openId);
     await tester.tap(find.text('连接 eCard'));
     await tester.pumpAndSettle();
 
@@ -199,7 +227,7 @@ void main() {
   testWidgets('removing the account clears the OPENID after confirmation', (
     WidgetTester tester,
   ) async {
-    final app = await mount();
+    final app = await mount(tester);
     await service.connect(openId);
     await tester.pumpWidget(app);
     await tester.pumpAndSettle();
@@ -213,6 +241,126 @@ void main() {
     expect(await service.readOpenId(), isNull);
     expect(service.configured, isFalse);
   });
+
+  testWidgets('a bind code connects eCard and takes the DNS tunnel down', (
+    WidgetTester tester,
+  ) async {
+    final app = await mount(tester);
+    await tester.pumpWidget(app);
+    await tester.pumpAndSettle();
+
+    tunnel.startStatus = EcardBindHijackStatus.active;
+    await tester.tap(find.byKey(const Key('ecard-bind-hijack-button')));
+    await tester.pumpAndSettle();
+    expect(find.text('停止 DNS 劫持'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const Key('ecard-bind-code-field')),
+      ' abc123 ',
+    );
+    await tester.tap(find.byKey(const Key('ecard-bind-redeem-button')));
+    await tester.pumpAndSettle();
+
+    expect(auth.signInCalls, 1);
+    expect(find.text('eCard 已连接'), findsOneWidget);
+    expect(find.text('移除 eCard'), findsOneWidget);
+    expect(await service.readOpenId(), bindOpenId);
+    // One-shot code: the tunnel must not outlive the redemption.
+    expect(tunnel.stopCalls, 1);
+    expect(find.text('开启 DNS 劫持'), findsOneWidget);
+  });
+
+  testWidgets('a refused VPN consent says so and stays off', (
+    WidgetTester tester,
+  ) async {
+    final app = await mount(tester);
+    await tester.pumpWidget(app);
+    await tester.pumpAndSettle();
+
+    tunnel.startStatus = EcardBindHijackStatus.denied;
+    await tester.tap(find.byKey(const Key('ecard-bind-hijack-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('未获得 VPN 授权，无法劫持 DNS'), findsOneWidget);
+    expect(find.text('开启 DNS 劫持'), findsOneWidget);
+  });
+
+  testWidgets('a start that never comes up says so', (WidgetTester tester) async {
+    final app = await mount(tester);
+    await tester.pumpWidget(app);
+    await tester.pumpAndSettle();
+
+    // The platform accepted the request but no tunnel came up.
+    tunnel.startStatus = EcardBindHijackStatus.inactive;
+    await tester.tap(find.byKey(const Key('ecard-bind-hijack-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('未能启动 DNS 劫持，请点「自检」查看原因'), findsOneWidget);
+    expect(find.text('开启 DNS 劫持'), findsOneWidget);
+  });
+
+  testWidgets('a platform without the tunnel keeps the manual path', (
+    WidgetTester tester,
+  ) async {
+    final app = await mount(tester);
+    tunnel.current = EcardBindHijackStatus.unsupported;
+    await tester.pumpWidget(app);
+    await tester.pumpAndSettle();
+
+    expect(find.text('当前平台暂不支持自动获取，请在下方手动填写 OPENID。'), findsOneWidget);
+    expect(find.byKey(const Key('ecard-bind-hijack-button')), findsNothing);
+    expect(find.byKey(const Key('ecard-bind-redeem-button')), findsNothing);
+    expect(find.byKey(const Key('openid-field')), findsOneWidget);
+  });
+
+  testWidgets('自检 reports what this device resolves and whether the service answers', (
+    WidgetTester tester,
+  ) async {
+    final app = await mount(tester);
+    tunnel.current = EcardBindHijackStatus.active;
+    await tester.pumpWidget(app);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('ecard-bind-check-button')));
+    await tester.pumpAndSettle();
+
+    final report = tester.widget<Text>(
+      find.descendant(
+        of: find.byKey(const Key('ecard-bind-diagnosis')),
+        matching: find.byType(Text),
+      ),
+    );
+    expect(report.data, contains('DNS 劫持：active'));
+    expect(report.data, contains('119.78.254.196'));
+    expect(report.data, contains('已指向绑定服务'));
+    expect(report.data, contains('绑定服务正常'));
+  });
+}
+
+/// Scripted DNS tunnel: the page can ask it to come up, and the test can decide
+/// what the platform answers — including a refused consent dialog, which no host
+/// fake can produce otherwise.
+final class _ScriptedTunnel implements EcardBindHijackPort {
+  EcardBindHijackStatus startStatus = EcardBindHijackStatus.active;
+  EcardBindHijackStatus current = EcardBindHijackStatus.inactive;
+  int startCalls = 0;
+  int stopCalls = 0;
+
+  @override
+  Future<EcardBindHijackStatus> start() async {
+    startCalls += 1;
+    current = startStatus;
+    return current;
+  }
+
+  @override
+  Future<void> stop() async {
+    stopCalls += 1;
+    current = EcardBindHijackStatus.inactive;
+  }
+
+  @override
+  Future<EcardBindHijackStatus> status() async => current;
 }
 
 /// Identity port that records what the form asked for and can be told to refuse,

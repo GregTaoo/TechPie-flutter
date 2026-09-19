@@ -98,6 +98,11 @@ void main() {
     expect(request.requestBody, contains('decryptedDatajson'));
     expect(response.statusCode, 200);
     expect(jsonDecode(response.responseBody!)['balance'], 123);
+    // The wait is reported split: how long the request took, and how much of it
+    // happened before anything was sent. A send is not a duration.
+    expect(response.durationMicros, isNotNull);
+    expect(response.prepMicros, isNotNull);
+    expect(request.durationMicros, isNull);
     expect(
       '${request.requestBody}${response.responseBody}${request.url}',
       isNot(contains('secret-')),
@@ -106,6 +111,7 @@ void main() {
     failure = true;
     await expectLater(client.get('/unreachable', {}), throwsA(anything));
     expect(logger.entries.last.error, 'connectionError');
+    expect(logger.entries.last.prepMicros, isNotNull);
 
     failure = false;
     responseGate = Completer<void>();

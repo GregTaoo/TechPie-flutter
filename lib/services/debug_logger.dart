@@ -12,6 +12,12 @@ class LogEntry {
   final String? error;
   final String? tag;
 
+  /// How long the request took on the wire, and how much of the wait happened
+  /// before it was sent (session preparation, identity checks). The second is
+  /// what separates our own overhead from the server's.
+  final int? durationMicros;
+  final int? prepMicros;
+
   LogEntry({
     required this.timestamp,
     required this.method,
@@ -21,6 +27,8 @@ class LogEntry {
     this.responseBody,
     this.error,
     this.tag,
+    this.durationMicros,
+    this.prepMicros,
   });
 }
 
@@ -46,6 +54,8 @@ class DebugLogger extends ChangeNotifier {
     String? responseBody,
     String? error,
     String? tag,
+    int? durationMicros,
+    int? prepMicros,
   }) {
     if (!_enabled) return;
     if (_entries.length >= _maxEntries) {
@@ -60,13 +70,19 @@ class DebugLogger extends ChangeNotifier {
       responseBody: responseBody,
       error: error,
       tag: tag,
+      durationMicros: durationMicros,
+      prepMicros: prepMicros,
     );
     _entries.add(entry);
     notifyListeners();
     if (kDebugMode) {
+      final took = entry.durationMicros == null
+          ? ''
+          : ' ${(entry.durationMicros! / 1000).round()}ms'
+              '${entry.prepMicros == null ? '' : ' (prep ${(entry.prepMicros! / 1000).round()}ms)'}';
       debugPrint(
         '[HTTP] ${entry.method} ${entry.url} '
-        '${entry.statusCode ?? '—'} ${entry.tag ?? ''}',
+        '${entry.statusCode ?? '—'}$took ${entry.tag ?? ''}',
       );
     }
   }

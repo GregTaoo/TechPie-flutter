@@ -37,6 +37,8 @@ DecryptedHttpTraceInterceptor campusCardHttpTrace(DebugLogger logger) =>
               : DebugLogger.redactSensitive(jsonEncode(payload)),
           error: record['dioExceptionType'] as String?,
           tag: 'Campus Card',
+          durationMicros: record['durationMicros'] as int?,
+          prepMicros: record['prepMicros'] as int?,
         );
       },
     );
