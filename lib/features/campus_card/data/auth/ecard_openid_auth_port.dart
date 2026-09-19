@@ -59,6 +59,10 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
   }
 
   static const sessionIdleTimeout = Duration(minutes: 30);
+
+  /// How often a request may rewrite the stored idle timestamp. Far shorter
+  /// than [sessionIdleTimeout], so the deadline stays accurate.
+  static const _activityWriteInterval = Duration(minutes: 1);
   final Clock _clock;
   Timer? _idleTimer;
   bool _disposed = false;
@@ -75,6 +79,7 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
   int get generation => _generation;
   int get accountRevision => _accountRevision;
   String? _verifiedSessionCookie;
+  DateTime? _lastActivityWrittenAt;
   Future<void>? _sessionRecovery;
   Future<AuthSnapshot>? _sessionRefresh;
   Future<EcardVerifiedIdentity>? _identityVerification;
@@ -120,9 +125,7 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
       if (current != null && current.identity != null) {
         // Request entry is activity. Extend before identity verification so a
         // request started just before the deadline is not expired mid-check.
-        final now = _clock.now().toUtc();
-        await _sessionStore.writeSessionLastActivity(now);
-        _scheduleExpiry(now);
+        await _markActivity(_clock.now().toUtc());
         return current;
       }
       final openId = await _sessionStore.readOpenId();
@@ -139,10 +142,26 @@ final class EcardOpenIdAuthPort implements AuthPort, OpenIdAuthVerifier {
           throw const AppFailure(FailureKind.authenticationExpired,
             '校园卡会话已失效，请重试。', code: 'AUTH_SESSION_SUBJECT_CHANGED',);
         }
-        final now = _clock.now().toUtc();
-        await _sessionStore.writeSessionLastActivity(now);
-        _scheduleExpiry(now);
+        await _markActivity(_clock.now().toUtc());
       });
+
+  /// Extends the idle deadline, writing it to the keystore at most once per
+  /// [_activityWriteInterval].
+  ///
+  /// Every request used to write, which put a keystore write on the hot path to
+  /// serve a deadline measured in [_sessionIdleTimeout] minutes. The in-process
+  /// timer is scheduled from the exact time either way; only a cold start reads
+  /// the stored value, and it can be at most one interval away from the truth,
+  /// so a session can expire up to that much early rather than late.
+  Future<void> _markActivity(DateTime now) async {
+    final writtenAt = _lastActivityWrittenAt;
+    if (writtenAt == null ||
+        now.difference(writtenAt) >= _activityWriteInterval) {
+      await _sessionStore.writeSessionLastActivity(now);
+      _lastActivityWrittenAt = now;
+    }
+    _scheduleExpiry(now);
+  }
 
   Future<void> _expireIdleSession() async {
     final cookie = await _sessionStore.readSessionCookie();

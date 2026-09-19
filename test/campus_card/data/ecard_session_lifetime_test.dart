@@ -142,6 +142,26 @@ void main() {
     expect(h.adapter.issues, 0);
   });
 
+  test('requests inside the write interval reuse the stored activity', () async {
+    final h = await _Harness.create();
+    addTearDown(h.close);
+    h.now = _start.add(const Duration(minutes: 20));
+    await h.client.get(_read, {});
+    expect(await h.store.readSessionLastActivity(), h.now);
+
+    // Two more requests within the minute: the deadline still moves in memory,
+    // but the keystore is not written again.
+    h.now = _start.add(const Duration(minutes: 20, seconds: 30));
+    await h.client.get(_read, {});
+    await h.client.get(_read, {});
+    expect(await h.store.readSessionLastActivity(),
+        _start.add(const Duration(minutes: 20)),);
+
+    h.now = _start.add(const Duration(minutes: 21, seconds: 1));
+    await h.client.get(_read, {});
+    expect(await h.store.readSessionLastActivity(), h.now);
+  });
+
   test('legacy cookies without activity metadata are replaced before use',
       () async {
     final h = await _Harness.create();
