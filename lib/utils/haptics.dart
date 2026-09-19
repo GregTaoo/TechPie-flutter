@@ -145,7 +145,7 @@ abstract final class AppHaptics {
       AppHapticPulse(atMs: 140, durationMs: 28, intensity: 1.0, sharpness: 0.9),
     ],
     soundAsset: 'assets/campus_card/audio/payment-success.wav',
-    soundDurationMs: 1408,
+    soundDurationMs: 1397,
   );
 
   static const networkDisconnected = AppHapticWaveform(
@@ -157,7 +157,7 @@ abstract final class AppHaptics {
       AppHapticPulse(atMs: 186, durationMs: 20, intensity: 0.65, sharpness: 0.7),
     ],
     soundAsset: 'assets/campus_card/audio/network-disconnected.wav',
-    soundDurationMs: 1124,
+    soundDurationMs: 1104,
   );
 
   /// Every waveform, for the contract tests and for the settings screen.

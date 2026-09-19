@@ -83,7 +83,7 @@ void main() {
         withSound['soundAsset'],
         'assets/campus_card/audio/network-disconnected.wav',
       );
-      expect(withSound['soundDurationMs'], 1124);
+      expect(withSound['soundDurationMs'], 1104);
 
       // Nothing to play: no call at all.
       await AppHaptics.play(AppHaptics.error, vibration: false);

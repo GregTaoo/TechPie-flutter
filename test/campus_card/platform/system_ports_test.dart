@@ -40,7 +40,7 @@ void main() {
       expect(args['vibration'], isTrue);
       expect(args['sound'], isTrue);
       expect(args['soundAsset'], 'assets/campus_card/audio/payment-success.wav');
-      expect(args['soundDurationMs'], 1408);
+      expect(args['soundDurationMs'], 1397);
       final pulses = args['pulses'] as List<Object?>;
       expect(pulses, hasLength(2));
       final first = pulses.first as Map<Object?, Object?>;
