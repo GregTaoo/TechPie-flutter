@@ -26,6 +26,7 @@ import '../widgets/ios/ios_native_navigation_bar.dart';
 import '../widgets/update_dialogs.dart';
 import 'debug_log_page.dart';
 import 'debug_webview_page.dart';
+import 'developer_lab_page.dart';
 import 'login_page.dart';
 import 'sync_settings_page.dart';
 import 'third_party_accounts_page.dart';
@@ -403,6 +404,18 @@ class _SettingsPageState extends State<SettingsPage> {
                     builder: (_) => const DebugWebViewPage(
                       initialUrl: 'http://127.0.0.1:8000/bridge_test.html',
                     ),
+                  ),
+                ),
+              ),
+            if (!kReleaseMode)
+              ListTile(
+                leading: const Icon(Icons.vibration),
+                title: const Text('Developer Lab'),
+                subtitle: const Text('Play every waveform and sound'),
+                onTap: () => unawaited(
+                  pushAdaptivePage<void>(
+                    context,
+                    builder: (_) => const DeveloperLabPage(),
                   ),
                 ),
               ),

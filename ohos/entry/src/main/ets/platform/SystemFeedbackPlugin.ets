@@ -4,6 +4,8 @@ import MethodCall from '@ohos/flutter_ohos/src/main/ets/plugin/common/MethodCall
 import vibrator from '@ohos.vibrator';
 import deviceInfo from '@ohos.deviceInfo';
 import fs from '@ohos.file.fs';
+import media from '@ohos.multimedia.media';
+import resourceManager from '@ohos.resourceManager';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { Context } from '@kit.AbilityKit';
 
@@ -78,8 +80,10 @@ interface HapticDocument {
  * absent: the guideline does not use it for this, and on the hardware we can
  * test it played nothing at all.
  *
- * Sound is not played here: the OHOS engine's `playSystemSound` is an empty
- * implementation, so a sound path would have to be written from scratch.
+ * Sound: the engine's `playSystemSound` is an empty implementation, so the two
+ * designed patterns play their asset through AVPlayer instead, from the copy the
+ * build puts in the module's rawfile (`flutter_assets/<asset>`). A sound that
+ * will not play is logged and dropped: it never takes the vibration with it.
  */
 export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHandler {
   /**
@@ -122,6 +126,9 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
   private patternUnusable: boolean = false;
   private described: boolean = false;
   private readonly files: Map<string, string> = new Map();
+  private soundPlayer: media.AVPlayer | null = null;
+  private soundPath: string = '';
+  private soundWatchdog: number = -1;
 
   getUniqueClassName(): string {
     return 'SystemFeedbackPlugin';
@@ -151,6 +158,12 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
     const id: string = typeof rawId === 'string' ? rawId as string : '';
     const pulses = this.parsePulses(call.argument('pulses'));
     this.describeDevice();
+    if (call.argument('sound') === true) {
+      const rawAsset: Object | null = call.argument('soundAsset');
+      const asset: string = typeof rawAsset === 'string' ? rawAsset as string : '';
+      const durationMs = this.toNumber(call.argument('soundDurationMs'));
+      this.playSound(asset, durationMs);
+    }
     if (vibration && !this.unsupported && pulses.length > 0) {
       if (this.isDesigned(id)) {
         const file = this.hapticFile(id, pulses);
@@ -404,7 +417,81 @@ export default class SystemFeedbackPlugin implements FlutterPlugin, MethodCallHa
       `(${error === undefined ? 'unknown' : error.code})`);
   }
 
+  /**
+   * Plays one of the app's sound assets through AVPlayer, from the copy the
+   * build leaves in the module's rawfile (`flutter_assets/<asset>` — the hap
+   * carries it, verified).
+   *
+   * Fire and forget: a sound that fails is logged and dropped. It is never
+   * surfaced to the caller and never takes the vibration with it, and the file
+   * descriptor is closed when the player is released rather than right after the
+   * call, so playback cannot read a closed file.
+   */
+  private playSound(asset: string, durationMs: number): void {
+    const resources = this.context?.resourceManager;
+    if (resources === undefined || asset.length === 0) {
+      return;
+    }
+    const path = `flutter_assets/${asset}`;
+    let descriptor: resourceManager.RawFileDescriptor;
+    try {
+      descriptor = resources.getRawFdSync(path);
+    } catch (error) {
+      console.error(`SystemFeedback: no sound asset at ${path} (${error})`);
+      return;
+    }
+    this.soundPath = path;
+    media.createAVPlayer()
+      .then((player: media.AVPlayer) => {
+        this.soundPlayer = player;
+        player.on('stateChange', (state: string) => {
+          if (state === 'initialized') {
+            console.info(`SystemFeedback: playing sound ${asset}`);
+            player.play().catch((error: BusinessError) => { this.soundFailed(error); });
+          } else if (state === 'completed' || state === 'error') {
+            this.stopSound();
+          }
+        });
+        player.fdSrc = { fd: descriptor.fd, offset: descriptor.offset, length: descriptor.length };
+        // Some devices never report completion; the declared window is the
+        // authority, with a little room for the tail.
+        const window = durationMs > 0 ? durationMs : 1000;
+        this.soundWatchdog = setTimeout(() => { this.stopSound(); }, window + 250);
+      })
+      .catch((error: BusinessError) => { this.soundFailed(error); });
+  }
+
+  private soundFailed(error: BusinessError): void {
+    console.error(`SystemFeedback: sound failed ` +
+      `(${error === undefined ? 'unknown' : error.code})`);
+    this.stopSound();
+  }
+
+  private stopSound(): void {
+    if (this.soundWatchdog !== -1) {
+      clearTimeout(this.soundWatchdog);
+      this.soundWatchdog = -1;
+    }
+    const player = this.soundPlayer;
+    this.soundPlayer = null;
+    if (player !== null) {
+      player.release().catch((error: BusinessError) => {
+        console.debug(`SystemFeedback: player release returned ${error.code}`);
+      });
+    }
+    const path = this.soundPath;
+    this.soundPath = '';
+    if (path.length > 0) {
+      try {
+        this.context?.resourceManager.closeRawFdSync(path);
+      } catch (error) {
+        // Already closed, or closed by the platform: nothing to do about it.
+      }
+    }
+  }
+
   private cancel(): void {
+    this.stopSound();
     for (const timer of this.timers) {
       clearTimeout(timer);
     }
