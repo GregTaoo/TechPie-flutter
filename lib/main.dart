@@ -62,7 +62,7 @@ Future<void> _realMain(SharedPreferences prefs) async {
   final storageService = StorageService(prefs);
   final debugLogger = DebugLogger()..enabled = storageService.debugMode;
   final httpClient = LoggingHttpClient(debugLogger);
-  final uniAuthService = UniAuthService();
+  final uniAuthService = UniAuthService(logger: debugLogger);
   final authService = AuthService(storageService, httpClient, uniAuthService);
   final themeService = ThemeService(storageService);
   final campusCardService = CampusCardService(debugLogger: debugLogger, storage: storageService);
