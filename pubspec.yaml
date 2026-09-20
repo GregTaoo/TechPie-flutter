@@ -100,10 +100,11 @@ dependency_overrides:
     # builds the source it was tested against; the patches and the reasoning are
     # in that repository's history. dfdb43e reports the first frame from the
     # analyzer instead of hijacking the SurfaceTexture frame listener, which had
-    # frozen the Android preview; 4067152 requests a clear preview resolution.
+    # frozen the Android preview; 4067152 requests a clear preview resolution;
+    # 83e7071 corrects the scan-window geometry and reports the preview size.
     git:
       url: https://github.com/HeZeBang/mobile_scanner_ohos.git
-      ref: 406715294f90c2c90e864c6695db26d840613b25
+      ref: 83e7071204dd07dd84763f0e1b6d1f977b97fd7c
   package_info_plus:
     git:
       url: https://gitee.com/openharmony-sig/flutter_plus_plugins.git
