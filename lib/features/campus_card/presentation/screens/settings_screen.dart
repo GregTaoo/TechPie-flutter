@@ -36,9 +36,9 @@ final class SettingsScreen extends ConsumerWidget {
           title: '设置',
           child: ListView(
             physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(
+            padding: EdgeInsets.fromLTRB(
               20,
-              ApplePinnedHeaderLayout.contentTop,
+              ApplePinnedHeaderLayout.contentTop(context),
               20,
               52,
             ),

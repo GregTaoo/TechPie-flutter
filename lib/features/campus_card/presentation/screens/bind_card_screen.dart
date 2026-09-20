@@ -90,9 +90,9 @@ class _BindCardScreenState extends ConsumerState<BindCardScreen> {
           title: '绑定卡片',
           child: ListView(
             physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(
+            padding: EdgeInsets.fromLTRB(
               20,
-              ApplePinnedHeaderLayout.contentTop,
+              ApplePinnedHeaderLayout.contentTop(context),
               20,
               52,
             ),

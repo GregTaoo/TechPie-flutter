@@ -335,12 +335,14 @@ void main() {
               label: 'Back',
               onPressed: () {},
             ),
-            child: ListView(
-              controller: controller,
-              padding: const EdgeInsets.only(
-                top: ApplePinnedHeaderLayout.contentTop,
+            child: Builder(
+              builder: (context) => ListView(
+                controller: controller,
+                padding: EdgeInsets.only(
+                  top: ApplePinnedHeaderLayout.contentTop(context),
+                ),
+                children: const [SizedBox(height: 1200)],
               ),
-              children: const [SizedBox(height: 1200)],
             ),
           ),
         ),
@@ -399,7 +401,7 @@ void main() {
     expect(indicator.color, neutralGray);
     expect(
       tester.getCenter(finder).dy,
-      greaterThan(ApplePinnedHeaderLayout.contentTop),
+      greaterThan(ApplePinnedHeaderLayout.contentTop(tester.element(finder))),
     );
   });
 

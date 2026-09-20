@@ -33,9 +33,9 @@ final class SessionRestoreScreen extends ConsumerWidget {
           ),
           child: ListView(
             physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(
+            padding: EdgeInsets.fromLTRB(
               20,
-              ApplePinnedHeaderLayout.contentTop,
+              ApplePinnedHeaderLayout.contentTop(context),
               20,
               52,
             ),

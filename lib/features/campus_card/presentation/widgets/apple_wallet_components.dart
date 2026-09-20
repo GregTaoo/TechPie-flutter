@@ -148,7 +148,7 @@ final class EcardSliverRefreshControl extends StatelessWidget {
             clipBehavior: Clip.none,
             children: [
               Positioned(
-                top: ApplePinnedHeaderLayout.contentTop,
+                top: ApplePinnedHeaderLayout.contentTop(context),
                 left: 0,
                 right: 0,
                 child: Center(
@@ -220,7 +220,12 @@ final class ApplePinnedHeaderLayout extends StatelessWidget {
     this.actions = const [],
   });
 
-  static const contentTop = 78.0;
+  /// The top offset of a page's scrollable content: the header's height plus the
+  /// breathing room, and on non-iOS the status bar itself — matching the `topInset`
+  /// the rest of TechPie uses — so content scrolls under the frosted header to the
+  /// screen edge instead of clipping at it.
+  static double contentTop(BuildContext context) =>
+      78.0 + (isIos() ? 0.0 : MediaQuery.viewPaddingOf(context).top);
 
   /// The measure of the page body on a wide window. The bar is not part of it:
   /// it spans whatever the host gives the page, which is what makes an eCard
@@ -266,11 +271,12 @@ final class ApplePinnedHeaderLayout extends StatelessWidget {
     }
     // The BlurredAppBar's AppBar (primary) draws behind the status bar itself;
     // wrapping it in SafeArea pushed it down and left the status bar showing the
-    // raw page background (black on OHOS). The body keeps its own SafeArea so the
-    // content still clears the bar, and the frosted bar reaches the top.
+    // raw page background (black on OHOS). The body fills the whole screen now and
+    // its contentTop accounts for the status bar, so content scrolls under the
+    // frosted bar to the screen edge instead of clipping at it.
     return Stack(
       children: [
-        Positioned.fill(child: SafeArea(bottom: false, child: body)),
+        Positioned.fill(child: body),
         Positioned(top: 0, left: 0, right: 0, child: header),
       ],
     );

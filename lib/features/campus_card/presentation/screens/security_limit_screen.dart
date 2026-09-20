@@ -115,9 +115,9 @@ class _SecurityLimitScreenState extends ConsumerState<SecurityLimitScreen> {
           title: '消费限额',
           child: ListView(
             physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(
+            padding: EdgeInsets.fromLTRB(
               20,
-              ApplePinnedHeaderLayout.contentTop,
+              ApplePinnedHeaderLayout.contentTop(context),
               20,
               52,
             ),

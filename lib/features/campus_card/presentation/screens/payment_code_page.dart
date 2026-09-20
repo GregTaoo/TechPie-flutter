@@ -627,9 +627,9 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
                 onRefresh: _refreshAll,
               ),
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(
+                padding: EdgeInsets.fromLTRB(
                   18,
-                  ApplePinnedHeaderLayout.contentTop,
+                  ApplePinnedHeaderLayout.contentTop(context),
                   18,
                   0,
                 ),

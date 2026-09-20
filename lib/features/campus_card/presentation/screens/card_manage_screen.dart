@@ -254,9 +254,9 @@ class _CardManageScreenState extends ConsumerState<CardManageScreen>
           ),
           child: switch (cardAsync) {
             AsyncError(:final error) => Padding(
-                padding: const EdgeInsets.fromLTRB(
+                padding: EdgeInsets.fromLTRB(
                   20,
-                  ApplePinnedHeaderLayout.contentTop,
+                  ApplePinnedHeaderLayout.contentTop(context),
                   20,
                   20,
                 ),
@@ -283,9 +283,9 @@ class _CardManageScreenState extends ConsumerState<CardManageScreen>
                   if (_segment == 1)
                     EcardSliverRefreshControl(onRefresh: _refreshActivity),
                   SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(
+                    padding: EdgeInsets.fromLTRB(
                       20,
-                      ApplePinnedHeaderLayout.contentTop,
+                      ApplePinnedHeaderLayout.contentTop(context),
                       20,
                       52,
                     ),

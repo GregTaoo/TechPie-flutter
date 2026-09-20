@@ -34,9 +34,9 @@ final class BillTransactionScreen extends ConsumerWidget {
             physics: const BouncingScrollPhysics(),
             slivers: [
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(
+                padding: EdgeInsets.fromLTRB(
                   20,
-                  ApplePinnedHeaderLayout.contentTop,
+                  ApplePinnedHeaderLayout.contentTop(context),
                   20,
                   52,
                 ),

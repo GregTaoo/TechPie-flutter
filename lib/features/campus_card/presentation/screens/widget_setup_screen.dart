@@ -82,9 +82,9 @@ class _WidgetSetupScreenState extends ConsumerState<WidgetSetupScreen> {
             onPressed: () => popCampusCard(context),
           ),
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(
+            padding: EdgeInsets.fromLTRB(
               20,
-              ApplePinnedHeaderLayout.contentTop + 20,
+              ApplePinnedHeaderLayout.contentTop(context) + 20,
               20,
               40,
             ),

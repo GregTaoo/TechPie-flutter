@@ -104,9 +104,9 @@ class _SecurityPasswordScreenState
           title: '修改消费密码',
           child: ListView(
             physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(
+            padding: EdgeInsets.fromLTRB(
               20,
-              ApplePinnedHeaderLayout.contentTop,
+              ApplePinnedHeaderLayout.contentTop(context),
               20,
               52,
             ),

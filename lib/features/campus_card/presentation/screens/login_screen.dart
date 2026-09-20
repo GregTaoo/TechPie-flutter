@@ -34,9 +34,9 @@ final class LoginScreen extends ConsumerWidget {
           title: 'eCard',
           child: ListView(
             physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(
+            padding: EdgeInsets.fromLTRB(
               24,
-              ApplePinnedHeaderLayout.contentTop + 36,
+              ApplePinnedHeaderLayout.contentTop(context) + 36,
               24,
               36,
             ),
