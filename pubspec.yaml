@@ -98,10 +98,12 @@ dependency_overrides:
     # TechPie's patches — the preview freezes on its last frame, and every start
     # reports the preview's first frame. Pinned by commit, so a release always
     # builds the source it was tested against; the patches and the reasoning are
-    # in that repository's history.
+    # in that repository's history. dfdb43e reports the first frame from the
+    # analyzer instead of hijacking the SurfaceTexture frame listener, which had
+    # frozen the Android preview.
     git:
       url: https://github.com/HeZeBang/mobile_scanner_ohos.git
-      ref: a1cac4ca4b8ac42111dd8032d2f394dbb0d5ca25
+      ref: dfdb43e3a91425ad276ea08f294c19540bc66af9
   package_info_plus:
     git:
       url: https://gitee.com/openharmony-sig/flutter_plus_plugins.git
