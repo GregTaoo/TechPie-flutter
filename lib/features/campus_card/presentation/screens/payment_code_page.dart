@@ -590,232 +590,230 @@ class _PaymentCodePageState extends ConsumerState<PaymentCodePage> {
 
     final page = Scaffold(
       key: const Key('payment-code-page'),
-      body: _scannerOpen
-          ? const ColoredBox(color: Colors.black)
-          : AppleWalletPage(
-              child: ApplePinnedHeaderLayout(
-                title: '付款码',
-                leading: CampusCardHeaderAction(
-                  id: 'back',
-                  sfSymbol: 'chevron.left',
-                  icon: GpPlatformIcons.back(context),
-                  label: '返回',
-                  onPressed: () => popCampusCard(context),
+      body: AppleWalletPage(
+        child: ApplePinnedHeaderLayout(
+          title: '付款码',
+          leading: CampusCardHeaderAction(
+            id: 'back',
+            sfSymbol: 'chevron.left',
+            icon: GpPlatformIcons.back(context),
+            label: '返回',
+            onPressed: () => popCampusCard(context),
+          ),
+          actions: [
+            CampusCardHeaderAction(
+              id: 'scan',
+              sfSymbol: 'qrcode.viewfinder',
+              label: '扫一扫',
+              onPressed: _openScanner,
+              icon: GpPlatformIcons.scan(context),
+              iconSize: 25,
+            ),
+            CampusCardHeaderAction(
+              id: 'info',
+              sfSymbol: 'info.circle',
+              key: const Key('payment-header-info'),
+              label: '卡片信息',
+              onPressed: () => unawaited(pushCampusCardPage<void>(context, builder: (_) => const CardManageScreen())),
+              icon: GpPlatformIcons.info(context),
+            ),
+          ],
+          child: CustomScrollView(
+            physics: const BouncingScrollPhysics(
+              parent: AlwaysScrollableScrollPhysics(),
+            ),
+            slivers: [
+              EcardSliverRefreshControl(
+                onRefresh: _refreshAll,
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(
+                  18,
+                  ApplePinnedHeaderLayout.contentTop,
+                  18,
+                  0,
                 ),
-                actions: [
-                  CampusCardHeaderAction(
-                    id: 'scan',
-                    sfSymbol: 'qrcode.viewfinder',
-                    label: '扫一扫',
-                    onPressed: _openScanner,
-                    icon: GpPlatformIcons.scan(context),
-                    iconSize: 25,
-                  ),
-                  CampusCardHeaderAction(
-                    id: 'info',
-                    sfSymbol: 'info.circle',
-                    key: const Key('payment-header-info'),
-                    label: '卡片信息',
-                    onPressed: () => unawaited(pushCampusCardPage<void>(context, builder: (_) => const CardManageScreen())),
-                    icon: GpPlatformIcons.info(context),
-                  ),
-                ],
-                child: CustomScrollView(
-                  physics: const BouncingScrollPhysics(
-                    parent: AlwaysScrollableScrollPhysics(),
-                  ),
-                  slivers: [
-                    EcardSliverRefreshControl(
-                      onRefresh: _refreshAll,
-                    ),
-                    SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(
-                        18,
-                        ApplePinnedHeaderLayout.contentTop,
-                        18,
-                        0,
-                      ),
-                      sliver: SliverList.list(
-                        children: [
-                          if (card != null)
-                            _ExpandedPaymentPass(
-                              card: card,
-                              payment: payment,
-                              // What the pass shows, and what a tap on the code
-                              // means, follows the mode the user chose — not only
-                              // the automatic fallback, or a failed local refresh
-                              // would hand the surface back to the online code.
-                              offline: manualOffline || _offline,
-                              // Offline code on screen while the online one is
-                              // still being fetched: the pass says so.
-                              waitingForOnlineCode: _offline &&
-                                  !manualOffline &&
-                                  _onlineInFlight(payment),
-                              refreshLoading: _refreshWaiting && _deferOfflineDuringRefresh && (!_refreshWaitExpired || !_offline),
-                              refreshDegraded: _refreshWaiting && _refreshWaitExpired,
-                              offlineBusy: _offlineBusy,
-                              offlinePayload: _offlinePayload,
-                              offlineRemaining: _offlineRemaining,
-                              offlineError: _offlineError,
-                              reduceMotion: reduceMotion,
-                              active: _active,
-                              debugMode: debugMode,
-                              offlineGeneratedMs: _offlineGeneratedMs,
-                              codeShownAfterMs: _codeShownAfterMs,
-                              onShowStatus: () => unawaited(
-                                _showStatusSheet(
-                                  card: card,
-                                  payment: payment,
-                                  manualOffline: manualOffline,
-                                  canToggleOffline: canGenerateOffline,
-                                ),
-                              ),
-                              onRefreshOnline: _refreshOnline,
-                              onRefreshOffline: () =>
-                                  unawaited(_generateOffline(card)),
-                              onActivateOnline: () => unawaited(
-                                ref
-                                    .read(
-                                      paymentCodeControllerProvider.notifier,
-                                    )
-                                    .activateAndRestart(),
-                              ),
-                            )
-                          else
-                            switch (cardAsync) {
-                              AsyncError(:final error) => GpStateView.error(
-                                  error,
-                                  onRetry: () => unawaited(
-                                    ref
-                                        .read(cardControllerProvider.notifier)
-                                        .refresh(),
-                                  ),
-                                ),
-                              AsyncData() => const GpStateView(
-                                  icon: GpIcons.card,
-                                  title: '绑定卡片',
-                                  description: '当前卡片状态无法付款',
-                                ),
-                              _ => const _PaymentCardLoading(),
-                            },
-                          if (debugMode && card != null) ...[
-                            const SizedBox(height: 12),
-                            SizedBox(
-                              width: double.infinity,
-                              child: OutlinedButton.icon(
-                                onPressed: () => ref
-                                    .read(
-                                      paymentCodeControllerProvider.notifier,
-                                    )
-                                    .debugComplete(),
-                                icon: Icon(GpPlatformIcons.debug(context)),
-                                label: const Text('调试：触发支付成功'),
-                              ),
-                            ),
-                          ],
-                          if (showOfflineAuthorizationBanner) ...[
-                            const SizedBox(height: 12),
-                            _OfflineAuthorizationBanner(
-                              onActivate: () =>
-                                  unawaited(pushCampusCardPage<void>(context, builder: (_) => const OfflineAuthorizationScreen())),
-                              onDismiss: () async {
-                                await ref
-                                    .read(
-                                      offlineAuthorizationBannerDismissedProvider
-                                          .notifier,
-                                    )
-                                    .dismiss();
-                              },
-                            ),
-                          ],
-                          if (_offlineError != null) ...[
-                            const SizedBox(height: 12),
-                            Container(
-                              padding: const EdgeInsets.all(14),
-                              decoration: BoxDecoration(
-                                color: context.gpColors.danger.withValues(
-                                  alpha: 0.09,
-                                ),
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              child: Row(
-                                children: [
-                                  Expanded(child: Text(_offlineError!)),
-                                  TextButton(
-                                    onPressed: () => unawaited(
-                                      pushCampusCardPage<void>(
-                                        context,
-                                        builder: (_) =>
-                                            const OfflineAuthorizationScreen(),
-                                      ),
-                                    ),
-                                    child: const Text('离线授权'),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                          const SizedBox(height: 30),
-                          Text(
-                            '最近使用',
-                            style: TextStyle(
-                              color: context.gpColors.textPrimary,
-                              fontSize: 24,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: -0.3,
+                sliver: SliverList.list(
+                  children: [
+                    if (card != null)
+                      _ExpandedPaymentPass(
+                        card: card,
+                        payment: payment,
+                        // What the pass shows, and what a tap on the code
+                        // means, follows the mode the user chose — not only
+                        // the automatic fallback, or a failed local refresh
+                        // would hand the surface back to the online code.
+                        offline: manualOffline || _offline,
+                        // Offline code on screen while the online one is
+                        // still being fetched: the pass says so.
+                        waitingForOnlineCode: _offline &&
+                            !manualOffline &&
+                            _onlineInFlight(payment),
+                        refreshLoading: _refreshWaiting && _deferOfflineDuringRefresh && (!_refreshWaitExpired || !_offline),
+                        refreshDegraded: _refreshWaiting && _refreshWaitExpired,
+                        offlineBusy: _offlineBusy,
+                        offlinePayload: _offlinePayload,
+                        offlineRemaining: _offlineRemaining,
+                        offlineError: _offlineError,
+                        reduceMotion: reduceMotion,
+                        active: _active,
+                        debugMode: debugMode,
+                        offlineGeneratedMs: _offlineGeneratedMs,
+                        codeShownAfterMs: _codeShownAfterMs,
+                        onShowStatus: () => unawaited(
+                          _showStatusSheet(
+                            card: card,
+                            payment: payment,
+                            manualOffline: manualOffline,
+                            canToggleOffline: canGenerateOffline,
+                          ),
+                        ),
+                        onRefreshOnline: _refreshOnline,
+                        onRefreshOffline: () =>
+                            unawaited(_generateOffline(card)),
+                        onActivateOnline: () => unawaited(
+                          ref
+                              .read(
+                                paymentCodeControllerProvider.notifier,
+                              )
+                              .activateAndRestart(),
+                        ),
+                      )
+                    else
+                      switch (cardAsync) {
+                        AsyncError(:final error) => GpStateView.error(
+                            error,
+                            onRetry: () => unawaited(
+                              ref
+                                  .read(cardControllerProvider.notifier)
+                                  .refresh(),
                             ),
                           ),
-                          const SizedBox(height: 10),
-                        ],
-                      ),
-                    ),
-                    SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(18, 0, 18, 52),
-                      sliver: switch (transactions) {
-                        AsyncData(:final value) => TransactionList(
-                            items: value.items
-                                .where(
-                                  (record) => !record.id.startsWith('DEBUG-'),
-                                )
-                                .take(25)
-                                .toList(),
-                            onTap: (record) => unawaited(
-                              pushCampusCardPage<void>(
-                                context,
-                                builder: (_) => BillTransactionScreen(
-                                  transactionId: record.id,
-                                ),
-                              ),
-                            ),
+                        AsyncData() => const GpStateView(
+                            icon: GpIcons.card,
+                            title: '绑定卡片',
+                            description: '当前卡片状态无法付款',
                           ),
-                        AsyncError(:final error) => SliverToBoxAdapter(
-                            child: GpStateView.error(
-                              error,
-                              onRetry: () => ref.invalidate(
-                                transactionFeedProvider(_allTransactions),
-                              ),
-                            ),
-                          ),
-                        _ => SliverToBoxAdapter(
-                            child: Container(
-                              height: 128,
-                              decoration: BoxDecoration(
-                                color: context.gpColors.surface,
-                                borderRadius: BorderRadius.circular(24),
-                              ),
-                              child: Center(
-                                child: CupertinoActivityIndicator(
-                                  color: context.gpColors.textSecondary,
-                                ),
-                              ),
-                            ),
-                          ),
+                        _ => const _PaymentCardLoading(),
                       },
+                    if (debugMode && card != null) ...[
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: () => ref
+                              .read(
+                                paymentCodeControllerProvider.notifier,
+                              )
+                              .debugComplete(),
+                          icon: Icon(GpPlatformIcons.debug(context)),
+                          label: const Text('调试：触发支付成功'),
+                        ),
+                      ),
+                    ],
+                    if (showOfflineAuthorizationBanner) ...[
+                      const SizedBox(height: 12),
+                      _OfflineAuthorizationBanner(
+                        onActivate: () =>
+                            unawaited(pushCampusCardPage<void>(context, builder: (_) => const OfflineAuthorizationScreen())),
+                        onDismiss: () async {
+                          await ref
+                              .read(
+                                offlineAuthorizationBannerDismissedProvider
+                                    .notifier,
+                              )
+                              .dismiss();
+                        },
+                      ),
+                    ],
+                    if (_offlineError != null) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: context.gpColors.danger.withValues(
+                            alpha: 0.09,
+                          ),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(child: Text(_offlineError!)),
+                            TextButton(
+                              onPressed: () => unawaited(
+                                pushCampusCardPage<void>(
+                                  context,
+                                  builder: (_) =>
+                                      const OfflineAuthorizationScreen(),
+                                ),
+                              ),
+                              child: const Text('离线授权'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 30),
+                    Text(
+                      '最近使用',
+                      style: TextStyle(
+                        color: context.gpColors.textPrimary,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -0.3,
+                      ),
                     ),
+                    const SizedBox(height: 10),
                   ],
                 ),
               ),
-            ),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(18, 0, 18, 52),
+                sliver: switch (transactions) {
+                  AsyncData(:final value) => TransactionList(
+                      items: value.items
+                          .where(
+                            (record) => !record.id.startsWith('DEBUG-'),
+                          )
+                          .take(25)
+                          .toList(),
+                      onTap: (record) => unawaited(
+                        pushCampusCardPage<void>(
+                          context,
+                          builder: (_) => BillTransactionScreen(
+                            transactionId: record.id,
+                          ),
+                        ),
+                      ),
+                    ),
+                  AsyncError(:final error) => SliverToBoxAdapter(
+                      child: GpStateView.error(
+                        error,
+                        onRetry: () => ref.invalidate(
+                          transactionFeedProvider(_allTransactions),
+                        ),
+                      ),
+                    ),
+                  _ => SliverToBoxAdapter(
+                      child: Container(
+                        height: 128,
+                        decoration: BoxDecoration(
+                          color: context.gpColors.surface,
+                          borderRadius: BorderRadius.circular(24),
+                        ),
+                        child: Center(
+                          child: CupertinoActivityIndicator(
+                            color: context.gpColors.textSecondary,
+                          ),
+                        ),
+                      ),
+                    ),
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
     );
     return TickerMode(enabled: _active, child: page);
   }

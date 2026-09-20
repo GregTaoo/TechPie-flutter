@@ -382,7 +382,12 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.byType(ScannerModal), findsOneWidget);
       expect(find.byKey(const Key('scanner-close-button')), findsOneWidget);
-      expect(find.byKey(const Key('payment-header-info')), findsNothing);
+      // The scanner slides over the payment page rather than replacing it, so
+      // the header is still in the tree but covered by the opaque scan surface.
+      expect(
+        find.byKey(const Key('payment-header-info')).hitTestable(),
+        findsNothing,
+      );
       await tester.tap(find.bySemanticsLabel('关闭'));
       await tester.pumpAndSettle();
 
