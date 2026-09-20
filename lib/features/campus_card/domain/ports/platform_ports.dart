@@ -50,6 +50,11 @@ enum HomeWidgetAvailability { nativePin, manual, unsupported }
 abstract interface class HomeWidgetPort {
   Future<HomeWidgetAvailability> availability();
   Future<bool> requestPin();
+
+  /// Registers the handler a home-entry tap (a home-screen widget tap, or the
+  /// long-press shortcut on OHOS) invokes while the feature is open, and returns
+  /// the callback that unregisters it.
+  void Function() registerPaymentTarget(Future<void> Function() handler);
 }
 
 enum FeedbackEvent {

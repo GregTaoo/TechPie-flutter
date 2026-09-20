@@ -188,8 +188,9 @@ Future<void> _realMain(SharedPreferences prefs) async {
 
   unawaited(campusCardService.refreshAccount());
 
-  // The home-screen widget only needs its handler once something could press it.
-  if (isIos() || isAndroid()) ecardWidgetService.initialize();
+  // The home-screen widget / shortcut only needs its handler once something
+  // could press it — a widget tap on iOS/Android, a long-press shortcut on OHOS.
+  if (isIos() || isAndroid() || isOhos()) ecardWidgetService.initialize();
 
   // Build the campus-card runtime now that the first frame is up, so tapping the
   // pass does not pay for it. Nothing session-related happens here: a request

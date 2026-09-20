@@ -65,4 +65,7 @@ class _WidgetPort implements HomeWidgetPort {
     requests++;
     return accept;
   }
+  @override
+  void Function() registerPaymentTarget(Future<void> Function() handler) =>
+      () {};
 }

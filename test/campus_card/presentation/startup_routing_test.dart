@@ -417,6 +417,65 @@ void main() {
     },
   );
 
+  testWidgets('a home-entry tap while the pay page is open stays put', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final ports = await buildDemoRuntime();
+    final auth = _RestoredAuthPort();
+    addTearDown(auth.dispose);
+    final runtime = AppRuntime(
+      environment: AppEnvironment.staging,
+      capabilities: AppCapabilities.forEnvironment(AppEnvironment.staging),
+      auth: auth,
+      cards: ports.cards,
+      paymentCodes: ports.paymentCodes,
+      scanPayments: ports.scanPayments,
+      transactions: ports.transactions,
+      securitySettings: ports.securitySettings,
+      offlinePayments: ports.offlinePayments,
+      brightness: ports.brightness,
+      connectivity: ports.connectivity,
+      lifecycle: ports.lifecycle,
+      feedback: ports.feedback,
+      scanner: ports.scanner,
+      disposeRuntime: ports.dispose,
+    );
+    addTearDown(runtime.dispose);
+    final widget = _CapturingWidgetPort();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ProviderScope(
+          overrides: [
+            appRuntimeProvider.overrideWithValue(runtime),
+            homeWidgetPortProvider.overrideWithValue(widget),
+          ],
+          child: const CampusCardFeature(),
+        ),
+      ),
+    );
+    for (var i = 0; i < 40; i++) {
+      await tester.pump(const Duration(milliseconds: 30));
+    }
+    expect(find.byKey(const Key('payment-code-page')), findsOneWidget);
+
+    // The feature registers itself as the tap target while open, so a second
+    // widget/shortcut tap routes into the already-open feature — it must not
+    // pop the pay page that is already showing.
+    expect(widget.target, isNotNull);
+    // The tap's navigation runs synchronously; its endOfFrame await is driven by
+    // the duration pumps below (a no-duration pump never sees the scheduled frame).
+    unawaited(widget.target!());
+    for (var i = 0; i < 3; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(find.byKey(const Key('payment-code-page')), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+  });
+
   testWidgets(
     'offline banner dismisses, stays hidden after activation, and resets on removal',
     (tester) async {
@@ -497,6 +556,23 @@ void main() {
       await tester.pump();
     },
   );
+}
+
+final class _CapturingWidgetPort implements HomeWidgetPort {
+  Future<void> Function()? target;
+
+  @override
+  Future<HomeWidgetAvailability> availability() async =>
+      HomeWidgetAvailability.unsupported;
+
+  @override
+  Future<bool> requestPin() async => false;
+
+  @override
+  void Function() registerPaymentTarget(Future<void> Function() handler) {
+    target = handler;
+    return () => target = null;
+  }
 }
 
 final class _DelayedCardRepository implements CardRepository {

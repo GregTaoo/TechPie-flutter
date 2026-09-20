@@ -34,6 +34,7 @@ final class EcardWidgetService implements HomeWidgetPort {
     _handler = null;
   }
 
+  @override
   void Function() registerPaymentTarget(OpenEcardPayHandler handler) {
     _paymentTargets.add(handler);
     return () => _paymentTargets.remove(handler);
