@@ -608,9 +608,9 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: "br_v6.0.10_ohos_techpie"
-      resolved-ref: ccb4c8c7b5fba0666f2c9bb207121f7f2bc2026c
-      url: "https://github.com/HeZeBang/br_mobile_scanner_ohos.git"
+      ref: a1cac4ca4b8ac42111dd8032d2f394dbb0d5ca25
+      resolved-ref: a1cac4ca4b8ac42111dd8032d2f394dbb0d5ca25
+      url: "https://github.com/HeZeBang/mobile_scanner_ohos.git"
     source: git
     version: "6.0.10"
   nm:

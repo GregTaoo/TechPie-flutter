@@ -2,63 +2,48 @@ import 'dart:async';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../utils/adaptive_motion.dart';
-import '../../../../widgets/scanner/scan_overlay.dart';
+import '../../../../widgets/scanner/scan_page.dart';
 import '../../app/app_providers.dart';
 import '../../core/config/scan_payment_preferences.dart';
 import '../../domain/models/card_models.dart';
 import '../../domain/models/scan_models.dart';
 import '../../domain/ports/platform_ports.dart';
-import '../icons/platform_icons.dart';
 import '../theme/colors.dart';
 import '../theme/tokens.dart';
 import '../widgets/apple_wallet_components.dart';
 import 'scan_result_content.dart';
-import 'scanner_geometry.dart';
-import 'scanner_viewport.dart';
 import 'six_digit_password_panel.dart';
 
 Widget gpScannerEntranceTransition(
   Animation<double> animation,
   Widget child, {
   required bool reduceMotion,
-}) {
-  final curved = animation.drive(CurveTween(curve: Curves.easeOutCubic));
-  if (reduceMotion) return FadeTransition(opacity: curved, child: child);
-  return SlideTransition(
-    position: Tween<Offset>(
-      begin: const Offset(0, 1),
-      end: Offset.zero,
-    ).animate(curved),
-    child: child,
-  );
-}
+}) =>
+    scannerEntranceTransition(
+      animation,
+      child,
+      reduceMotion: reduceMotion,
+    );
 
 Widget gpScannerPopupTransition(
   Animation<double> animation,
   Widget child, {
   required bool reduceMotion,
-}) {
-  final curved = animation.drive(CurveTween(curve: Curves.easeOutCubic));
-  if (reduceMotion) return FadeTransition(opacity: curved, child: child);
-  return FadeTransition(
-    opacity: curved,
-    child: SlideTransition(
-      position: Tween<Offset>(
-        begin: const Offset(0, 0.08),
-        end: Offset.zero,
-      ).animate(curved),
-      child: ScaleTransition(
-        scale: Tween<double>(begin: 0.985, end: 1).animate(curved),
-        child: child,
-      ),
-    ),
-  );
-}
+}) =>
+    scannerPopupTransition(
+      animation,
+      child,
+      reduceMotion: reduceMotion,
+    );
 
+/// Payment-specific adapter around the app-wide [ScannerPage].
+///
+/// This widget owns only payment confirmation and result content. Camera state,
+/// duplicate handling, lifecycle, viewfinder geometry, and controls belong to
+/// the common scanner library.
 final class ScannerModal extends ConsumerStatefulWidget {
   const ScannerModal({super.key, required this.onClose});
 
@@ -68,171 +53,21 @@ final class ScannerModal extends ConsumerStatefulWidget {
   ConsumerState<ScannerModal> createState() => _ScannerModalState();
 }
 
-class _ScannerModalState extends ConsumerState<ScannerModal>
-    with TickerProviderStateMixin {
-  late final ScanOverlayController _overlay =
-      ScanOverlayController(vsync: this);
-  late final ScannerPort? _scanner;
-  StreamSubscription<ScannerReading>? _codeSub;
-  StreamSubscription<AppLifecycleState>? _lifecycleSub;
-  bool _scanning = false;
-  bool _accepting = true;
-  List<Offset>? _foundCorners;
-  bool _torchOn = false;
-  String? _lastCode;
+final class _ScannerModalState extends ConsumerState<ScannerModal> {
   String? _pendingConfirmationCode;
-  String? _error;
 
-  @override
-  void initState() {
-    super.initState();
-    _scanner = ref.read(appRuntimeProvider).scanner;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _subscribeLifecycle();
-      unawaited(_startCamera());
-      // Telegram starts its opening spring when the camera session reports it
-      // is ready. Starting it a frame after the camera is asked for keeps the
-      // animation independent of how the scanner port reports readiness.
-      _overlay.startAppearing();
-    });
-  }
-
-  @override
-  void dispose() {
-    _overlay.dispose();
-    unawaited(_stopCamera());
-    unawaited(_codeSub?.cancel());
-    unawaited(_lifecycleSub?.cancel());
-    super.dispose();
-  }
-
-  void _subscribeLifecycle() {
-    final lifecycle = ref.read(appRuntimeProvider).lifecycle;
-    _lifecycleSub = lifecycle.changes.listen((state) {
-      if (!mounted) return;
-      switch (state) {
-        case AppLifecycleState.resumed:
-          if (_pendingConfirmationCode == null &&
-              ref.read(scanPaymentControllerProvider).phase ==
-                  ScanFlowPhase.idle) {
-            unawaited(_startCamera());
-          }
-        case AppLifecycleState.inactive:
-        case AppLifecycleState.paused:
-        case AppLifecycleState.detached:
-          unawaited(_stopCamera());
-      }
-    });
-  }
-
-  Future<void> _startCamera() async {
-    if (!mounted || _scanning || _pendingConfirmationCode != null) return;
-    final scanner = _scanner;
-    if (scanner == null) return;
-    _scanning = true;
-    _codeSub ??= scanner.scannedCodes.listen(_handleCode);
-    try {
-      await scanner.start();
-      if (mounted) setState(() => _error = null);
-    } catch (_) {
-      if (mounted) {
-        setState(() {
-          _scanning = false;
-          _error = '相机不可用';
-        });
-      }
-    }
-  }
-
-  Future<void> _stopCamera() async {
-    if (!_scanning) return;
-    _scanning = false;
-    try {
-      await _scanner?.stop();
-    } catch (_) {
-      // The modal is leaving; a stop failure cannot change account state.
-    }
-  }
-
-  Future<void> _toggleTorch() async {
-    final scanner = _scanner;
-    if (scanner == null) return;
-    final next = !_torchOn;
-    try {
-      await scanner.setTorch(next);
-      await ref.read(appRuntimeProvider).feedback.play(FeedbackEvent.selection);
-      if (mounted) setState(() => _torchOn = next);
-    } catch (_) {
-      if (mounted) setState(() => _error = '手电筒');
-    }
-  }
-
-  Future<void> _openGallery() async {
-    final scanner = _scanner;
-    if (scanner == null) return;
-    try {
-      final code = await scanner.scanImage();
-      // An image has no place in the preview, so there is nothing to land on.
-      if (code != null && mounted) _handleCode(ScannerReading(code));
-    } catch (_) {
-      if (mounted) setState(() => _error = '相册');
-    }
-  }
-
-  void _handleCode(ScannerReading reading) {
-    final code = reading.value;
-    if (!mounted || code.isEmpty || !_accepting || code == _lastCode) return;
-    _accepting = false;
-    _lastCode = code;
-    // The frame reacts to having found something before the camera is stopped,
-    // so the payer sees it land — on the code's own corners when the plugin
-    // reported them.
-    setState(() => _foundCorners = reading.corners);
-    _overlay.setFound(true);
-    unawaited(() async {
-      await ref
-          .read(appRuntimeProvider)
-          .feedback
-          .play(FeedbackEvent.mediumImpact);
-      await _stopCamera();
-      if (!mounted) return;
-      if (ref.read(skipScanConfirmationProvider)) {
-        await ref.read(scanPaymentControllerProvider.notifier).submitCode(code);
-      } else {
-        setState(() => _pendingConfirmationCode = code);
-      }
-    }());
-  }
-
-  void _syncCamera(ScanFlowPhase phase) {
-    if (phase == ScanFlowPhase.idle && _pendingConfirmationCode == null) {
-      _lastCode = null;
-      _accepting = true;
-      unawaited(_startCamera());
-    } else {
-      unawaited(_stopCamera());
-    }
-  }
-
-  Future<void> _rescan() async {
+  Future<void> _rescan(ScannerPageController controller) async {
     _pendingConfirmationCode = null;
-    _lastCode = null;
-    _accepting = true;
-    setState(() => _error = null);
     ref.read(scanPaymentControllerProvider.notifier).reset();
-    await _startCamera();
+    await controller.rescan();
   }
 
-  Future<void> _confirmScan() async {
-    final code = _pendingConfirmationCode;
-    if (code == null) return;
+  Future<void> _confirm(
+    ScannerPageController controller,
+    String code,
+  ) async {
     setState(() => _pendingConfirmationCode = null);
     await ref.read(scanPaymentControllerProvider.notifier).submitCode(code);
-  }
-
-  Future<void> _cancelScanConfirmation() async {
-    await _rescan();
   }
 
   void _finish() {
@@ -242,268 +77,178 @@ class _ScannerModalState extends ConsumerState<ScannerModal>
 
   @override
   Widget build(BuildContext context) {
-    ref.listen(scanPaymentControllerProvider, (previous, next) {
-      _syncCamera(next.phase);
-    });
-
     final runtime = ref.watch(appRuntimeProvider);
     final scan = ref.watch(scanPaymentControllerProvider);
     final card = ref.watch(cardControllerProvider).valueOrNull;
     final reduceMotion = !appAnimationsEnabled(context);
-    final popupDuration = reduceMotion
-        ? const Duration(milliseconds: 180)
-        : GpTokens.scanModalDuration;
-    Widget popupTransition(Widget child, Animation<double> animation) =>
-        gpScannerPopupTransition(animation, child, reduceMotion: reduceMotion);
 
-    final scanner = Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: ScanOverlay(
-              painterKey: const Key('scanner-mask'),
-              // The frame shows the region the camera is told to read, at
-              // whichever size it is painted — both go through this function.
-              windowFor: scannerWindowForSize,
-              appearing: _overlay.appearing,
-              dismissed: _overlay.dismissed,
-              absorbed: _overlay.absorbed,
-              target: _foundCorners,
-              child: runtime.scanner == null
-                  ? const Center(
-                      child: Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 32),
-                        child: Text(
-                          '相机不可用',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.white),
-                        ),
-                      ),
-                    )
-                  : ScannerViewport(session: runtime.scanner!),
-            ),
-          ),
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(18, 8, 18, 24),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      _ScannerCloseButton(
-                        icon: GpPlatformIcons.close(context),
-                        label: '关闭',
-                        onPressed: widget.onClose,
-                      ),
-                      const Spacer(),
-                    ],
-                  ),
-                  const Spacer(),
-                  const Text(
-                    '将二维码放入框内',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      shadows: [Shadow(color: Colors.black54, blurRadius: 8)],
-                    ),
-                  ),
-                  const SizedBox(height: 26),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      _ScannerControl(
-                        icon: _torchOn
-                            ? GpPlatformIcons.flashOn(context)
-                            : GpPlatformIcons.flashOff(context),
-                        label: '手电筒',
-                        active: _torchOn,
-                        onTap: _toggleTorch,
-                      ),
-                      const SizedBox(width: 32),
-                      _ScannerControl(
-                        icon: GpPlatformIcons.photoLibrary(context),
-                        label: '相册',
-                        onTap: _openGallery,
-                      ),
-                    ],
-                  ),
-                ],
+    return ScannerPage(
+      scanner: runtime.scanner,
+      lifecycle: runtime.lifecycle,
+      feedback: runtime.feedback,
+      title: '扫描消费码',
+      hint: '将二维码放入框内',
+      onClose: _finish,
+      onCode: (controller, reading) async {
+        if (ref.read(skipScanConfirmationProvider)) {
+          await ref.read(scanPaymentControllerProvider.notifier).submitCode(
+                reading.value,
+              );
+        } else {
+          setState(() => _pendingConfirmationCode = reading.value);
+        }
+      },
+      overlayBuilder: (context, controller) => _PaymentScannerOverlays(
+        scan: scan,
+        card: card,
+        pendingCode: _pendingConfirmationCode,
+        feedback: runtime.feedback,
+        reduceMotion: reduceMotion,
+        onConfirm: () {
+          final code = _pendingConfirmationCode;
+          if (code != null) unawaited(_confirm(controller, code));
+        },
+        onCancelConfirmation: () => unawaited(_rescan(controller)),
+        onPassword: (password) => unawaited(
+          ref.read(scanPaymentControllerProvider.notifier).submitPassword(
+                password,
               ),
-            ),
-          ),
-          Positioned.fill(
-            child: IgnorePointer(
-              ignoring: scan.phase != ScanFlowPhase.submitting,
-              child: AnimatedSwitcher(
-                duration: popupDuration,
-                transitionBuilder: popupTransition,
-                child: scan.phase == ScanFlowPhase.submitting
-                    ? Center(
-                        key: const ValueKey('scan-submitting-popup'),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 18,
-                            vertical: 12,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.70),
-                            borderRadius: BorderRadius.circular(22),
-                          ),
-                          child: const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              CupertinoActivityIndicator(
-                                color: Colors.white,
-                              ),
-                              SizedBox(width: 10),
-                              Text(
-                                '正在加载',
-                                style: TextStyle(color: Colors.white),
-                              ),
-                            ],
-                          ),
-                        ),
-                      )
-                    : const SizedBox.expand(
-                        key: ValueKey('scan-submitting-none'),
-                      ),
-              ),
-            ),
-          ),
-          Positioned.fill(
-            child: AnimatedSwitcher(
-              duration: reduceMotion
-                  ? const Duration(milliseconds: 180)
-                  : GpTokens.resultOverlayDuration,
-              transitionBuilder: popupTransition,
-              child: switch (scan.phase) {
-                ScanFlowPhase.succeeded => _LightResultOverlay(
-                    key: const ValueKey('success'),
-                    child: ScanResultContent(
-                      success: scan.success!,
-                      onDone: _finish,
-                      feedback: runtime.feedback,
-                    ),
-                  ),
-                ScanFlowPhase.failed => _LightResultOverlay(
-                    key: const ValueKey('failure'),
-                    child: ScanFailureContent(
-                      message:
-                          scan.message ?? '付款码生成失败',
-                      onRescan: _rescan,
-                      feedback: runtime.feedback,
-                    ),
-                  ),
-                _ => const SizedBox.shrink(key: ValueKey('none')),
-              },
-            ),
-          ),
-          Positioned.fill(
-            child: AnimatedSwitcher(
-              duration: popupDuration,
-              transitionBuilder: popupTransition,
-              child: _pendingConfirmationCode != null
-                  ? _ScanConfirmationOverlay(
-                      key: const ValueKey('scan-confirmation-popup'),
-                      card: card,
-                      onContinue: _confirmScan,
-                      onCancel: _cancelScanConfirmation,
-                    )
-                  : scan.phase == ScanFlowPhase.passwordRequired
-                      ? _PayAuthorizationOverlay(
-                          key: const ValueKey('scan-password-popup'),
-                          card: card,
-                          feedback: runtime.feedback,
-                          onSubmit: (password) => unawaited(
-                            ref
-                                .read(scanPaymentControllerProvider.notifier)
-                                .submitPassword(password),
-                          ),
-                          onCancel: () => ref
-                              .read(scanPaymentControllerProvider.notifier)
-                              .reset(),
-                        )
-                      : const SizedBox.expand(
-                          key: ValueKey('scan-authorization-none'),
-                        ),
-            ),
-          ),
-          Positioned.fill(
-            child: IgnorePointer(
-              child: AnimatedSwitcher(
-                duration: popupDuration,
-                transitionBuilder: popupTransition,
-                child: _error == null
-                    ? const SizedBox.expand(key: ValueKey('scan-error-none'))
-                    : SafeArea(
-                        key: const ValueKey('scan-error-popup'),
-                        child: Align(
-                          alignment: Alignment.topCenter,
-                          child: Container(
-                            margin: const EdgeInsets.only(
-                              top: 72,
-                              left: 20,
-                              right: 20,
-                            ),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 11,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.78),
-                              borderRadius: BorderRadius.circular(18),
-                            ),
-                            child: Text(
-                              _error!,
-                              style: const TextStyle(color: Colors.white),
-                            ),
-                          ),
-                        ),
-                      ),
-              ),
-            ),
-          ),
-        ],
+        ),
+        onCancelPassword: () {
+          ref.read(scanPaymentControllerProvider.notifier).reset();
+          unawaited(controller.rescan());
+        },
+        onDone: _finish,
+        onRescan: () => unawaited(_rescan(controller)),
       ),
-    );
-    return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemUiOverlayStyle.light,
-      child: scanner,
     );
   }
 }
 
-final class _ScannerCloseButton extends StatelessWidget {
-  const _ScannerCloseButton({
-    required this.icon,
-    required this.label,
-    required this.onPressed,
+final class _PaymentScannerOverlays extends StatelessWidget {
+  const _PaymentScannerOverlays({
+    required this.scan,
+    required this.card,
+    required this.pendingCode,
+    required this.feedback,
+    required this.reduceMotion,
+    required this.onConfirm,
+    required this.onCancelConfirmation,
+    required this.onPassword,
+    required this.onCancelPassword,
+    required this.onDone,
+    required this.onRescan,
   });
 
-  final IconData icon;
-  final String label;
-  final VoidCallback onPressed;
+  final ScanFlowState scan;
+  final CampusCard? card;
+  final String? pendingCode;
+  final FeedbackPort feedback;
+  final bool reduceMotion;
+  final VoidCallback onConfirm;
+  final VoidCallback onCancelConfirmation;
+  final ValueChanged<String> onPassword;
+  final VoidCallback onCancelPassword;
+  final VoidCallback onDone;
+  final VoidCallback onRescan;
 
   @override
   Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      label: label,
-      child: SizedBox.square(
-        dimension: 52,
-        child: CupertinoButton(
-          key: const Key('scanner-close-button'),
-          padding: EdgeInsets.zero,
-          color: Colors.black.withValues(alpha: 0.58),
-          borderRadius: BorderRadius.circular(26),
-          onPressed: onPressed,
-          child: Icon(icon, color: Colors.white, size: 25),
+    final popupDuration = reduceMotion
+        ? const Duration(milliseconds: 180)
+        : GpTokens.scanModalDuration;
+    Widget transition(Widget child, Animation<double> animation) =>
+        gpScannerPopupTransition(animation, child, reduceMotion: reduceMotion);
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        IgnorePointer(
+          ignoring: scan.phase != ScanFlowPhase.submitting,
+          child: AnimatedSwitcher(
+            duration: popupDuration,
+            transitionBuilder: transition,
+            child: scan.phase == ScanFlowPhase.submitting
+                ? const Center(
+                    key: ValueKey('scan-submitting-popup'),
+                    child: _SubmittingPopup(),
+                  )
+                : const SizedBox.expand(
+                    key: ValueKey('scan-submitting-none'),
+                  ),
+          ),
         ),
-      ),
+        AnimatedSwitcher(
+          duration: reduceMotion
+              ? const Duration(milliseconds: 180)
+              : GpTokens.resultOverlayDuration,
+          transitionBuilder: transition,
+          child: switch (scan.phase) {
+            ScanFlowPhase.succeeded => _LightResultOverlay(
+                key: const ValueKey('success'),
+                child: ScanResultContent(
+                  success: scan.success!,
+                  onDone: onDone,
+                  feedback: feedback,
+                ),
+              ),
+            ScanFlowPhase.failed => _LightResultOverlay(
+                key: const ValueKey('failure'),
+                child: ScanFailureContent(
+                  message: scan.message ?? '扫码消费失败',
+                  onRescan: onRescan,
+                  feedback: feedback,
+                ),
+              ),
+            _ => const SizedBox.shrink(key: ValueKey('none')),
+          },
+        ),
+        AnimatedSwitcher(
+          duration: popupDuration,
+          transitionBuilder: transition,
+          child: pendingCode != null
+              ? _ScanConfirmationOverlay(
+                  key: const ValueKey('scan-confirmation-popup'),
+                  card: card,
+                  onContinue: onConfirm,
+                  onCancel: onCancelConfirmation,
+                )
+              : scan.phase == ScanFlowPhase.passwordRequired
+                  ? _PayAuthorizationOverlay(
+                      key: const ValueKey('scan-password-popup'),
+                      card: card,
+                      feedback: feedback,
+                      onSubmit: onPassword,
+                      onCancel: onCancelPassword,
+                    )
+                  : const SizedBox.expand(
+                      key: ValueKey('scan-authorization-none'),
+                    ),
+        ),
+      ],
     );
   }
+}
+
+final class _SubmittingPopup extends StatelessWidget {
+  const _SubmittingPopup();
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.70),
+          borderRadius: BorderRadius.circular(22),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CupertinoActivityIndicator(color: Colors.white),
+            SizedBox(width: 10),
+            Text('正在加载', style: TextStyle(color: Colors.white)),
+          ],
+        ),
+      );
 }
 
 final class _ScanConfirmationOverlay extends StatelessWidget {
@@ -520,151 +265,110 @@ final class _ScanConfirmationOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ColoredBox(
-      color: Colors.black.withValues(alpha: 0.52),
-      child: SafeArea(
-        child: Align(
-          alignment: Alignment.bottomCenter,
-          child: Container(
-            width: double.infinity,
-            constraints: const BoxConstraints(maxWidth: 560),
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-            decoration: BoxDecoration(
-              color: context.gpColors.surfaceDisabled,
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(32),
-              ),
+    // The system bar's inset becomes part of the sheet's own padding rather than
+    // lifting the sheet: a lifted surface leaves a strip of camera preview
+    // showing under it, right where the bar is.
+    final systemBar = MediaQuery.viewPaddingOf(context).bottom;
+    return SafeArea(
+      bottom: false,
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: Container(
+          width: double.infinity,
+          constraints: const BoxConstraints(maxWidth: 560),
+          padding: EdgeInsets.fromLTRB(20, 16, 20, 24 + systemBar),
+          decoration: BoxDecoration(
+            color: context.gpColors.surfaceDisabled,
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(32),
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 38,
-                  height: 5,
-                  decoration: BoxDecoration(
-                    color: context.gpColors.textDisabled,
-                    borderRadius: BorderRadius.circular(3),
-                  ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 38,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: context.gpColors.textDisabled,
+                  borderRadius: BorderRadius.circular(3),
                 ),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                '是否继续扫码交易？',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '继续后才会向校园支付服务提交二维码。',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: context.gpColors.textSecondary),
+              ),
+              if (card != null) ...[
                 const SizedBox(height: 20),
-                const Text(
-                  '是否继续扫码交易？',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w700,
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: context.gpColors.surface,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 64,
+                        child: CampusWalletCard(
+                          card: card!,
+                          compact: true,
+                          heroTag: 'scan-confirmation-card',
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Text(
+                          '上海科技大学 eCard',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      MaskedCardNumberText(maskedNumber: card!.maskedNumber),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  '继续后才会向校园支付服务提交二维码。',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: context.gpColors.textSecondary),
-                ),
-                if (card != null) ...[
-                  const SizedBox(height: 20),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
+              ],
+              const SizedBox(height: 22),
+              Row(
+                children: [
+                  Expanded(
+                    child: CupertinoButton(
                       color: context.gpColors.surface,
-                      borderRadius: BorderRadius.circular(20),
+                      onPressed: onCancel,
+                      child: Text(
+                        '取消',
+                        style: TextStyle(color: context.gpColors.textPrimary),
+                      ),
                     ),
-                    child: Row(
-                      children: [
-                        SizedBox(
-                          width: 64,
-                          child: CampusWalletCard(
-                            card: card!,
-                            compact: true,
-                            heroTag: 'scan-confirmation-card',
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        const Expanded(
-                          child: Text(
-                            '上海科技大学 eCard',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                        MaskedCardNumberText(maskedNumber: card!.maskedNumber),
-                      ],
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: CupertinoButton(
+                      color: context.gpColors.action,
+                      onPressed: onContinue,
+                      child: const Text(
+                        '继续',
+                        style: TextStyle(color: Colors.white),
+                      ),
                     ),
                   ),
                 ],
-                const SizedBox(height: 22),
-                Row(
-                  children: [
-                    Expanded(
-                      child: CupertinoButton(
-                        color: context.gpColors.surface,
-                        onPressed: onCancel,
-                        child: Text(
-                          '取消',
-                          style: TextStyle(color: context.gpColors.textPrimary),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: CupertinoButton(
-                        color: context.gpColors.action,
-                        onPressed: onContinue,
-                        child: const Text(
-                          '继续',
-                          style: TextStyle(color: Colors.white),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
-    );
-  }
-}
-
-final class _ScannerControl extends StatelessWidget {
-  const _ScannerControl({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-    this.active = false,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  final bool active;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Material(
-          color: active ? Colors.white : Colors.black.withValues(alpha: 0.44),
-          shape: const CircleBorder(),
-          child: InkWell(
-            onTap: onTap,
-            customBorder: const CircleBorder(),
-            child: SizedBox.square(
-              dimension: 62,
-              child: Icon(
-                icon,
-                color: active ? Colors.black : Colors.white,
-                size: 28,
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(label, style: const TextStyle(color: Colors.white, fontSize: 12)),
-      ],
     );
   }
 }
@@ -675,22 +379,20 @@ final class _LightResultOverlay extends StatelessWidget {
   final Widget child;
 
   @override
-  Widget build(BuildContext context) {
-    return ColoredBox(
-      color: context.gpColors.bg,
-      child: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(28),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 420),
-              child: child,
+  Widget build(BuildContext context) => ColoredBox(
+        color: context.gpColors.bg,
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(28),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 420),
+                child: child,
+              ),
             ),
           ),
         ),
-      ),
-    );
-  }
+      );
 }
 
 final class _PayAuthorizationOverlay extends StatelessWidget {
@@ -708,16 +410,20 @@ final class _PayAuthorizationOverlay extends StatelessWidget {
   final VoidCallback onCancel;
 
   @override
-  Widget build(BuildContext context) {
-    return ColoredBox(
-      color: Colors.black.withValues(alpha: 0.50),
-      child: SafeArea(
+  Widget build(BuildContext context) => SafeArea(
+        // As above: the surface reaches the screen edge, the content does not.
+        bottom: false,
         child: Align(
           alignment: Alignment.bottomCenter,
           child: Container(
             width: double.infinity,
             constraints: const BoxConstraints(maxWidth: 560),
-            padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
+            padding: EdgeInsets.fromLTRB(
+              18,
+              12,
+              18,
+              24 + MediaQuery.viewPaddingOf(context).bottom,
+            ),
             decoration: BoxDecoration(
               color: context.gpColors.surfaceDisabled,
               borderRadius: const BorderRadius.vertical(
@@ -751,7 +457,9 @@ final class _PayAuthorizationOverlay extends StatelessWidget {
                             style: TextStyle(fontWeight: FontWeight.w600),
                           ),
                         ),
-                        MaskedCardNumberText(maskedNumber: card!.maskedNumber),
+                        MaskedCardNumberText(
+                          maskedNumber: card!.maskedNumber,
+                        ),
                       ],
                     ),
                   ),
@@ -766,7 +474,5 @@ final class _PayAuthorizationOverlay extends StatelessWidget {
             ),
           ),
         ),
-      ),
-    );
-  }
+      );
 }

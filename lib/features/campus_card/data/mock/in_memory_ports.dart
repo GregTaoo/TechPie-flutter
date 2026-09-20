@@ -132,14 +132,28 @@ final class InMemoryScannerPort implements ScannerPort {
     sync: true,
   );
   bool running = false;
+  bool frozen = false;
   bool torch = false;
   String? nextImageCode;
 
   @override
   Stream<ScannerReading> get scannedCodes => _codes.stream;
 
-  void emit(String code, {List<Offset>? corners}) {
-    if (running) _codes.add(ScannerReading(code, corners: corners));
+  void emit(
+    String code, {
+    List<Offset>? corners,
+  }) {
+    // A freeze does not recall frames that are already on their way, so a
+    // second decode can still arrive after the preview stopped following the
+    // camera. The scanner page is what ignores it.
+    if (running) {
+      _codes.add(ScannerReading(code, corners: corners));
+    }
+  }
+
+  @override
+  Future<void> freeze() async {
+    if (running) frozen = true;
   }
 
   @override
@@ -149,10 +163,16 @@ final class InMemoryScannerPort implements ScannerPort {
   Future<void> setTorch(bool enabled) async => torch = enabled;
 
   @override
-  Future<void> start() async => running = true;
+  Future<void> start() async {
+    running = true;
+    frozen = false;
+  }
 
   @override
-  Future<void> stop() async => running = false;
+  Future<void> stop() async {
+    running = false;
+    frozen = false;
+  }
 }
 
 final class InMemoryFeedbackPort implements FeedbackPort {

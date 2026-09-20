@@ -1,5 +1,4 @@
 import 'dart:ui' as ui;
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,11 +13,14 @@ import 'package:techpie/features/campus_card/data/repositories/ecard_scan_paymen
 import 'package:techpie/features/campus_card/domain/models/payment_models.dart';
 import 'package:techpie/features/campus_card/domain/models/scan_models.dart';
 import 'package:techpie/features/campus_card/domain/ports/payment_ports.dart';
+import 'package:techpie/features/campus_card/domain/ports/platform_ports.dart'
+    as ports;
 import 'package:techpie/features/campus_card/presentation/scanner/scan_result_content.dart';
 import 'package:techpie/features/campus_card/presentation/scanner/scanner_geometry.dart';
 import 'package:techpie/features/campus_card/presentation/scanner/scanner_modal.dart';
 import 'package:techpie/features/campus_card/presentation/scanner/six_digit_password_panel.dart';
 import 'package:techpie/widgets/scanner/scan_overlay.dart';
+import 'package:techpie/widgets/scanner/scan_page.dart';
 
 import '../support/fake_ecard_transport.dart';
 import '../support/scan_password_challenge.dart';
@@ -50,7 +52,11 @@ void main() {
     await tester.tap(find.text('继续'));
     await tester.pumpAndSettle();
     expect(find.byType(SixDigitPasswordPanel), findsOneWidget);
-    expect(scanner.running, isFalse);
+    expect(
+      scanner.frozen,
+      isTrue,
+      reason: 'the decoded frame is frozen behind the password panel',
+    );
     expect(transport.requests, hasLength(1));
     for (final digit in ['1', '2', '3', '4', '5', '6']) {
       await tester.tap(
@@ -270,6 +276,76 @@ void main() {
     await tester.pump();
     expect(scanner.running, isFalse);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('pauses and resumes the shared camera with app lifecycle', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final scanner = InMemoryScannerPort();
+    final (base, runtime) = await _scannerRuntime(scanner);
+    addTearDown(base.dispose);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [appRuntimeProvider.overrideWithValue(runtime)],
+        child: MaterialApp(home: ScannerModal(onClose: () {})),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(scanner.running, isTrue);
+
+    final lifecycle = runtime.lifecycle as InMemoryLifecyclePort;
+    lifecycle.setState(ports.AppLifecycleState.paused);
+    await tester.pump();
+    expect(scanner.running, isFalse);
+
+    lifecycle.setState(ports.AppLifecycleState.resumed);
+    await tester.pump();
+    expect(scanner.running, isTrue);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    expect(scanner.running, isFalse);
+  });
+
+  testWidgets('the confirmation sheet covers the system bar at the bottom', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    // A phone with a 48dp navigation bar: the inset the sheet has to fill.
+    tester.view.viewPadding = const FakeViewPadding(bottom: 48 * 3);
+    tester.view.padding = const FakeViewPadding(bottom: 48 * 3);
+    addTearDown(tester.view.reset);
+    final scanner = InMemoryScannerPort();
+    final (base, runtime) = await _scannerRuntime(scanner);
+    addTearDown(base.dispose);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [appRuntimeProvider.overrideWithValue(runtime)],
+        child: MaterialApp(home: ScannerModal(onClose: () {})),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    scanner.emit('SYNTHETIC-SCAN-CODE');
+    await tester.pumpAndSettle();
+
+    final title = find.text('是否继续扫码交易？');
+    expect(title, findsOneWidget);
+    final screen = tester.getRect(find.byType(ScannerPage));
+    // The closest Container above the title is the sheet's surface.
+    final sheet = tester
+        .getRect(find.ancestor(of: title, matching: find.byType(Container)).first);
+    expect(
+      sheet.bottom,
+      screen.bottom,
+      reason: 'the surface runs to the screen edge, not to the inset',
+    );
+    expect(
+      tester.getRect(title).bottom,
+      lessThanOrEqualTo(screen.bottom - 48),
+      reason: 'while its content stays clear of the bar',
+    );
   });
 
   testWidgets('asks for confirmation before submitting a scan by default', (

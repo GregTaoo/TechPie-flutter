@@ -6,17 +6,16 @@ import 'package:flutter/physics.dart';
 
 /// The scanner's viewfinder, reproduced from Telegram's `CameraScanActivity`.
 ///
-/// Three animated scalars drive everything, exactly as they do there:
+/// Three animated scalars drive it:
 ///
-/// * [appearing] — a spring started when the preview is actually running. The
-///   box grows from half size to full size while the four corner brackets
-///   retract from full-length edges into short ticks. That retraction *is* the
-///   opening animation; nothing slides in.
-/// * [dismissed] — 0..1, fades the chrome (title, hint, torch) out and deepens
-///   the scrim once a code has been found, over `300ms × distance`.
-/// * [absorbed] — a spring that morphs the box from its resting square onto the
-///   code's own corners, so the frame lands on the code instead of shrinking to
-///   the centre.
+/// * [appearing] — a spring started when the preview is ready. The box grows
+///   from half size while the four brackets retract into short rounded ticks.
+/// * [dismissed] — fades only the title, hint, and controls after recognition.
+/// * [absorbed] — a spring that morphs the box onto the decoded code corners.
+///
+/// The scrim's opening is rounded to the same radius as the corner marks'
+/// outer edge, so the dimmed area and the brackets read as one frame. The
+/// startup cover is the page's, because it has to sit above the chrome too.
 ///
 /// The numbers are the ones in Telegram's source: `lineLength` eases with
 /// `pow(v, 1.8)`, the stroke reaches 4dp within 5% of the appearing spring, the
@@ -36,36 +35,14 @@ final class ScanOverlay extends StatefulWidget {
     this.painterKey,
   });
 
-  /// The camera preview (or anything else) this overlay sits on top of.
   final Widget child;
-
-  /// 0..1, the opening spring. See [ScanOverlayController].
   final Animation<double> appearing;
-
-  /// 0..1, how far the found-code state has taken over the chrome.
   final Animation<double> dismissed;
-
-  /// 0..1, how far the box has moved onto [target].
   final Animation<double> absorbed;
-
-  /// The found code's corners, normalised to 0..1 in preview space. Null keeps
-  /// the box on its resting square.
   final List<Offset>? target;
-
-  /// Where the box rests, as a function of the size being painted. Pass the
-  /// same function the camera plugin is told to read, so the frame never lies
-  /// about where a scan happens. Defaults to Telegram's centred
-  /// `min(w, h) / 1.5` square.
   final Rect Function(Size size)? windowFor;
-
-  /// Scrim opacity at rest, before [dismissed] deepens it.
   final double dimOpacity;
-
-  /// Bracket colour.
   final Color accent;
-
-  /// Placed on the painting layer, so a caller (or a test) can address the mask
-  /// itself rather than the widget that hosts it.
   final Key? painterKey;
 
   @override
@@ -105,28 +82,25 @@ final class _ScanOverlayState extends State<ScanOverlay> {
   }
 }
 
-/// Drives the three scalars for a scanner screen and disposes them together.
+/// Drives the scalars for a scanner screen and disposes them together.
 ///
 /// Kept separate from [ScanOverlay] so a page can start `appearing` when its
 /// preview reports its first frame, and `absorbed`/`dismissed` when a code is
-/// decoded — the same triggers Telegram uses.
+/// decoded — the same triggers Telegram uses. [restarting] is the startup cover
+/// the page paints above its chrome: opaque until the preview is live.
 final class ScanOverlayController {
-  /// [vsync] must be a [TickerProviderStateMixin] (or another provider that
-  /// allows more than one ticker): this drives three controllers.
-  ScanOverlayController({required TickerProvider vsync, this.restingWindowBuilder})
-      : appearing = AnimationController.unbounded(vsync: vsync, value: 0),
+  ScanOverlayController({
+    required TickerProvider vsync,
+    this.restingWindowBuilder,
+  })  : appearing = AnimationController.unbounded(vsync: vsync, value: 0),
         dismissed = AnimationController.unbounded(vsync: vsync, value: 0),
-        absorbed = AnimationController.unbounded(vsync: vsync, value: 0);
+        absorbed = AnimationController.unbounded(vsync: vsync, value: 0),
+        restarting = AnimationController.unbounded(vsync: vsync, value: 1);
 
-  /// 0..1, spring: Telegram's `SpringForce(500)`, damping ratio 0.8, stiffness
-  /// 250 — converted to Flutter's (mass, stiffness, damping) form.
   final AnimationController appearing;
-
-  /// 0..1, 300ms × distance with `cubic-bezier(0.25, 0.1, 0.25, 1)`.
   final AnimationController dismissed;
-
-  /// 0..1, spring: damping ratio 1.0, stiffness 500.
   final AnimationController absorbed;
+  final AnimationController restarting;
 
   final Rect Function(Size size)? restingWindowBuilder;
 
@@ -151,14 +125,52 @@ final class ScanOverlayController {
     );
   }
 
-  /// How far the box is from the found state, for the bounce back when a code
-  /// stops being read.
+  void resetFrame() {
+    appearing.stop();
+    dismissed.stop();
+    absorbed.stop();
+    appearing.value = 0;
+    dismissed.value = 0;
+    absorbed.value = 0;
+  }
+
+  void beginCameraStart() {
+    restarting.stop();
+    restarting.value = 1;
+    resetFrame();
+  }
+
+  Future<void> finishCameraStart() => restarting.animateTo(
+        0,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+
+  void revealCameraImmediately() {
+    restarting.stop();
+    restarting.value = 0;
+  }
+
+  void reset() {
+    resetFrame();
+    restarting.stop();
+    restarting.value = 1;
+  }
+
+  /// Recognition moves the frame and fades the chrome. ScannerPage freezes the
+  /// captured image separately before stopping the camera.
   void setFound(bool found) {
     final from = found ? absorbed.value : 1 - absorbed.value;
-    absorbed.animateWith(SpringSimulation(_absorbedSpring, from, found ? 1 : 0, 0));
+    absorbed.animateWith(
+      SpringSimulation(_absorbedSpring, from, found ? 1 : 0, 0),
+    );
     dismissed.animateTo(
       found ? 1 : 0,
-      duration: Duration(milliseconds: (300 * (found ? 1 - dismissed.value : dismissed.value)).round().clamp(1, 300)),
+      duration: Duration(
+        milliseconds: (300 * (found ? 1 - dismissed.value : dismissed.value))
+            .round()
+            .clamp(1, 300),
+      ),
       curve: foundCurve,
     );
   }
@@ -167,6 +179,7 @@ final class ScanOverlayController {
     appearing.dispose();
     dismissed.dispose();
     absorbed.dispose();
+    restarting.dispose();
   }
 }
 
@@ -221,6 +234,20 @@ final class ScanOverlayPainter extends CustomPainter {
         math.min(1.2, math.pow(appearing.clamp(0.0, 1.2), 1.8).toDouble()),
       )!;
 
+  /// The radius of the window's corners: the corner marks' outer edge.
+  ///
+  /// A mark's centre line runs 1.5 strokes from the elbow's centre
+  /// ([bracketElbow]) and the stroke reaches half a stroke further out, so its
+  /// outer edge sits 2 strokes from the centre — rounding the scrim's opening to
+  /// that radius makes the dimmed area and the marks one shape.
+  static double windowRadius(double stroke) => stroke * 2;
+
+  /// The radius of a bracket's centre line. Telegram's elbow puts the outer edge
+  /// at 2 strokes and the inner edge at 1, which is concentric because both are
+  /// arcs around the same centre — the half stroke of the stroke itself is what
+  /// separates them.
+  static double bracketElbow(double stroke) => windowRadius(stroke) - stroke / 2;
+
   /// The found code's bounds, padded the way Telegram pads them: 25dp across,
   /// 15dp down, in logical pixels.
   static Rect paddedTarget(
@@ -258,9 +285,7 @@ final class ScanOverlayPainter extends CustomPainter {
     final corners = target;
     return blendFrame(
       rest,
-      corners == null || corners.isEmpty
-          ? null
-          : paddedTarget(corners, size),
+      corners == null || corners.isEmpty ? null : paddedTarget(corners, size),
       absorbed,
     );
   }
@@ -276,32 +301,39 @@ final class ScanOverlayPainter extends CustomPainter {
       height: frame.height * scale,
     );
 
-    // Scrim: four rectangles around the box, then the box interior, which the
-    // appearing spring fades out and a found code keeps dark.
-    final dim = dimOpacity + dismissed * 0.25;
-    final scrim = Paint()
-      ..color = Colors.black.withValues(alpha: dim.clamp(0.0, 1.0));
-    canvas.drawRect(Rect.fromLTRB(0, 0, size.width, box.top), scrim);
-    canvas.drawRect(
-      Rect.fromLTRB(0, box.bottom, size.width, size.height),
-      scrim,
+    final progress = appearing.clamp(0.0, 1.2);
+    final stroke = bracketStroke(progress);
+    final length = bracketLength(math.min(box.width, box.height), progress);
+    final window = RRect.fromRectAndRadius(
+      box,
+      Radius.circular(windowRadius(stroke)),
     );
-    canvas.drawRect(Rect.fromLTRB(0, box.top, box.left, box.bottom), scrim);
-    canvas.drawRect(
-      Rect.fromLTRB(box.right, box.top, size.width, box.bottom),
+
+    // Scrim: everything outside the window, then the window interior, which the
+    // appearing spring fades out and a found code keeps dark.
+    // Recognition keeps the live preview visible. Only the explicit rescan
+    // state may deepen the scrim, and it fades the whole surface uniformly.
+    final scrim = Paint()
+      ..color = Colors.black.withValues(alpha: dimOpacity.clamp(0.0, 1.0));
+    canvas.drawPath(
+      Path()
+        ..fillType = PathFillType.evenOdd
+        ..addRect(Offset.zero & size)
+        ..addRRect(window),
       scrim,
     );
     final inner = Paint()
       ..color = Colors.black.withValues(
-        alpha: (dim * (1 - appearing.clamp(0.0, 1.0))).clamp(0.0, 1.0),
+        alpha: (dimOpacity * (1 - appearing.clamp(0.0, 1.0))).clamp(0.0, 1.0),
       );
-    canvas.drawRect(box, inner);
+    canvas.drawRRect(window, inner);
 
-    // Corner brackets: full-length edges that retract into ticks. `pow(1.8)`
-    // and the `* 20` on the stroke are Telegram's.
-    final progress = appearing.clamp(0.0, 1.2);
-    final stroke = bracketStroke(progress);
-    final length = bracketLength(math.min(box.width, box.height), progress);
+    // Nothing to mark until the stroke has a width: `arcToPoint` has no arc to
+    // draw at a zero radius.
+    if (stroke <= 0) {
+      return;
+    }
+
     final bracket = Paint()
       ..color = accent.withValues(alpha: math.min(1, progress))
       // Telegram's bracket reads as a thick line with round ends and a rounded
@@ -318,9 +350,12 @@ final class ScanOverlayPainter extends CustomPainter {
     _bracket(canvas, bracket, box.bottomRight, -1, -1, stroke, length);
   }
 
-  /// One corner: a thick line from the end of the vertical arm, round the
-  /// elbow, to the end of the horizontal arm. Round caps and a round join are
-  /// what make it read as a rounded tick rather than a box corner.
+  /// One corner: two arms and an elbow that is a real arc.
+  ///
+  /// A quadratic fillet is not a circle, so the stroke's inner and outer edges
+  /// come out with different centres — the elbow looks pinched inside. An arc of
+  /// radius [bracketElbow] around the elbow's centre keeps the inner edge one
+  /// stroke out, the outer two, and both concentric with the scrim's opening.
   void _bracket(
     Canvas canvas,
     Paint paint,
@@ -331,9 +366,16 @@ final class ScanOverlayPainter extends CustomPainter {
     double length,
   ) {
     final half = stroke / 2;
+    final radius = bracketElbow(stroke);
     final path = Path()
       ..moveTo(corner.dx + dx * half, corner.dy + dy * length)
-      ..lineTo(corner.dx + dx * half, corner.dy + dy * half)
+      ..lineTo(corner.dx + dx * half, corner.dy + dy * (half + radius))
+      ..arcToPoint(
+        Offset(corner.dx + dx * (half + radius), corner.dy + dy * half),
+        radius: Radius.circular(radius),
+        // Up-then-right and down-then-left both turn clockwise on screen.
+        clockwise: dx == dy,
+      )
       ..lineTo(corner.dx + dx * length, corner.dy + dy * half);
     canvas.drawPath(path, paint);
   }
@@ -342,7 +384,6 @@ final class ScanOverlayPainter extends CustomPainter {
   bool shouldRepaint(ScanOverlayPainter oldDelegate) =>
       oldDelegate.appearing != appearing ||
       oldDelegate.dismissed != dismissed ||
-      oldDelegate.absorbed != absorbed ||
       oldDelegate.target != target ||
       oldDelegate.windowFor != windowFor ||
       oldDelegate.dimOpacity != dimOpacity ||

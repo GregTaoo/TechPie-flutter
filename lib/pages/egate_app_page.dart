@@ -88,8 +88,12 @@ class _EgateAppPageState extends State<EgateAppPage> {
   }
 
   Future<void> _scanQrCode(EgateAppService service) async {
+    final runtime = ServiceProvider.of(context).campusCardService.runtime;
     final wid = await showTechPieScanner(
       context,
+      scanner: runtime.scanner,
+      lifecycle: runtime.lifecycle,
+      feedback: runtime.feedback,
       title: '扫描签到二维码',
       hint: '将二维码放入框内，即可自动扫描',
     );
@@ -240,12 +244,17 @@ class _EgateAppPageState extends State<EgateAppPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('当前公告', style: Theme.of(context).textTheme.titleMedium),
+                        Text(
+                          '当前公告',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
                         const SizedBox(height: 8),
                         Text(
                           _loading
                               ? '加载中…'
-                              : (_message?.isNotEmpty == true ? _message! : '暂无签到公告'),
+                              : (_message?.isNotEmpty == true
+                                  ? _message!
+                                  : '暂无签到公告'),
                         ),
                       ],
                     ),
@@ -301,4 +310,3 @@ class _EgateAppPageState extends State<EgateAppPage> {
     );
   }
 }
-

@@ -25,7 +25,6 @@ final class MobileScannerSession implements ScannerPort {
               detectionTimeoutMs: 250,
               facing: CameraFacing.back,
               formats: const [BarcodeFormat.qrCode],
-              returnImage: false,
             ),
         _imagePicker = imagePicker ?? ImagePicker() {
     _subscription = this.controller.barcodes.listen(
@@ -42,7 +41,15 @@ final class MobileScannerSession implements ScannerPort {
   );
   late final StreamSubscription<BarcodeCapture> _subscription;
   final _transitions = AsyncMutex();
-  bool _running = false;
+
+  /// Whether the platform camera session exists: started and not yet stopped.
+  bool _live = false;
+
+  /// Whether the preview is frozen on its last frame with the camera paused.
+  bool _frozen = false;
+
+  /// How long a start waits for the preview's first frame before opening anyway.
+  static const Duration _previewTimeout = Duration(milliseconds: 1500);
   bool _disposed = false;
   Future<void>? _disposeFuture;
 
@@ -54,14 +61,23 @@ final class MobileScannerSession implements ScannerPort {
 
   Future<void> _start() async {
     _ensureActive();
-    if (_running) return;
+    if (_live && !_frozen) return;
+    // Subscribed before the platform is asked to start: the native side reports
+    // one frame per start, so waiting only after `start()` resolved would
+    // sometimes miss it and sit out the whole timeout. An earlier session's
+    // frame cannot satisfy this wait, because its report was for its own start.
+    final previewStarted = controller.previewStartedStream.first;
+    // Nobody may await this future when the start below fails, and a broken
+    // event stream is not the scanner's problem.
+    unawaited(previewStarted.then((_) {}, onError: (Object _) {}));
     try {
+      // Also unfreezes a preview that was frozen on a decoded code.
       await controller.start();
-      // mobile_scanner records startup failures in its value without throwing.
-      // Do not mark a failed camera as running or suppress the next retry.
       final error = controller.value.error;
       if (error != null) throw error;
-      _running = true;
+      await _awaitPreviewFrame(previewStarted);
+      _live = true;
+      _frozen = false;
     } on MobileScannerException catch (error) {
       throw AppFailure(
         FailureKind.permissionDenied,
@@ -72,13 +88,46 @@ final class MobileScannerSession implements ScannerPort {
     }
   }
 
+  /// Waits for the picture to actually be live.
+  ///
+  /// [MobileScannerController.start] reports that the platform accepted the
+  /// request — for a moment afterwards the preview still shows whatever it was
+  /// left with (the previous session's last frame, or a frozen code). This is
+  /// the wait that makes `start()` mean "the camera is on screen", and it is
+  /// bounded so a camera that never reports cannot leave the scanner behind a
+  /// black cover forever.
+  Future<void> _awaitPreviewFrame(Future<void> previewStarted) async {
+    try {
+      await previewStarted.timeout(_previewTimeout);
+    } on TimeoutException {
+      // Opening with a possibly-stale picture beats not opening at all.
+    } on Object {
+      // A stream error says nothing about the camera.
+    }
+  }
+
+  /// Stops the camera while leaving its last frame on the preview, so the code
+  /// that was just decoded stays visible behind its result. [start] resumes.
+  @override
+  Future<void> freeze() => _transitions.protect(_freeze);
+
+  Future<void> _freeze() async {
+    _ensureActive();
+    if (!_live || _frozen) return;
+    await controller.freezePreview();
+    _frozen = true;
+  }
+
   @override
   Future<void> stop() => _transitions.protect(_stop);
 
   Future<void> _stop() async {
-    if (_disposed || !_running) return;
-    await controller.stop();
-    _running = false;
+    if (_disposed || !_live) return;
+    // Forced, because a frozen session is already paused and would otherwise
+    // keep the camera resources.
+    await controller.stop(force: true);
+    _live = false;
+    _frozen = false;
   }
 
   @override

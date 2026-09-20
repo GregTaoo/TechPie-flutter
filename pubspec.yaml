@@ -94,17 +94,14 @@ dependency_overrides:
       path: packages/image_picker/image_picker_ohos
       ref: br_image_picker-v1.1.2_ohos
   mobile_scanner:
-    # CPF-Flutter's OHOS fork (gitcode.com/CPF-Flutter/fluttertpc_mobile_scanner,
-    # branch br_v6.0.10_ohos) with one guard added: the OHOS plugin compares
-    # defaultTargetPlatform against TargetPlatform.ohos, a member only the OHOS
-    # Flutter fork has, so the patched branch compares by name instead. Android
-    # and iOS ship from upstream Flutter, which cannot compile that member —
-    # and upstream's mobile_scanner has no OHOS platform, while the campus
-    # check-in page scans a WID from its camera. See
-    # github.com/HeZeBang/br_mobile_scanner_ohos, branch br_v6.0.10_ohos_techpie.
+    # HeZeBang/mobile_scanner_ohos: the OHOS fork of mobile_scanner 6.0.10 plus
+    # TechPie's patches — the preview freezes on its last frame, and every start
+    # reports the preview's first frame. Pinned by commit, so a release always
+    # builds the source it was tested against; the patches and the reasoning are
+    # in that repository's history.
     git:
-      url: https://github.com/HeZeBang/br_mobile_scanner_ohos.git
-      ref: br_v6.0.10_ohos_techpie
+      url: https://github.com/HeZeBang/mobile_scanner_ohos.git
+      ref: a1cac4ca4b8ac42111dd8032d2f394dbb0d5ca25
   package_info_plus:
     git:
       url: https://gitee.com/openharmony-sig/flutter_plus_plugins.git
