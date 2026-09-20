@@ -608,8 +608,8 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: dfdb43e3a91425ad276ea08f294c19540bc66af9
-      resolved-ref: dfdb43e3a91425ad276ea08f294c19540bc66af9
+      ref: 406715294f90c2c90e864c6695db26d840613b25
+      resolved-ref: 406715294f90c2c90e864c6695db26d840613b25
       url: "https://github.com/HeZeBang/mobile_scanner_ohos.git"
     source: git
     version: "6.0.10"
