@@ -235,37 +235,44 @@ final class ApplePinnedHeaderLayout extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final resolvedTitle = title ?? 'eCard';
-    return SafeArea(
-      bottom: false,
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: Align(
-              alignment: Alignment.topCenter,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: contentWidth),
-                child: child,
-              ),
-            ),
-          ),
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: isIos()
-                ? ColoredBox(
-                    color: context.gpColors.bg,
-                    child: _buildIosHeader(resolvedTitle),
-                  )
-                : BlurredAppBar(
-                    automaticallyImplyLeading: false,
-                    leading: leading == null ? null : _materialButton(leading!),
-                    title: Text(resolvedTitle),
-                    actions: actions.map(_materialButton).toList(),
-                  ),
-          ),
-        ],
+    final body = Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: contentWidth),
+        child: child,
       ),
+    );
+    final header = isIos()
+        ? ColoredBox(
+            color: context.gpColors.bg,
+            child: _buildIosHeader(resolvedTitle),
+          )
+        : BlurredAppBar(
+            automaticallyImplyLeading: false,
+            leading: leading == null ? null : _materialButton(leading!),
+            title: Text(resolvedTitle),
+            actions: actions.map(_materialButton).toList(),
+          );
+    if (isIos()) {
+      return SafeArea(
+        bottom: false,
+        child: Stack(
+          children: [
+            Positioned.fill(child: body),
+            Positioned(top: 0, left: 0, right: 0, child: header),
+          ],
+        ),
+      );
+    }
+    // The BlurredAppBar's AppBar (primary) draws behind the status bar itself;
+    // wrapping it in SafeArea pushed it down and left the status bar showing the
+    // raw page background (black on OHOS). The body keeps its own SafeArea so the
+    // content still clears the bar, and the frosted bar reaches the top.
+    return Stack(
+      children: [
+        Positioned.fill(child: SafeArea(bottom: false, child: body)),
+        Positioned(top: 0, left: 0, right: 0, child: header),
+      ],
     );
   }
 
