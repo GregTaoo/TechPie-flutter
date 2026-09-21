@@ -93,3 +93,6 @@ dist/
 
 # Cache
 .cache
+
+# Local agent/editor state (omp)
+.omp/
