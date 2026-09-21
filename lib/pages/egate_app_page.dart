@@ -1,13 +1,14 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../services/egate_app_service.dart';
 import '../services/service_provider.dart';
 import '../utils/platform.dart';
+import '../widgets/adaptive_page_navigation.dart';
 import '../widgets/blurred_app_bar.dart';
 import '../widgets/ios/ios_native_navigation_bar.dart';
+import '../widgets/scanner/scan_page.dart';
 import 'login_page.dart';
 import 'third_party_accounts_page.dart';
 
@@ -41,8 +42,9 @@ class _EgateAppPageState extends State<EgateAppPage> {
   }
 
   Future<void> _openThirdPartyAccounts() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const ThirdPartyAccountsPage()),
+    await pushAdaptivePage<void>(
+      context,
+      builder: (_) => const ThirdPartyAccountsPage(),
     );
   }
 
@@ -86,8 +88,14 @@ class _EgateAppPageState extends State<EgateAppPage> {
   }
 
   Future<void> _scanQrCode(EgateAppService service) async {
-    final wid = await Navigator.of(context).push<String>(
-      MaterialPageRoute<String>(builder: (_) => const _QrScanPage()),
+    final runtime = ServiceProvider.of(context).campusCardService.runtime;
+    final wid = await showTechPieScanner(
+      context,
+      scanner: runtime.scanner,
+      lifecycle: runtime.lifecycle,
+      feedback: runtime.feedback,
+      title: '扫描签到二维码',
+      hint: '将二维码放入框内，即可自动扫描',
     );
     if (wid == null || wid.isEmpty || !mounted) return;
     unawaited(_submitCheckin(service, wid));
@@ -236,12 +244,17 @@ class _EgateAppPageState extends State<EgateAppPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('当前公告', style: Theme.of(context).textTheme.titleMedium),
+                        Text(
+                          '当前公告',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
                         const SizedBox(height: 8),
                         Text(
                           _loading
                               ? '加载中…'
-                              : (_message?.isNotEmpty == true ? _message! : '暂无签到公告'),
+                              : (_message?.isNotEmpty == true
+                                  ? _message!
+                                  : '暂无签到公告'),
                         ),
                       ],
                     ),
@@ -294,47 +307,6 @@ class _EgateAppPageState extends State<EgateAppPage> {
           );
         },
       ),
-    );
-  }
-}
-
-/// Full-screen camera QR scanner. Pops with the raw decoded string (the WID
-/// content) as soon as one barcode is found — no decryption/transformation,
-/// the scanned text is submitted to the backend verbatim.
-class _QrScanPage extends StatefulWidget {
-  const _QrScanPage();
-
-  @override
-  State<_QrScanPage> createState() => _QrScanPageState();
-}
-
-class _QrScanPageState extends State<_QrScanPage> {
-  final MobileScannerController _controller = MobileScannerController();
-  bool _handled = false;
-
-  @override
-  void dispose() {
-    unawaited(_controller.dispose());
-    super.dispose();
-  }
-
-  void _onDetect(BarcodeCapture capture) {
-    if (_handled) return;
-    for (final barcode in capture.barcodes) {
-      final value = barcode.rawValue;
-      if (value != null && value.isNotEmpty) {
-        _handled = true;
-        Navigator.of(context).pop(value);
-        return;
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('扫描签到二维码')),
-      body: MobileScanner(controller: _controller, onDetect: _onDetect),
     );
   }
 }

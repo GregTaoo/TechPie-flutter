@@ -14,7 +14,11 @@
     },
     {
       "name": "camera_reason",
-      "value": "Use the camera to scan a check-in code"
+      "value": "Use the camera to scan check-in codes and campus-card payment codes"
+    },
+    {
+      "name": "ecard_shortcut_label",
+      "value": "Pay Code"
     }
   ]
 }

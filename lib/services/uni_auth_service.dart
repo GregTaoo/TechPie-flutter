@@ -3,9 +3,12 @@ import 'dart:convert';
 import 'package:casdoor_flutter_sdk/casdoor_flutter_sdk.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 
 import '../pages/macos_casdoor_auth_page.dart';
 import '../pages/ohos_casdoor_auth_page.dart';
+import '../widgets/adaptive_page_navigation.dart';
+import 'debug_logger.dart';
 
 // ---------------------------------------------------------------------------
 // GeekPie Uni-Auth configuration (powered by Casdoor)
@@ -44,12 +47,70 @@ class SsoTokens {
 // ---------------------------------------------------------------------------
 
 class UniAuthService extends ChangeNotifier {
+  /// Absolute expiry for the access token in a token endpoint response.
+  ///
+  /// The field is `expires_in` — seconds from now. `expires_at` is a field of
+  /// Casdoor's token *model*, which an OAuth response does not contain: parsing
+  /// it left every stored expiry null, which is why nothing could tell how much
+  /// of a token was left.
+  static String? expiryFromTokenResponse(
+    Map<String, dynamic> data,
+    DateTime now,
+  ) {
+    final seconds = int.tryParse('${data['expires_in']}');
+    if (seconds != null && seconds > 0) {
+      return now.add(Duration(seconds: seconds)).toUtc().toIso8601String();
+    }
+    return data['expires_at'] as String?;
+  }
+
   Casdoor? _casdoor;
   bool _loading = false;
 
   bool get loading => _loading;
 
-  UniAuthService();
+  UniAuthService({DebugLogger? logger}) : _logger = logger;
+
+  final DebugLogger? _logger;
+
+  /// Debug trace of what the SSO token endpoint answered.
+  ///
+  /// The SDK brings its own HTTP client, so unlike every other call this one is
+  /// not in the app's request log — a refresh that keeps failing was therefore
+  /// completely invisible, and the only way to tell "the token was refused" from
+  /// "the call never landed" is to record it here. Field *names* and the status
+  /// are safe; token values are never logged.
+  void _traceTokenResponse(String operation, http.Response response) {
+    String summary;
+    try {
+      final body = jsonDecode(response.body);
+      if (body is Map) {
+        final keys = body.keys.map((k) => k.toString()).toList()..sort();
+        final parts = <String>[
+          'status=${response.statusCode}',
+          'keys=[${keys.join(',')}]',
+          if (body['error'] != null) 'error=${body['error']}',
+          if (body['error_description'] != null)
+            'description=${body['error_description']}',
+          if (body['expires_in'] != null) 'expires_in=${body['expires_in']}',
+          'rotated=${body['refresh_token'] != null}',
+        ];
+        summary = parts.join(' ');
+      } else {
+        summary = 'status=${response.statusCode} (non-object body)';
+      }
+    } catch (_) {
+      summary = 'status=${response.statusCode} (body not JSON)';
+    }
+    final line = 'token $operation: $summary';
+    if (kDebugMode) debugPrint('[sso] $line');
+    _logger?.log(
+      method: 'SSO',
+      url: _uniAuthServerUrl,
+      tag: 'SSO',
+      responseBody: DebugLogger.redactSensitive(line),
+    );
+  }
 
   /// Lazily initialize the Casdoor SDK instance.
   Casdoor _getCasdoor() {
@@ -119,7 +180,7 @@ class UniAuthService extends ChangeNotifier {
     Casdoor casdoor,
   ) async {
     final callbackUrl = await navigator.push<String>(
-      MaterialPageRoute<String>(
+      adaptivePageRoute<String>(
         builder: (_) => OhosCasdoorAuthPage(
           authorizeUrl: casdoor.getSigninUrl().toString(),
           callbackScheme: _uniAuthCallbackScheme,
@@ -137,7 +198,7 @@ class UniAuthService extends ChangeNotifier {
     Casdoor casdoor,
   ) async {
     final callbackUrl = await navigator.push<String>(
-      MaterialPageRoute<String>(
+      adaptivePageRoute<String>(
         builder: (_) => MacosCasdoorAuthPage(
           authorizeUrl: casdoor.getSigninUrl().toString(),
           callbackScheme: _uniAuthCallbackScheme,
@@ -153,6 +214,7 @@ class UniAuthService extends ChangeNotifier {
   /// Exchange an authorization code for the SSO token bundle.
   Future<SsoTokens> _exchangeCode(Casdoor casdoor, String code) async {
     final resp = await casdoor.requestOauthAccessToken(code);
+    _traceTokenResponse('exchange', resp);
     if (resp.statusCode != 200) {
       throw Exception('Token exchange failed (${resp.statusCode})');
     }
@@ -166,7 +228,7 @@ class UniAuthService extends ChangeNotifier {
     return SsoTokens(
       accessToken: accessToken,
       refreshToken: data['refresh_token'] as String?,
-      expiresAt: data['expires_at'] as String?,
+      expiresAt: expiryFromTokenResponse(data, DateTime.now()),
     );
   }
 
@@ -186,6 +248,7 @@ class UniAuthService extends ChangeNotifier {
   Future<SsoTokens> refresh(String refreshToken) async {
     final casdoor = _getCasdoor();
     final resp = await casdoor.refreshToken(refreshToken, null);
+    _traceTokenResponse('refresh', resp);
     if (resp.statusCode != 200) {
       throw Exception('Token refresh failed (${resp.statusCode})');
     }
@@ -201,7 +264,7 @@ class UniAuthService extends ChangeNotifier {
       // Casdoor may rotate the refresh token; keep the new one if present,
       // otherwise reuse the one we just redeemed.
       refreshToken: (data['refresh_token'] as String?) ?? refreshToken,
-      expiresAt: data['expires_at'] as String?,
+      expiresAt: expiryFromTokenResponse(data, DateTime.now()),
     );
   }
 }
