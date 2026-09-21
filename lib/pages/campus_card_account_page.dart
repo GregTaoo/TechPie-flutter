@@ -379,12 +379,7 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
         ? '解析失败（${diagnosis.lookupError}）'
         : '${diagnosis.addresses.join(', ')}'
               '${diagnosis.routesToBindService ? '（已指向绑定服务）' : '（未劫持）'}';
-    final health = diagnosis.healthError != null
-        ? diagnosis.healthError!
-        : diagnosis.health == null
-        ? '未检查'
-        : 'HTTP ${diagnosis.health!.status}'
-              '${diagnosis.reachable ? '（绑定服务正常）' : '（响应异常）'}';
+    final health = diagnosis.healthLine;
     return [
       'DNS 劫持：${diagnosis.status.name}',
       '解析 ${EcardBindHijackService.host}：$addresses',

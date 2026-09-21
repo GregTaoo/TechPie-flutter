@@ -4,10 +4,10 @@ import '../utils/platform.dart';
 
 /// What the DNS-only tunnel for the bind-code flow is doing right now.
 enum EcardBindHijackStatus {
-  /// No implementation on this platform (iOS, desktop, OHOS).
+  /// No implementation on this platform (iOS, desktop, web).
   unsupported,
 
-  /// Android, and no tunnel is up.
+  /// The platform can host it (Android, OHOS), and no tunnel is up.
   inactive,
 
   /// The tunnel is answering DNS for [EcardBindHijackService.host].
@@ -31,33 +31,39 @@ abstract interface class EcardBindHijackPort {
   Future<EcardBindHijackStatus> status();
 }
 
-/// Android tunnel that redirects one host name and leaves the rest alone.
+/// The platform tunnel that redirects one host name and leaves the rest alone.
 ///
-/// `EcardBindVpnService` answers only DNS for [host] with [targetIp]; TCP still
-/// goes out the ordinary network, so this does not proxy anything the mini
-/// program or the exchange request actually send.
+/// `EcardBindVpnService` (Android) and `EcardBindVpnAbility` (OHOS) answer only
+/// DNS for [EcardBindHijackService.host] with [EcardBindHijackService.targetIp];
+/// TCP still goes out the ordinary network, so this does not proxy anything the
+/// mini program or the exchange request actually send. It applies to every app,
+/// not to a list of them.
 final class EcardBindHijackService implements EcardBindHijackPort {
   static const _channel = MethodChannel('techpie/ecard_bind');
 
   /// The campus host the bind service is served under, and the address the
-  /// tunnel answers with (`ecard.techpie.geekpie.club`).
+  /// tunnel answers with.
   static const host = 'ecard.shanghaitech.edu.cn';
   static const targetIp = '119.78.254.196';
 
-  /// The mini program is where the code is read, so WeChat is allowed into the
-  /// tunnel; this app is always allowed as well, because the exchange request
-  /// resolves [host] itself.
-  static const wechatPackage = 'com.tencent.mm';
+  /// Android hosts the tunnel in a `VpnService`, OHOS in a `VpnExtensionAbility`
+  /// (see ohos/entry/src/main/ets/ecardbind). Both answer the same three calls
+  /// on the same channel, so the flow above them is one.
+  static bool get _hostsTunnel => isAndroid() || isOhos();
 
+  /// Nothing is filtered by package name: every app's name resolution goes
+  /// through the tunnel while it is up. The code is read in the mini program and
+  /// the exchange request is this app's, but neither is worth betting the hijack
+  /// on — a list stops covering whichever app makes the first lookup, and breaks
+  /// outright when an app's package name changes.
   static const Map<String, Object?> _arguments = <String, Object?>{
     'host': host,
     'ip': targetIp,
-    'packages': <String>[wechatPackage],
   };
 
   @override
   Future<EcardBindHijackStatus> start() async {
-    if (!isAndroid()) return EcardBindHijackStatus.unsupported;
+    if (!_hostsTunnel) return EcardBindHijackStatus.unsupported;
     try {
       return EcardBindHijackStatus.parse(
         await _channel.invokeMethod<String>('start', _arguments),
@@ -71,7 +77,7 @@ final class EcardBindHijackService implements EcardBindHijackPort {
 
   @override
   Future<void> stop() async {
-    if (!isAndroid()) return;
+    if (!_hostsTunnel) return;
     try {
       await _channel.invokeMethod<void>('stop');
     } on MissingPluginException {
@@ -83,7 +89,7 @@ final class EcardBindHijackService implements EcardBindHijackPort {
 
   @override
   Future<EcardBindHijackStatus> status() async {
-    if (!isAndroid()) return EcardBindHijackStatus.unsupported;
+    if (!_hostsTunnel) return EcardBindHijackStatus.unsupported;
     try {
       return EcardBindHijackStatus.parse(
         await _channel.invokeMethod<String>('status'),

@@ -74,6 +74,13 @@ final class EcardBindCodeClient {
 
     switch (status) {
       case 200:
+        // A 200 is not an answer: the bind service says whether it did anything
+        // with the code, and only `ok` means it did. Something else answering on
+        // the same host — the campus itself, a captive portal — also returns a
+        // 200, and its JSON has no `ok` in it.
+        if (payload['ok'] != true) {
+          throw const AppFailure(FailureKind.protocol, '绑定服务返回异常，请重试');
+        }
         final openId = payload['openid'];
         if (openId is! String || openId.trim().isEmpty) {
           throw const AppFailure(FailureKind.protocol, '绑定服务返回异常，请重试');

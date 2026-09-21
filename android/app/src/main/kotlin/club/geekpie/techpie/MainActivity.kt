@@ -103,7 +103,6 @@ class MainActivity : FlutterActivity() {
         val request = PendingVpnConsent(
             host = host,
             ip = ip,
-            packages = call.argument<List<String>>("packages") ?: emptyList(),
             result = result,
         )
         val consent = VpnService.prepare(this)
@@ -136,10 +135,6 @@ class MainActivity : FlutterActivity() {
         val intent = Intent(this, EcardBindVpnService::class.java)
             .putExtra(EcardBindVpnService.REQUEST_HOST_ARG, request.host)
             .putExtra(EcardBindVpnService.REQUEST_IP_ARG, request.ip)
-            .putStringArrayListExtra(
-                EcardBindVpnService.REQUEST_EXTRA_PACKAGES_ARG,
-                ArrayList(request.packages),
-            )
         startService(intent)
         // The interface exists a moment after the service starts, so answer with
         // what is actually true instead of a hopeful "active".
@@ -332,7 +327,6 @@ class MainActivity : FlutterActivity() {
     private data class PendingVpnConsent(
         val host: String,
         val ip: String,
-        val packages: List<String>,
         val result: MethodChannel.Result,
     )
 

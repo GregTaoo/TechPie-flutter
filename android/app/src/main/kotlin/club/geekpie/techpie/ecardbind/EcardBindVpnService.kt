@@ -1,7 +1,6 @@
 package club.geekpie.techpie.ecardbind
 
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
@@ -23,11 +22,13 @@ import java.net.UnknownHostException
  *
  * The interface carries a /32 route for its own address and another for the
  * resolver address it hands out, and the service reads the resulting queries off
- * the interface queue and answers them there. For the allowed apps only name
- * resolution changes: their TCP keeps leaving through the underlying network.
- * This app is in the allow list as well, which is what sends its own lookups of
- * the eCard host through here; the upstream resolver socket is protected so
- * those lookups do not loop back into the tunnel.
+ * the interface queue and answers them there. Only name resolution changes for
+ * every app: their TCP keeps leaving through the underlying network, because the
+ * only routes are the two /32s above. Nothing is filtered by package name on
+ * purpose — the hijack has to cover whichever app makes the lookup, including
+ * this one, whose own exchange request resolves the eCard host. The upstream
+ * resolver socket is protected so those lookups do not loop back into the
+ * tunnel.
  *
  * It is deliberately not a foreground service: the flow lasts a minute, and the
  * tunnel lives as long as the user stays on the eCard page or in the mini
@@ -81,27 +82,13 @@ class EcardBindVpnService : VpnService() {
             .addRoute(DNS_ADDRESS, 32)
             .setBlocking(false)
             // Only IPv4 is hijacked. Without this the tunnel would also capture,
-            // and then black-hole, IPv6 for the allowed apps; letting the family
-            // through keeps their IPv6 on the underlying network.
+            // and then black-hole, IPv6 for every app; letting the family through
+            // keeps their IPv6 on the underlying network.
             .allowFamily(OsConstants.AF_INET6)
-
-        var allowed = 0
-        for (name in (intent.getStringArrayListExtra(REQUEST_EXTRA_PACKAGES_ARG).orEmpty() + packageName)
-            .filter { it.isNotBlank() }
-            .distinct()
-        ) {
-            try {
-                builder.addAllowedApplication(name)
-                allowed += 1
-                Log.i(TAG, "allow $name")
-            } catch (_: PackageManager.NameNotFoundException) {
-                // Not installed (no WeChat, say): skip that app, keep the rest.
-                Log.w(TAG, "allow $name skipped: not installed")
-            }
-        }
-        if (allowed == 0) {
-            return failStart()
-        }
+        // No addAllowedApplication: a VPN with no allow list applies to every
+        // app, which is what this needs — the lookup that matters can come from
+        // any of them, and a list would silently stop covering the ones it does
+        // not name.
 
         val descriptor = try {
             builder.establish()
@@ -199,8 +186,8 @@ class EcardBindVpnService : VpnService() {
      *
      * A socket on port 53 would be simpler but is not available: 53 is
      * privileged, and binding to it fails with EACCES. One thread, one query at
-     * a time — the allowed apps ask a handful of names while the code is being
-     * read, and a serialized relay cannot mix up answers.
+     * a time — the apps ask a handful of names while the code is being read, and
+     * a serialized relay cannot mix up answers.
      */
     private inner class DnsResponder(
         private val descriptor: ParcelFileDescriptor,
@@ -370,7 +357,7 @@ class EcardBindVpnService : VpnService() {
     }
 
     /**
-     * A tunnel that cannot answer is worse than no tunnel: the allowed apps' DNS
+     * A tunnel that cannot answer is worse than no tunnel: every app's DNS
      * would time out and then resolve through nobody. Take the interface down
      * with it — `stopSelf()` alone is not enough, because the system holds a
      * binding on a `VpnService`.
@@ -420,7 +407,6 @@ class EcardBindVpnService : VpnService() {
         const val DNS_ADDRESS = "10.111.222.2"
         const val REQUEST_HOST_ARG = "host"
         const val REQUEST_IP_ARG = "ip"
-        const val REQUEST_EXTRA_PACKAGES_ARG = "packages"
 
         private const val SESSION_NAME = "TechPie eCard 绑定"
         private const val FALLBACK_UPSTREAM = "223.5.5.5"

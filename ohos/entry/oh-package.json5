@@ -8,6 +8,8 @@
   "main": "",
   "author": "",
   "license": "",
-  "dependencies": {},
+  "dependencies": {
+    "libecardbind_reader.so": "file:./src/main/cpp/types/libecardbind_reader"
+  },
 }
 

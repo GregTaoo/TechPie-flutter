@@ -41,23 +41,20 @@ COPY command-line-tools/ /opt/ohos/command-line-tools/
 COPY flutter_flutter/ /opt/ohos/flutter_flutter/
 
 # --- OHOS SDK: the native (C/C++) half of it -------------------------------
-# `openharmony/native/llvm` is the clang cross toolchain (2.3 GB) and
-# `hms/native/BiSheng` the BiSheng compiler it prefers (1.7 GB). Together with
-# the sysroots, the bundled cmake/ninja and the API docs that is 4.5 GB of
-# compiler that a module without `src/main/cpp` never invokes —
-# `ohos/entry/` is ArkTS + resources only.
+# `ohos/entry/src/main/cpp` (libecardbind_reader.so, the bind tunnel's packet
+# I/O) does compile C++, so the toolchain stays. Dropping it was worth 4.5 GB
+# while `ohos/entry/` was ArkTS + resources only; a module with native code
+# fails with "clang not found" instead, which is worse than a bigger image.
 #
-# If the module ever grows native code, delete this block: the build then fails
-# with "clang not found" rather than silently producing a wrong hap.
+# The paths the build actually resolves, so a future trim can tell what is
+# load-bearing: the hmos toolchain file
+# (hms/native/build/cmake/hmos.toolchain.cmake) points at the sysroot, and CMake
+# picks native/llvm/bin/llvm-* and native/build-tools/cmake/bin/ninja.
+# What stays out is documentation and the debugger — nothing builds with them.
 RUN rm -rf \
-        /opt/ohos/command-line-tools/sdk/default/openharmony/native/llvm \
-        /opt/ohos/command-line-tools/sdk/default/openharmony/native/sysroot \
-        /opt/ohos/command-line-tools/sdk/default/openharmony/native/build-tools \
         /opt/ohos/command-line-tools/sdk/default/openharmony/native/docs \
-        /opt/ohos/command-line-tools/sdk/default/hms/native/BiSheng \
-        /opt/ohos/command-line-tools/sdk/default/hms/native/sysroot \
-        /opt/ohos/command-line-tools/sdk/default/hms/native/lldb \
-        /opt/ohos/command-line-tools/sdk/default/hms/native/docs
+        /opt/ohos/command-line-tools/sdk/default/hms/native/docs \
+        /opt/ohos/command-line-tools/sdk/default/hms/native/lldb
 
 # --- OHOS SDK: the previewer ------------------------------------------------
 # DevEco Studio's live preview runtime — but NOT previewer-only: the resource
