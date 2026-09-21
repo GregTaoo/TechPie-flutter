@@ -117,11 +117,11 @@ final class EcardBindCodeClient {
         jsonEncode({'code': code}),
       ).timeout(_timeout);
     } on TimeoutException {
-      throw const AppFailure(FailureKind.timeout, '网络异常，请检查劫持是否开启后重试');
+      throw const AppFailure(FailureKind.timeout, '网络异常，请确认已开启自动获取后重试');
     } on IOException {
       // Unreachable host, refused connection, rejected certificate: all of it
       // means the request never reached the bind service.
-      throw const AppFailure(FailureKind.network, '网络异常，请检查劫持是否开启后重试');
+      throw const AppFailure(FailureKind.network, '网络异常，请确认已开启自动获取后重试');
     }
   }
 
