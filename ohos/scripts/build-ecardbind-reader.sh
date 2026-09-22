@@ -47,7 +47,9 @@ trap 'rm -rf "$build"' EXIT
 "$CMAKE" --build "$build"
 
 # Stripped: this file is what the repository keeps, and the hap carries it as is.
+# 644 because a shared library is data here, not something anyone runs.
 "$STRIP" --strip-all "$build/libecardbind_reader.so"
 mkdir -p "$(dirname "$OUT")"
 cp "$build/libecardbind_reader.so" "$OUT"
+chmod 644 "$OUT"
 ls -l "$OUT"
