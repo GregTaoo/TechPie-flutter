@@ -22,6 +22,21 @@
 #include <thread>
 #include <unistd.h>
 
+#ifndef ECARDBIND_SOURCE_SHA256
+#error "ECARDBIND_SOURCE_SHA256 is missing — build through ohos/scripts/build-ecardbind-reader.sh."
+#endif
+
+// The .so this compiles to is committed (ohos/entry/libs/arm64-v8a/), not
+// rebuilt by hvigor, so an ordinary build would never notice a source edit that
+// was not compiled. The build script passes a digest of everything in this
+// directory in as ECARDBIND_SOURCE_SHA256; the text below is where it lands, and
+// test/ecard_bind_reader_artifact_test.dart is what reads it back and compares
+// it against the source tree. Exported and marked used so no linker or strip
+// pass can drop it.
+extern "C" __attribute__((visibility("default"), used))
+const char kTechPieEcardBindSourceDigest[] =
+    "TECHPIE-ECARDBIND-SRC-SHA256=" ECARDBIND_SOURCE_SHA256;
+
 namespace {
 
 constexpr int kPacketSize = 2048;
