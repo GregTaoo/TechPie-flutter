@@ -137,8 +137,8 @@ void main() {
     );
 
     expect(offline.kind, FailureKind.network);
-    expect(offline.safeMessage, '网络异常，请检查劫持是否开启后重试');
+    expect(offline.safeMessage, '网络异常，请确认已开启自动获取后重试');
     expect(slow.kind, FailureKind.timeout);
-    expect(slow.safeMessage, '网络异常，请检查劫持是否开启后重试');
+    expect(slow.safeMessage, '网络异常，请确认已开启自动获取后重试');
   });
 }

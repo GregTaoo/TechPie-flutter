@@ -252,7 +252,7 @@ void main() {
     tunnel.startStatus = EcardBindHijackStatus.active;
     await tester.tap(find.byKey(const Key('ecard-bind-hijack-button')));
     await tester.pumpAndSettle();
-    expect(find.text('停止 DNS 劫持'), findsOneWidget);
+    expect(find.text('停止自动获取'), findsOneWidget);
 
     await tester.enterText(
       find.byKey(const Key('ecard-bind-code-field')),
@@ -267,7 +267,7 @@ void main() {
     expect(await service.readOpenId(), bindOpenId);
     // One-shot code: the tunnel must not outlive the redemption.
     expect(tunnel.stopCalls, 1);
-    expect(find.text('开启 DNS 劫持'), findsOneWidget);
+    expect(find.text('开启自动获取'), findsOneWidget);
   });
 
   testWidgets('a refused VPN consent says so and stays off', (
@@ -281,8 +281,8 @@ void main() {
     await tester.tap(find.byKey(const Key('ecard-bind-hijack-button')));
     await tester.pumpAndSettle();
 
-    expect(find.text('未获得 VPN 授权，无法劫持 DNS'), findsOneWidget);
-    expect(find.text('开启 DNS 劫持'), findsOneWidget);
+    expect(find.text('未获得系统授权，无法开启自动获取'), findsOneWidget);
+    expect(find.text('开启自动获取'), findsOneWidget);
   });
 
   testWidgets('a start that never comes up says so', (WidgetTester tester) async {
@@ -295,8 +295,8 @@ void main() {
     await tester.tap(find.byKey(const Key('ecard-bind-hijack-button')));
     await tester.pumpAndSettle();
 
-    expect(find.text('未能启动 DNS 劫持，请点「自检」查看原因'), findsOneWidget);
-    expect(find.text('开启 DNS 劫持'), findsOneWidget);
+    expect(find.text('未能开启自动获取，请重试'), findsOneWidget);
+    expect(find.text('开启自动获取'), findsOneWidget);
   });
 
   testWidgets('a platform without the tunnel keeps the manual path', (
@@ -311,29 +311,6 @@ void main() {
     expect(find.byKey(const Key('ecard-bind-hijack-button')), findsNothing);
     expect(find.byKey(const Key('ecard-bind-redeem-button')), findsNothing);
     expect(find.byKey(const Key('openid-field')), findsOneWidget);
-  });
-
-  testWidgets('自检 reports what this device resolves and whether the service answers', (
-    WidgetTester tester,
-  ) async {
-    final app = await mount(tester);
-    tunnel.current = EcardBindHijackStatus.active;
-    await tester.pumpWidget(app);
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byKey(const Key('ecard-bind-check-button')));
-    await tester.pumpAndSettle();
-
-    final report = tester.widget<Text>(
-      find.descendant(
-        of: find.byKey(const Key('ecard-bind-diagnosis')),
-        matching: find.byType(Text),
-      ),
-    );
-    expect(report.data, contains('DNS 劫持：active'));
-    expect(report.data, contains('119.78.254.196'));
-    expect(report.data, contains('已指向绑定服务'));
-    expect(report.data, contains('绑定服务正常'));
   });
 }
 

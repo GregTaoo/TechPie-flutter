@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:techpie/features/campus_card/core/errors/app_failure.dart';
 import 'package:techpie/features/campus_card/data/auth/ecard_bind_code_client.dart';
 import 'package:techpie/features/campus_card/domain/models/auth_models.dart';
 import 'package:techpie/services/ecard_bind_hijack.dart';
@@ -117,6 +118,9 @@ void main() {
     expect(diagnosis.reachable, isTrue);
     expect(diagnosis.lookupError, isNull);
     expect(diagnosis.healthError, isNull);
+    // The line shows what the service actually answered, not just the status.
+    expect(diagnosis.healthLine, contains('{"ok": true, "codes": 0}'));
+    expect(diagnosis.healthLine, contains('绑定服务正常'));
   });
 
   test('diagnose reports the campus address as an unhijacked host', () async {
@@ -127,6 +131,42 @@ void main() {
 
     expect(diagnosis.routesToBindService, isFalse);
     expect(diagnosis.reachable, isFalse);
+  });
+
+  test('a 200 without the service ok is refused', () async {
+    // The bind service answers `ok` when it did something with the code, and
+    // something else on that host — the campus itself — answers 200 without it.
+    for (final body in <String>[
+      '{"openid":"SYNTHETIC_OPENID_FROM_CODE"}',
+      '{"ok":false,"openid":"SYNTHETIC_OPENID_FROM_CODE"}',
+    ]) {
+      final service = EcardBindService(
+        hijack: tunnel,
+        client: EcardBindCodeClient(
+          send: (method, url, headers, request) async => (200, body),
+        ),
+      );
+      await expectLater(
+        service.redeem('SYNTHETIC-CODE'),
+        throwsA(
+          isA<AppFailure>()
+              .having((failure) => failure.kind, 'kind', FailureKind.protocol),
+        ),
+        reason: 'body was $body',
+      );
+    }
+  });
+
+  test('a 200 that is not the bind service is not healthy', () async {
+    final diagnosis = await diagnoseService(
+      resolve: (host) async => <String>['119.78.254.196'],
+      health: (200, '{"ok": false, "codes": 0}'),
+    ).diagnose();
+
+    expect(diagnosis.routesToBindService, isTrue);
+    expect(diagnosis.reachable, isFalse);
+    expect(diagnosis.healthLine, contains('{"ok": false, "codes": 0}'));
+    expect(diagnosis.healthLine, contains('响应异常'));
   });
 
   test('diagnose keeps going when a step throws', () async {

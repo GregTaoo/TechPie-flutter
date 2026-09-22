@@ -34,8 +34,6 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
   bool _saving = false;
   bool _hijackBusy = false;
   bool _bindBusy = false;
-  bool _checkTunnelBusy = false;
-  EcardBindDiagnosis? _diagnosis;
   String? _inlineMessage;
   bool _inlineError = false;
 
@@ -133,7 +131,7 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
                     Text('当前平台暂不支持自动获取，请在下方手动填写 OPENID。', style: hintStyle)
                   else ...[
                     Text(
-                      '1. 点「开启 DNS 劫持」并在系统弹窗里同意：只把 eCard 域名的解析改到绑定服务，不接管其它流量。\n'
+                      '1. 点「开启自动获取」并在系统弹窗里点「允许」。\n'
                       '2. 打开微信里的一卡通小程序，点首页顶部的「绑定码」入口，页面上会显示 6 位绑定码。\n'
                       '3. 把绑定码填到下面并点「获取 OPENID」，随后自动连接 eCard。',
                       style: hintStyle,
@@ -146,43 +144,14 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
                           : () => unawaited(_toggleHijack(bindService)),
                       icon: Icons.vpn_lock_outlined,
                       sfSymbol: 'link',
-                      label: bindService.hijackActive ? '停止 DNS 劫持' : '开启 DNS 劫持',
+                      label: bindService.hijackActive ? '停止自动获取' : '开启自动获取',
                       role: AdaptiveButtonRole.standard,
                       loading: _hijackBusy,
                       width: double.infinity,
                       accessibilityLabel: bindService.hijackActive
-                          ? '停止 DNS 劫持'
-                          : '开启 DNS 劫持',
+                          ? '停止自动获取'
+                          : '开启自动获取',
                     ),
-                    const SizedBox(height: 8),
-                    AdaptiveButton(
-                      key: const Key('ecard-bind-check-button'),
-                      onPressed: busy || _checkTunnelBusy
-                          ? null
-                          : () => unawaited(_checkTunnel(bindService)),
-                      icon: Icons.travel_explore_outlined,
-                      sfSymbol: 'magnifyingglass',
-                      label: '自检',
-                      role: AdaptiveButtonRole.plain,
-                      loading: _checkTunnelBusy,
-                      width: double.infinity,
-                      accessibilityLabel: '检查 DNS 劫持与绑定服务',
-                    ),
-                    if (_diagnosis != null) ...[
-                      const SizedBox(height: 8),
-                      Container(
-                        key: const Key('ecard-bind-diagnosis'),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.surfaceContainerHighest,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          _diagnosisLines(_diagnosis!).join('\n'),
-                          style: theme.textTheme.bodySmall,
-                        ),
-                      ),
-                    ],
                     const SizedBox(height: 8),
                     AdaptiveTextFieldGroup(
                       key: const Key('ecard-bind-code-field'),
@@ -321,22 +290,42 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
         status = await bindService.startHijack();
       }
       if (!mounted) return;
-      setState(() {
-        // The report describes the state it was taken in, which just changed.
-        _diagnosis = null;
-        if (status == EcardBindHijackStatus.denied) {
+      if (status == EcardBindHijackStatus.denied) {
+        setState(() {
           _inlineError = true;
-          _inlineMessage = '未获得 VPN 授权，无法劫持 DNS';
-        } else if (!wasActive && status != EcardBindHijackStatus.active) {
-          // Starting can fail quietly (no tunnel, refused interface); say so
-          // instead of leaving the button looking untouched.
+          _inlineMessage = '未获得系统授权，无法开启自动获取';
+        });
+      } else if (!wasActive && status != EcardBindHijackStatus.active) {
+        // Starting can fail quietly (no tunnel, refused interface); say so
+        // instead of leaving the button looking untouched.
+        setState(() {
           _inlineError = true;
-          _inlineMessage = '未能启动 DNS 劫持，请点「自检」查看原因';
-        }
-      });
+          _inlineMessage = '未能开启自动获取，请重试';
+        });
+      } else {
+        setState(() {
+          _inlineError = false;
+          _inlineMessage = null;
+        });
+        // The tunnel being up is not proof it carries this app's lookups; verify
+        // quietly and only report when it did not work.
+        unawaited(_silentSelfCheck(bindService));
+      }
     } finally {
       if (mounted) setState(() => _hijackBusy = false);
     }
+  }
+
+  /// Runs the diagnosis without a button and stays quiet on success. A failure
+  /// is the only thing worth telling the user.
+  Future<void> _silentSelfCheck(EcardBindService bindService) async {
+    final diagnosis = await bindService.diagnose();
+    if (!mounted) return;
+    if (diagnosis.routesToBindService && diagnosis.reachable) return;
+    setState(() {
+      _inlineError = true;
+      _inlineMessage = '自动获取尚未就绪，请稍后重试';
+    });
   }
 
   /// Turns the code into an OPENID and connects with it. The code is one-shot,
@@ -359,8 +348,6 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
       });
       await _save(service);
       await bindService.stopHijack();
-      if (!mounted) return;
-      setState(() => _diagnosis = null);
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -369,37 +356,6 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
       });
     } finally {
       if (mounted) setState(() => _bindBusy = false);
-    }
-  }
-
-  /// The three things that can be wrong, in the order they break: the tunnel,
-  /// the name resolution this app gets, and whether the bind service answers.
-  List<String> _diagnosisLines(EcardBindDiagnosis diagnosis) {
-    final addresses = diagnosis.lookupError != null
-        ? '解析失败（${diagnosis.lookupError}）'
-        : '${diagnosis.addresses.join(', ')}'
-              '${diagnosis.routesToBindService ? '（已指向绑定服务）' : '（未劫持）'}';
-    final health = diagnosis.healthError != null
-        ? diagnosis.healthError!
-        : diagnosis.health == null
-        ? '未检查'
-        : 'HTTP ${diagnosis.health!.status}'
-              '${diagnosis.reachable ? '（绑定服务正常）' : '（响应异常）'}';
-    return [
-      'DNS 劫持：${diagnosis.status.name}',
-      '解析 ${EcardBindHijackService.host}：$addresses',
-      '访问 /__ecard_bind/health：$health',
-    ];
-  }
-
-  Future<void> _checkTunnel(EcardBindService bindService) async {
-    setState(() => _checkTunnelBusy = true);
-    try {
-      final diagnosis = await bindService.diagnose();
-      if (!mounted) return;
-      setState(() => _diagnosis = diagnosis);
-    } finally {
-      if (mounted) setState(() => _checkTunnelBusy = false);
     }
   }
 

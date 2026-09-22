@@ -41,6 +41,11 @@ void main() {
     }
   });
 
+  testWidgets('the eCard bind probe offers a self-check', (tester) async {
+    await mount(tester);
+    expect(find.text('自检'), findsOneWidget);
+  });
+
   testWidgets('a row asks for exactly what it names', (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
     const channel = MethodChannel('techpie/feedback');

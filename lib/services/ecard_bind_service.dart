@@ -44,7 +44,11 @@ final class EcardBindDiagnosis {
   bool get routesToBindService =>
       addresses.contains(EcardBindHijackService.targetIp);
 
-  /// The bind service answered its own status page.
+  /// The bind service answered, and said so itself.
+  ///
+  /// A status code alone cannot tell the mirror apart from whatever else may be
+  /// listening on that host: the service answers `{"ok": true, "codes": 0}`, and
+  /// anything whose body is not that is not the bind service.
   bool get reachable {
     final response = health;
     if (response == null || response.status != 200) return false;
@@ -54,6 +58,19 @@ final class EcardBindDiagnosis {
     } on FormatException {
       return false;
     }
+  }
+
+  /// The health line: the status, the service's own verdict, and the JSON it
+  /// actually answered with, because "HTTP 200" on its own has already been
+  /// misleading once.
+  String get healthLine {
+    if (healthError case final error?) return error;
+    final response = health;
+    if (response == null) return '未检查';
+    final body = response.body.trim();
+    final shown = body.length > 120 ? '${body.substring(0, 117)}…' : body;
+    final verdict = reachable ? '绑定服务正常' : '响应异常';
+    return 'HTTP ${response.status}${shown.isEmpty ? '' : ' $shown'}（$verdict）';
   }
 }
 
