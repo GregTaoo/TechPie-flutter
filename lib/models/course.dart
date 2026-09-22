@@ -210,12 +210,19 @@ class Period {
 }
 
 const List<Period> defaultPeriods = [
-  Period(number: 1, startTime: '08:00', endTime: '08:45'),
-  Period(number: 2, startTime: '08:55', endTime: '09:40'),
-  Period(number: 3, startTime: '09:50', endTime: '10:35'),
-  Period(number: 4, startTime: '10:45', endTime: '11:30'),
-  Period(number: 5, startTime: '14:00', endTime: '14:45'),
-  Period(number: 6, startTime: '14:55', endTime: '15:40'),
+  Period(number: 1, startTime: '08:15', endTime: '09:00'),
+  Period(number: 2, startTime: '09:10', endTime: '09:55'),
+  Period(number: 3, startTime: '10:15', endTime: '11:00'),
+  Period(number: 4, startTime: '11:10', endTime: '11:55'),
+  Period(number: 5, startTime: '13:00', endTime: '13:45'),
+  Period(number: 6, startTime: '13:55', endTime: '14:40'),
+  Period(number: 7, startTime: '15:00', endTime: '15:45'),
+  Period(number: 8, startTime: '15:55', endTime: '16:40'),
+  Period(number: 9, startTime: '16:50', endTime: '17:35'),
+  Period(number: 10, startTime: '18:00', endTime: '18:45'),
+  Period(number: 11, startTime: '18:55', endTime: '19:40'),
+  Period(number: 12, startTime: '19:50', endTime: '20:35'),
+  Period(number: 13, startTime: '20:45', endTime: '21:30'),
 ];
 
 /// Ascending week numbers as ranges: `[1,2,3,4,6]` → `1-4, 6周`.
