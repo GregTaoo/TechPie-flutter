@@ -13,13 +13,18 @@ enum EcardBindHijackStatus {
   /// The tunnel is answering DNS for [EcardBindHijackService.host].
   active,
 
+  /// The platform cannot confirm whether the tunnel has stopped.
+  unknown,
+
   /// The user refused the system VPN consent dialog.
   denied;
 
   static EcardBindHijackStatus parse(Object? value) => switch (value) {
     'active' => EcardBindHijackStatus.active,
+    'inactive' => EcardBindHijackStatus.inactive,
+    'unsupported' => EcardBindHijackStatus.unsupported,
     'denied' => EcardBindHijackStatus.denied,
-    _ => EcardBindHijackStatus.inactive,
+    _ => EcardBindHijackStatus.unknown,
   };
 }
 
@@ -70,7 +75,7 @@ final class EcardBindHijackService implements EcardBindHijackPort {
     } on MissingPluginException {
       return EcardBindHijackStatus.unsupported;
     } on PlatformException {
-      return EcardBindHijackStatus.inactive;
+      return EcardBindHijackStatus.unknown;
     }
   }
 
@@ -94,7 +99,7 @@ final class EcardBindHijackService implements EcardBindHijackPort {
     } on MissingPluginException {
       return EcardBindHijackStatus.unsupported;
     } on PlatformException {
-      return EcardBindHijackStatus.inactive;
+      return EcardBindHijackStatus.unknown;
     }
   }
 }

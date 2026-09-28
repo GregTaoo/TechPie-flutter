@@ -34,8 +34,12 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
   bool _saving = false;
   bool _hijackBusy = false;
   bool _bindBusy = false;
+  bool _disconnecting = false;
   String? _inlineMessage;
   bool _inlineError = false;
+
+  bool get _operationBusy =>
+      _checking || _saving || _hijackBusy || _bindBusy || _disconnecting;
 
   @override
   void didChangeDependencies() {
@@ -71,6 +75,7 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
   Widget build(BuildContext context) {
     final service = ServiceProvider.of(context).campusCardService;
     final bindService = ServiceProvider.of(context).ecardBindService;
+    bool isBusy() => service.busy || _operationBusy;
     final theme = Theme.of(context);
     final hintStyle = theme.textTheme.bodyMedium?.copyWith(
       color: theme.colorScheme.onSurfaceVariant,
@@ -80,7 +85,6 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
     final topInset = useIosChrome || useLegacyIosChrome
         ? 0.0
         : adaptiveTopBarHeight() + MediaQuery.viewPaddingOf(context).top;
-    final busy = service.busy || _checking || _saving || _bindBusy || _hijackBusy;
 
     return Scaffold(
       extendBodyBehindAppBar: !useIosChrome && !useLegacyIosChrome,
@@ -146,16 +150,16 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
                     const SizedBox(height: 12),
                     AdaptiveButton(
                       key: const Key('ecard-bind-hijack-button'),
-                      onPressed: busy || _hijackBusy
+                      onPressed: isBusy()
                           ? null
                           : () => unawaited(_toggleHijack(bindService)),
                       icon: Icons.vpn_lock_outlined,
                       sfSymbol: 'link',
-                      label: bindService.hijackActive ? '停止自动获取' : '开启自动获取',
+                      label: bindService.hijackNeedsStop ? '停止自动获取' : '开启自动获取',
                       role: AdaptiveButtonRole.standard,
                       loading: _hijackBusy,
                       width: double.infinity,
-                      accessibilityLabel: bindService.hijackActive
+                      accessibilityLabel: bindService.hijackNeedsStop
                           ? '停止自动获取'
                           : '开启自动获取',
                     ),
@@ -167,14 +171,14 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
                           controller: _bindCodeController,
                           placeholder: '绑定码（小程序内 6 位）',
                           textInputAction: TextInputAction.done,
-                          enabled: !busy && !_bindBusy,
+                          enabled: !isBusy(),
                         ),
                       ],
                     ),
                     const SizedBox(height: 8),
                     AdaptiveButton(
                       key: const Key('ecard-bind-redeem-button'),
-                      onPressed: busy || _bindBusy
+                      onPressed: isBusy()
                           ? null
                           : () => unawaited(_redeem(service, bindService)),
                       icon: Icons.download_outlined,
@@ -192,13 +196,13 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
             const SizedBox(height: 16),
             Row(children: [
               const Expanded(child: Text('OPENID 渠道')),
-              SizedBox(width: 200, child: IgnorePointer(ignoring: busy, child: AdaptiveSelect(
+              SizedBox(width: 200, child: IgnorePointer(ignoring: isBusy(), child: AdaptiveSelect(
                 value: _channel.method,
                 width: 200,
                 options: [for (final channel in EcardOpenIdChannel.values)
                   AdaptiveSelectOption(value: channel.method, label: channel.label),],
                 onChanged: (value) {
-                  if (busy) return;
+                  if (isBusy()) return;
                   setState(() {
                     _channel = EcardOpenIdChannel.parse(value);
                     _inlineMessage = null;
@@ -214,7 +218,7 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
                   controller: _openIdController,
                   placeholder: '${_channel.label} OPENID',
                   textInputAction: TextInputAction.done,
-                  enabled: !busy,
+                  enabled: !isBusy(),
                   onSubmitted: (_) => unawaited(_save(service)),
                 ),
               ],
@@ -244,7 +248,7 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
             const SizedBox(height: 16),
             AdaptiveButton(
               key: const Key('openid-save-button'),
-              onPressed: busy ? null : () => unawaited(_save(service)),
+              onPressed: isBusy() ? null : () => unawaited(_save(service)),
               icon: Icons.save_outlined,
               sfSymbol: 'checkmark',
               label: service.configured ? '更新 eCard' : '连接 eCard',
@@ -257,7 +261,7 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
             const SizedBox(height: 8),
             AdaptiveButton(
               key: const Key('openid-check-button'),
-              onPressed: busy ? null : () => unawaited(_check(service)),
+              onPressed: isBusy() ? null : () => unawaited(_check(service)),
               icon: Icons.verified_user_outlined,
               sfSymbol: 'checkmark.shield',
               label: '检查登录',
@@ -268,15 +272,18 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
             ),
             if (service.configured) ...[
               const SizedBox(height: 8),
-              AdaptiveConfirmationButton(
-                label: '移除 eCard',
-                icon: Icons.link_off,
-                sfSymbol: 'link.badge.minus',
-                confirmTitle: '移除 eCard？',
-                confirmLabel: '移除',
-                destructive: true,
-                width: double.infinity,
-                onConfirmed: () => unawaited(_disconnect(service)),
+              IgnorePointer(
+                ignoring: isBusy(),
+                child: AdaptiveConfirmationButton(
+                  label: '移除 eCard',
+                  icon: Icons.link_off,
+                  sfSymbol: 'link.badge.minus',
+                  confirmTitle: '移除 eCard？',
+                  confirmLabel: '移除',
+                  destructive: true,
+                  width: double.infinity,
+                  onConfirmed: () => unawaited(_disconnect(service)),
+                ),
               ),
             ],
           ],
@@ -286,9 +293,10 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
   }
 
   Future<void> _toggleHijack(EcardBindService bindService) async {
+    if (_operationBusy || ServiceProvider.of(context).campusCardService.busy) return;
     setState(() => _hijackBusy = true);
     try {
-      final wasActive = bindService.hijackActive;
+      final wasActive = bindService.hijackNeedsStop;
       final EcardBindHijackStatus status;
       if (wasActive) {
         await bindService.stopHijack();
@@ -347,6 +355,7 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
     CampusCardService service,
     EcardBindService bindService,
   ) async {
+    if (_operationBusy || service.busy) return;
     setState(() {
       _bindBusy = true;
       _inlineMessage = null;
@@ -362,7 +371,7 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
       await bindService.stopHijack();
       tunnelStopped = true;
       if (!mounted) return;
-      await _save(service);
+      await _connect(service);
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -386,13 +395,17 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
   }
 
   Future<void> _check(CampusCardService service) async {
+    if (_operationBusy || service.busy) return;
     final openId = _openIdController.text.trim();
+    final channel = _channel;
     setState(() {
       _checking = true;
       _inlineMessage = null;
     });
     try {
-      await service.verifyOpenId(openId, channel: _channel);
+      await ServiceProvider.of(context).ecardBindService.prepareCampusConnection();
+      if (!mounted) return;
+      await service.verifyOpenId(openId, channel: channel);
       if (!mounted) return;
       setState(() {
         _inlineError = false;
@@ -410,18 +423,13 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
   }
 
   Future<void> _save(CampusCardService service) async {
-    final openId = _openIdController.text.trim();
+    if (_operationBusy || service.busy) return;
     setState(() {
       _saving = true;
       _inlineMessage = null;
     });
     try {
-      await service.connect(openId, channel: _channel);
-      if (!mounted) return;
-      setState(() {
-        _inlineError = false;
-        _inlineMessage = 'eCard 已连接';
-      });
+      await _connect(service);
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -433,7 +441,22 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
     }
   }
 
+  Future<void> _connect(CampusCardService service) async {
+    final openId = _openIdController.text.trim();
+    final channel = _channel;
+    await ServiceProvider.of(context).ecardBindService.prepareCampusConnection();
+    if (!mounted) return;
+    await service.connect(openId, channel: channel);
+    if (!mounted) return;
+    setState(() {
+      _inlineError = false;
+      _inlineMessage = 'eCard 已连接';
+    });
+  }
+
   Future<void> _disconnect(CampusCardService service) async {
+    if (_operationBusy || service.busy) return;
+    setState(() => _disconnecting = true);
     try {
       await service.disconnect();
       if (!mounted) return;
@@ -448,6 +471,8 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
         _inlineError = true;
         _inlineMessage = _safeMessage(error);
       });
+    } finally {
+      if (mounted) setState(() => _disconnecting = false);
     }
   }
 

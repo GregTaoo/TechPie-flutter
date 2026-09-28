@@ -6,14 +6,13 @@ import NetworkExtension
 final class EcardBindTunnelPlugin {
   private let channel: FlutterMethodChannel
   private let providerBundleIdentifier: String
-  private var manager: NETunnelProviderManager?
 
   init(messenger: FlutterBinaryMessenger) {
     providerBundleIdentifier = "\(Bundle.main.bundleIdentifier ?? "com.example.techpie").EcardBindTunnel"
     channel = FlutterMethodChannel(name: "techpie/ecard_bind", binaryMessenger: messenger)
     channel.setMethodCallHandler { [weak self] call, result in
       guard let self else {
-        result("inactive")
+        result(FlutterError(code: "ECARD_TUNNEL_UNAVAILABLE", message: "无法读取自动获取状态", details: nil))
         return
       }
       switch call.method {
@@ -25,35 +24,50 @@ final class EcardBindTunnelPlugin {
     }
   }
 
-  private func load(_ completion: @escaping (NETunnelProviderManager?) -> Void) {
-    NETunnelProviderManager.loadAllFromPreferences { [weak self] managers, error in
-      guard let self else {
-        completion(nil)
-        return
-      }
+  private func load(_ completion: @escaping (NETunnelProviderManager?, FlutterError?) -> Void) {
+    let providerIdentifier = providerBundleIdentifier
+    NETunnelProviderManager.loadAllFromPreferences { managers, error in
       if error != nil {
-        completion(self.manager)
+        completion(nil, FlutterError(
+          code: "ECARD_TUNNEL_PREFERENCES_UNAVAILABLE",
+          message: "无法读取自动获取配置，请重试", details: nil
+        ))
         return
       }
       let selected = managers?.first {
         ($0.protocolConfiguration as? NETunnelProviderProtocol)?.providerBundleIdentifier
-          == self.providerBundleIdentifier
+          == providerIdentifier
       }
-      self.manager = selected
-      completion(selected)
+      completion(selected, nil)
     }
   }
 
   private func status(_ result: @escaping FlutterResult) {
-    load { manager in
-      result(manager?.connection.status == .connected ? "active" : "inactive")
+    load { manager, error in
+      if let error {
+        result(error)
+        return
+      }
+      guard let manager else {
+        result("inactive")
+        return
+      }
+      switch manager.connection.status {
+      case .disconnected, .invalid: result("inactive")
+      case .connected: result("active")
+      default: result("unknown")
+      }
     }
   }
 
   private func start(_ result: @escaping FlutterResult) {
-    load { [weak self] existing in
+    load { [weak self] existing, error in
+      if let error {
+        result(error)
+        return
+      }
       guard let self else {
-        result("inactive")
+        result("unknown")
         return
       }
       let manager = existing ?? NETunnelProviderManager()
@@ -70,20 +84,19 @@ final class EcardBindTunnelPlugin {
       manager.isOnDemandEnabled = false
       manager.saveToPreferences { error in
         guard error == nil else {
-          result("inactive")
+          result("unknown")
           return
         }
         manager.loadFromPreferences { error in
           guard error == nil else {
-            result("inactive")
+            result("unknown")
             return
           }
-          self.manager = manager
           do {
             try manager.connection.startVPNTunnel()
             self.waitForConnection(manager, result: result, remaining: 20)
           } catch {
-            result("inactive")
+            result("unknown")
           }
         }
       }
@@ -99,11 +112,17 @@ final class EcardBindTunnelPlugin {
       result("active")
     } else if remaining == 0 {
       manager.connection.stopVPNTunnel()
-      result("inactive")
+      waitForDisconnection(manager, result: { value in
+        if let error = value as? FlutterError {
+          result(error)
+        } else {
+          result("inactive")
+        }
+      }, remaining: 10)
     } else {
       DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
         guard let self else {
-          result("inactive")
+          result("unknown")
           return
         }
         self.waitForConnection(manager, result: result, remaining: remaining - 1)
@@ -112,8 +131,16 @@ final class EcardBindTunnelPlugin {
   }
 
   private func stop(_ result: @escaping FlutterResult) {
-    load { [weak self] manager in
-      guard let self, let manager else {
+    load { [weak self] manager, error in
+      if let error {
+        result(error)
+        return
+      }
+      guard let self else {
+        result(FlutterError(code: "ECARD_TUNNEL_UNAVAILABLE", message: "无法停止自动获取", details: nil))
+        return
+      }
+      guard let manager else {
         result(nil)
         return
       }
@@ -135,7 +162,7 @@ final class EcardBindTunnelPlugin {
     } else {
       DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
         guard let self else {
-          result(nil)
+          result(FlutterError(code: "ECARD_TUNNEL_UNAVAILABLE", message: "无法确认自动获取已停止", details: nil))
           return
         }
         self.waitForDisconnection(manager, result: result, remaining: remaining - 1)

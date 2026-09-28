@@ -31,6 +31,7 @@ import 'package:techpie/services/third_party_auth_service.dart';
 import 'package:techpie/services/uni_auth_service.dart';
 import 'package:techpie/services/update_service.dart';
 import 'package:techpie/widgets/adaptive_button.dart';
+import 'package:techpie/widgets/adaptive_confirmation_button.dart';
 import 'package:techpie/widgets/adaptive_select.dart';
 
 /// The host's eCard account editor owns the OPENID the app authenticates with:
@@ -46,11 +47,13 @@ void main() {
   late _ScriptedAuthPort auth;
   late CampusCardService service;
   late _ScriptedTunnel tunnel;
+  List<String>? resolvedAddresses;
 
   /// Mounts the editor on a phone-width, tall surface: the page is taller than
   /// the default 800x600 test window, and a ListView never builds what falls
   /// below the fold — which would silently hide the controls under test.
   Future<Widget> mount(WidgetTester tester) async {
+    resolvedAddresses = null;
     tester.view.physicalSize = const Size(780, 2600);
     tester.view.devicePixelRatio = 2;
     addTearDown(tester.view.resetPhysicalSize);
@@ -113,7 +116,11 @@ void main() {
               ),
       ),
       // The platform resolver is a network call; the page cares what it answers.
-      resolve: (host) async => <String>['119.78.254.196'],
+      resolve: (host) async => resolvedAddresses ?? <String>[
+        tunnel.current == EcardBindHijackStatus.active
+            ? EcardBindHijackService.targetIp
+            : '10.17.0.54',
+      ],
     );
 
     return ServiceProvider(
@@ -334,6 +341,75 @@ void main() {
       ).loading,
       isFalse,
     );
+
+    await tester.tap(find.byKey(const Key('openid-save-button')));
+    await tester.pumpAndSettle();
+    expect(auth.signInCalls, 0, reason: 'Manual retry must use the same stop gate');
+    await tester.tap(find.byKey(const Key('openid-check-button')));
+    await tester.pumpAndSettle();
+    expect(auth.verifyCalls, 0);
+
+    tunnel.stayActiveAfterStop = false;
+    await tester.tap(find.byKey(const Key('openid-save-button')));
+    await tester.pumpAndSettle();
+    expect(auth.signInCalls, 1);
+    expect(await service.readOpenId(), bindOpenId);
+  });
+
+  testWidgets('cached mirror DNS blocks login even after the tunnel stopped', (
+    WidgetTester tester,
+  ) async {
+    final app = await mount(tester);
+    await tester.pumpWidget(app);
+    await tester.pumpAndSettle();
+    resolvedAddresses = [EcardBindHijackService.targetIp];
+    await tester.enterText(find.byKey(const Key('openid-field')), openId);
+    await tester.tap(find.byKey(const Key('openid-save-button')));
+    await tester.pumpAndSettle();
+
+    expect(auth.signInCalls, 0);
+    expect(await service.readOpenId(), isNull);
+    expect(find.text('网络设置尚未恢复，请稍后重试连接'), findsOneWidget);
+    expect(find.text(openId), findsOneWidget);
+    await tester.tap(find.byKey(const Key('openid-check-button')));
+    await tester.pumpAndSettle();
+    expect(auth.verifyCalls, 0);
+
+    resolvedAddresses = ['10.17.0.54'];
+    await tester.tap(find.byKey(const Key('openid-save-button')));
+    await tester.pumpAndSettle();
+    expect(auth.signInCalls, 1);
+  });
+
+  testWidgets('account removal cannot race a bind waiting for disconnection', (
+    WidgetTester tester,
+  ) async {
+    final app = await mount(tester);
+    await service.connect(openId);
+    await tester.pumpWidget(app);
+    await tester.pumpAndSettle();
+    final remove = tester.widget<AdaptiveConfirmationButton>(
+      find.byType(AdaptiveConfirmationButton),
+    ).onConfirmed;
+    await tester.tap(find.byKey(const Key('ecard-bind-hijack-button')));
+    await tester.pumpAndSettle();
+    final stopping = Completer<void>();
+    tunnel.stopWait = stopping.future;
+    addTearDown(() {
+      if (!stopping.isCompleted) stopping.complete();
+    });
+    await tester.enterText(
+      find.byKey(const Key('ecard-bind-code-field')), 'ABC123',
+    );
+    await tester.tap(find.byKey(const Key('ecard-bind-redeem-button')));
+    await tester.pump();
+    remove();
+    await tester.pump();
+
+    expect(await service.readOpenId(), openId);
+    stopping.complete();
+    await tester.pumpAndSettle();
+    expect(await service.readOpenId(), bindOpenId);
   });
 
   testWidgets('a failed bind attempt also takes the DNS tunnel down', (
@@ -394,6 +470,22 @@ void main() {
     expect(find.byKey(const Key('ecard-bind-hijack-button')), findsNothing);
     expect(find.byKey(const Key('ecard-bind-redeem-button')), findsNothing);
     expect(find.byKey(const Key('openid-field')), findsOneWidget);
+  });
+
+  testWidgets('an unknown tunnel state offers stopping instead of starting', (
+    WidgetTester tester,
+  ) async {
+    final app = await mount(tester);
+    tunnel.current = EcardBindHijackStatus.unknown;
+    await tester.pumpWidget(app);
+    await tester.pumpAndSettle();
+
+    expect(find.text('停止自动获取'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('ecard-bind-hijack-button')));
+    await tester.pumpAndSettle();
+    expect(tunnel.startCalls, 0);
+    expect(tunnel.stopCalls, 1);
+    expect(find.text('开启自动获取'), findsOneWidget);
   });
 }
 

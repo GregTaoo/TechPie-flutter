@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -95,6 +96,41 @@ void main() {
     expect(service.hijackActive, isTrue);
   });
 
+  test('a pending status read cannot overwrite a completed stop', () async {
+    final service = serviceIssuing();
+    await service.startHijack();
+    final statusReply = Completer<EcardBindHijackStatus>();
+    tunnel.statusReply = () => statusReply.future;
+    final pendingStatus = service.refreshStatus();
+    await Future<void>.delayed(Duration.zero);
+    tunnel.statusReply = null;
+    final stopping = service.stopHijack();
+    await Future<void>.delayed(Duration.zero);
+    final stopsBeforeStatusReply = tunnel.stopCalls;
+    statusReply.complete(EcardBindHijackStatus.active);
+    await pendingStatus;
+    await stopping;
+
+    expect(stopsBeforeStatusReply, 0);
+    expect(service.status, EcardBindHijackStatus.inactive);
+  });
+
+  test('a failed DNS lookup cannot pass the account connection gate', () async {
+    final service = EcardBindService(
+      hijack: tunnel,
+      resolve: (_) async => throw const SocketException('unavailable'),
+    );
+    addTearDown(service.dispose);
+    await expectLater(
+      service.prepareCampusConnection(),
+      throwsA(
+        isA<AppFailure>().having(
+          (failure) => failure.code, 'code', 'ECARD_BIND_DNS_UNAVAILABLE',
+        ),
+      ),
+    );
+  });
+
   test('redeem returns the OPENID with the channel the code was issued for', () async {
     final service = serviceIssuing(userType: '18');
 
@@ -181,6 +217,29 @@ void main() {
     );
   });
 
+  test('a failed or malformed status response never confirms a stopped tunnel', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    const channel = MethodChannel('techpie/ecard_bind');
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null),
+    );
+    for (final reply in [null, 'connecting', 'status-error']) {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            if (call.method == 'stop') return null;
+            if (reply == 'status-error') {
+              throw PlatformException(code: 'PREFERENCES_UNAVAILABLE');
+            }
+            return reply;
+          });
+      final service = EcardBindService();
+      addTearDown(service.dispose);
+      await expectLater(service.stopHijack(), throwsA(isA<AppFailure>()));
+    }
+  });
+
   test('diagnose separates a hijacked host from an answering bind service', () async {
     final diagnosis = await diagnoseService(
       resolve: (host) async => <String>['119.78.254.196'],
@@ -260,6 +319,7 @@ final class _ScriptedTunnel implements EcardBindHijackPort {
   int startCalls = 0;
   int stopCalls = 0;
   bool stayActiveAfterStop = false;
+  Future<EcardBindHijackStatus> Function()? statusReply;
 
   @override
   Future<EcardBindHijackStatus> start() async {
@@ -275,5 +335,6 @@ final class _ScriptedTunnel implements EcardBindHijackPort {
   }
 
   @override
-  Future<EcardBindHijackStatus> status() async => current;
+  Future<EcardBindHijackStatus> status() async =>
+      statusReply == null ? current : await statusReply!();
 }
