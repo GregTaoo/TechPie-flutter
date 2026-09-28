@@ -5,17 +5,30 @@ import Foundation
 /// adds no default IP route.
 enum EcardDnsPacket {
   static let resolverAddress: [UInt8] = [198, 18, 0, 1]
-  static let mirrorAddress: [UInt8] = [119, 78, 254, 196]
-  private static let host = "ecard.shanghaitech.edu.cn"
 
-  static func reply(to packet: Data) -> Data? {
+  /// Parses a dotted-quad IPv4 literal into its four octets. The mirror address
+  /// arrives from Dart as a string; the tunnel hands back the octets verbatim.
+  static func parseIpv4(_ address: String) -> [UInt8]? {
+    let parts = address.split(separator: ".", omittingEmptySubsequences: false)
+    guard parts.count == 4 else { return nil }
+    var octets: [UInt8] = []
+    octets.reserveCapacity(4)
+    for part in parts {
+      guard let value = UInt8(part) else { return nil }
+      octets.append(value)
+    }
+    return octets
+  }
+
+  static func reply(to packet: Data, host: String, mirrorAddress: [UInt8]) -> Data? {
     let input = [UInt8](packet)
     guard input.count >= 28, input[0] >> 4 == 4 else { return nil }
     let ipHeaderLength = Int(input[0] & 0x0f) * 4
     guard ipHeaderLength >= 20, input.count >= ipHeaderLength + 8,
       input[9] == 17,
       Array(input[16..<20]) == resolverAddress,
-      (UInt16(input[6] & 0x3f) << 8 | UInt16(input[7])) == 0
+      input[6] & 0x20 == 0,
+      (UInt16(input[6] & 0x1f) << 8 | UInt16(input[7])) == 0
     else { return nil }
 
     let ipLength = Int(input[2]) << 8 | Int(input[3])
@@ -26,7 +39,11 @@ enum EcardDnsPacket {
       input[udp + 2] == 0, input[udp + 3] == 53
     else { return nil }
 
-    guard let answer = dnsReply(Array(input[(udp + 8)..<(udp + udpLength)])) else {
+    guard let answer = dnsReply(
+      Array(input[(udp + 8)..<(udp + udpLength)]),
+      host: host,
+      mirrorAddress: mirrorAddress
+    ) else {
       return nil
     }
     let length = 28 + answer.count
@@ -57,7 +74,9 @@ enum EcardDnsPacket {
     return Data(output)
   }
 
-  private static func dnsReply(_ query: [UInt8]) -> [UInt8]? {
+  private static func dnsReply(
+    _ query: [UInt8], host: String, mirrorAddress: [UInt8]
+  ) -> [UInt8]? {
     guard query.count >= 17, query.count <= 4_096,
       query[2] & 0x80 == 0, query[2] & 0x78 == 0,
       query[4] == 0, query[5] == 1

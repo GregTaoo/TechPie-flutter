@@ -16,7 +16,7 @@ final class EcardBindTunnelPlugin {
         return
       }
       switch call.method {
-      case "start": self.start(result)
+      case "start": self.start(call, result)
       case "stop": self.stop(result)
       case "status": self.status(result)
       default: result(FlutterMethodNotImplemented)
@@ -60,7 +60,7 @@ final class EcardBindTunnelPlugin {
     }
   }
 
-  private func start(_ result: @escaping FlutterResult) {
+  private func start(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
     load { [weak self] existing, error in
       if let error {
         result(error)
@@ -78,6 +78,15 @@ final class EcardBindTunnelPlugin {
       let configuration = NETunnelProviderProtocol()
       configuration.providerBundleIdentifier = self.providerBundleIdentifier
       configuration.serverAddress = "TechPie eCard DNS"
+      // The host and mirror address come from Dart so the tunnel does not keep a
+      // second copy of them; the provider falls back to its own defaults when
+      // they are absent.
+      if let arguments = call.arguments as? [String: Any],
+        let host = arguments["host"] as? String,
+        let ip = arguments["ip"] as? String
+      {
+        configuration.providerConfiguration = ["host": host, "ip": ip]
+      }
       manager.protocolConfiguration = configuration
       manager.localizedDescription = "TechPie eCard 自动获取"
       manager.isEnabled = true
