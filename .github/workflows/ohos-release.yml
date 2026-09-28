@@ -140,4 +140,4 @@ jobs:
             exit 1
           fi
 
-          scripts/attach-release-asset.sh "$RELEASE_TAG" dist/*.hap dist/*.sha256 dist/*.app
+          scripts/attach-release-asset.sh "$RELEASE_TAG" dist/*.hap dist/*.sha256 dist/*.app.zip

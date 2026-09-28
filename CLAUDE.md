@@ -394,7 +394,7 @@ arch       universal | x86-64 | arm-64 | arm32v7 | arm64v8
            and any iOS build the private signing repo hands back unsigned.
 ext        android   apk | aab
            linux     AppImage | deb | rpm | tar.gz | zip
-           ohos      hap | hsp | app
+           ohos      hap | hsp | app.zip
            ios       ipa | app
            macos     dmg | app | tar.gz | zip
            windows   exe | msi | zip
@@ -404,8 +404,9 @@ The shape, with this line's release name:
 
 `TechPie-<version>-<platform>-<arch>[-unsigned].<ext>` names today are
 `TechPie-1.0.1-rc.2-android-arm64v8.apk`, `-android-arm32v7.apk`,
-`-android-universal.apk`, `-ohos-arm64v8-unsigned.hap` (+ `.sha256`),
-`-linux-x86-64.tar.gz` and `-windows-x86-64.zip`; `<version>` is whatever the tag
+`-android-universal.apk`, `-ohos-arm64v8-unsigned.hap`,
+`-ohos-arm64v8-unsigned.app.zip` (+ `.sha256` each), `-linux-x86-64.tar.gz`
+and `-windows-x86-64.zip`; `<version>` is whatever the tag
 says, so the next attempt at this line names its files after its own release name.
 
 **Every attempt consumes an `rc.N`.** The ordinal is the highest `-rc.N` among the
@@ -472,8 +473,10 @@ distinguishable in git, and the file names deliberately do not try to.
   version bump publishes nothing on its own.
 - **OHOS**: each release also publishes two unsigned packages — the hap you install
   on a device (`TechPie-<release name>-ohos-arm64v8-unsigned.hap`) and the App Pack
-  AppGallery publishes (`…-ohos-arm64v8-unsigned.app`, which holds that hap plus
-  `pack.info`) — each with its sha256. They are built by
+  AppGallery publishes (`…-ohos-arm64v8-unsigned.app.zip`, which holds that hap plus
+  `pack.info`) — each with its sha256. The pack is a zip, uploaded under `.zip`
+  because GitHub refuses a bare `.app` release asset; rename it back to `.app`
+  before uploading to AppGallery. They are built by
   `scripts/build-unsigned-hap.sh` and `scripts/build-ohos-app.sh` with
   `OHOS_UNSIGNED=1`: the generator writes a profile with no signing material, so
   hvigor packs `-unsigned` artifacts while flutter exits non-zero looking for the

@@ -85,10 +85,12 @@ if (( ${#built[@]} > 1 )); then
 fi
 
 mkdir -p dist
-# TechPie-<release name>-ohos-<arch>-unsigned.app, by the same grammar as every
-# other artifact. The token names what the pack was built for, which is the one
-# architecture the hap beside it carries.
-artifact="TechPie-${release_name}-ohos-arm64v8-unsigned.app"
+# TechPie-<release name>-ohos-<arch>-unsigned.app.zip. GitHub refuses a bare
+# `.app` release asset ("file extension that is not allowed"), so the App Pack —
+# which is a zip holding the hap plus pack.info — is uploaded under `.zip`. The
+# bytes are the same either way: rename it back to `.app` after download to
+# hand it to AppGallery, or `unzip` it to get the hap and pack.info directly.
+artifact="TechPie-${release_name}-ohos-arm64v8-unsigned.app.zip"
 cp "${built[0]}" "dist/$artifact"
 
 # Downloaders cannot verify what they cannot see, so publish the digest next to
