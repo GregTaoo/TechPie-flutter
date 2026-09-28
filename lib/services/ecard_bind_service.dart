@@ -104,8 +104,20 @@ final class EcardBindService extends ChangeNotifier {
       _record(await _hijack.start());
 
   Future<void> stopHijack() async {
-    await _hijack.stop();
-    _record(await _hijack.status());
+    const failure = AppFailure(
+      FailureKind.network,
+      '未能停止自动获取，请先停止后重试连接',
+      code: 'ECARD_BIND_STOP_FAILED',
+    );
+    final EcardBindHijackStatus stoppedStatus;
+    try {
+      await _hijack.stop();
+      stoppedStatus = await _hijack.status();
+    } catch (_) {
+      throw failure;
+    }
+    _record(stoppedStatus);
+    if (stoppedStatus == EcardBindHijackStatus.active) throw failure;
   }
 
   Future<RedeemedOpenId> redeem(String code) async {

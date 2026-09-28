@@ -79,6 +79,22 @@ void main() {
     expect(service.hijackActive, isFalse);
   });
 
+  test('stopHijack rejects a tunnel that still reports active', () async {
+    final service = serviceIssuing();
+    await service.startHijack();
+    tunnel.stayActiveAfterStop = true;
+
+    await expectLater(
+      service.stopHijack(),
+      throwsA(
+        isA<AppFailure>().having(
+          (failure) => failure.code, 'code', 'ECARD_BIND_STOP_FAILED',
+        ),
+      ),
+    );
+    expect(service.hijackActive, isTrue);
+  });
+
   test('redeem returns the OPENID with the channel the code was issued for', () async {
     final service = serviceIssuing(userType: '18');
 
@@ -145,6 +161,24 @@ void main() {
 
     expect(await ios.start(), EcardBindHijackStatus.unsupported);
     expect(await ios.status(), EcardBindHijackStatus.unsupported);
+  });
+
+  test('native stop failures reach the caller', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    const channel = MethodChannel('techpie/ecard_bind');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (_) async {
+          throw PlatformException(code: 'ECARD_TUNNEL_STILL_ACTIVE');
+        });
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null),
+    );
+
+    await expectLater(
+      EcardBindHijackService().stop(), throwsA(isA<PlatformException>()),
+    );
   });
 
   test('diagnose separates a hijacked host from an answering bind service', () async {
@@ -225,6 +259,7 @@ final class _ScriptedTunnel implements EcardBindHijackPort {
   EcardBindHijackStatus current = EcardBindHijackStatus.inactive;
   int startCalls = 0;
   int stopCalls = 0;
+  bool stayActiveAfterStop = false;
 
   @override
   Future<EcardBindHijackStatus> start() async {
@@ -236,7 +271,7 @@ final class _ScriptedTunnel implements EcardBindHijackPort {
   @override
   Future<void> stop() async {
     stopCalls += 1;
-    current = EcardBindHijackStatus.inactive;
+    if (!stayActiveAfterStop) current = EcardBindHijackStatus.inactive;
   }
 
   @override

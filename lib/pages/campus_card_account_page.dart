@@ -80,7 +80,7 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
     final topInset = useIosChrome || useLegacyIosChrome
         ? 0.0
         : adaptiveTopBarHeight() + MediaQuery.viewPaddingOf(context).top;
-    final busy = service.busy || _checking || _saving;
+    final busy = service.busy || _checking || _saving || _bindBusy || _hijackBusy;
 
     return Scaffold(
       extendBodyBehindAppBar: !useIosChrome && !useLegacyIosChrome,
@@ -318,6 +318,12 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
         // quietly and only report when it did not work.
         unawaited(_silentSelfCheck(bindService));
       }
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _inlineError = true;
+        _inlineMessage = _safeMessage(error);
+      });
     } finally {
       if (mounted) setState(() => _hijackBusy = false);
     }
@@ -335,9 +341,8 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
     });
   }
 
-  /// Turns the code into an OPENID and connects with it. The code is one-shot,
-  /// so the tunnel is dropped after every attempt: a retry needs a fresh code
-  /// from the mini program anyway.
+  /// Redeems the code, then restores routing before login verifies the account
+  /// against the campus host. Failures before that point still stop the tunnel.
   Future<void> _redeem(
     CampusCardService service,
     EcardBindService bindService,
@@ -346,6 +351,7 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
       _bindBusy = true;
       _inlineMessage = null;
     });
+    var tunnelStopped = false;
     try {
       final redeemed = await bindService.redeem(_bindCodeController.text);
       if (!mounted) return;
@@ -353,6 +359,9 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
         _openIdController.text = redeemed.openId;
         _channel = redeemed.channel;
       });
+      await bindService.stopHijack();
+      tunnelStopped = true;
+      if (!mounted) return;
       await _save(service);
     } catch (error) {
       if (!mounted) return;
@@ -361,8 +370,18 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
         _inlineMessage = _safeMessage(error);
       });
     } finally {
-      await bindService.stopHijack();
-      if (mounted) setState(() => _bindBusy = false);
+      try {
+        if (!tunnelStopped) await bindService.stopHijack();
+      } catch (error) {
+        if (mounted) {
+          setState(() {
+            _inlineError = true;
+            _inlineMessage = _safeMessage(error);
+          });
+        }
+      } finally {
+        if (mounted) setState(() => _bindBusy = false);
+      }
     }
   }
 

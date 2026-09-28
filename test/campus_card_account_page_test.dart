@@ -30,6 +30,7 @@ import 'package:techpie/services/theme_service.dart';
 import 'package:techpie/services/third_party_auth_service.dart';
 import 'package:techpie/services/uni_auth_service.dart';
 import 'package:techpie/services/update_service.dart';
+import 'package:techpie/widgets/adaptive_button.dart';
 import 'package:techpie/widgets/adaptive_select.dart';
 
 /// The host's eCard account editor owns the OPENID the app authenticates with:
@@ -253,6 +254,10 @@ void main() {
     await tester.tap(find.byKey(const Key('ecard-bind-hijack-button')));
     await tester.pumpAndSettle();
     expect(find.text('停止自动获取'), findsOneWidget);
+    auth.beforeSignIn = () {
+      expect(tunnel.current, EcardBindHijackStatus.inactive);
+      expect(tunnel.stopCalls, 1);
+    };
 
     await tester.enterText(
       find.byKey(const Key('ecard-bind-code-field')),
@@ -268,6 +273,67 @@ void main() {
     // One-shot code: the tunnel must not outlive the redemption.
     expect(tunnel.stopCalls, 1);
     expect(find.text('开启自动获取'), findsOneWidget);
+  });
+
+  testWidgets('bind login waits for the tunnel to finish stopping', (
+    WidgetTester tester,
+  ) async {
+    final app = await mount(tester);
+    await tester.pumpWidget(app);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('ecard-bind-hijack-button')));
+    await tester.pumpAndSettle();
+    final stopping = Completer<void>();
+    tunnel.stopWait = stopping.future;
+    await tester.enterText(
+      find.byKey(const Key('ecard-bind-code-field')), 'ABC123',
+    );
+
+    await tester.tap(find.byKey(const Key('ecard-bind-redeem-button')));
+    await tester.pump();
+
+    expect(tunnel.stopCalls, 1);
+    expect(auth.signInCalls, 0);
+    expect(
+      tester.widget<AdaptiveButton>(
+        find.byKey(const Key('openid-save-button')),
+      ).onPressed,
+      isNull,
+    );
+    stopping.complete();
+    await tester.pumpAndSettle();
+
+    expect(auth.signInCalls, 1);
+    expect(await service.readOpenId(), bindOpenId);
+  });
+
+  testWidgets('a tunnel that stays active blocks bind login and keeps the OPENID', (
+    WidgetTester tester,
+  ) async {
+    final app = await mount(tester);
+    await tester.pumpWidget(app);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('ecard-bind-hijack-button')));
+    await tester.pumpAndSettle();
+    tunnel.stayActiveAfterStop = true;
+    await tester.enterText(
+      find.byKey(const Key('ecard-bind-code-field')), 'ABC123',
+    );
+    await tester.tap(find.byKey(const Key('ecard-bind-redeem-button')));
+    await tester.pumpAndSettle();
+
+    expect(auth.signInCalls, 0);
+    expect(await service.readOpenId(), isNull);
+    expect(find.text(bindOpenId), findsOneWidget);
+    expect(find.text('未能停止自动获取，请先停止后重试连接'), findsOneWidget);
+    expect(tunnel.stopCalls, 2); // The finally fallback retries cleanup.
+    expect(tester.takeException(), isNull);
+    expect(
+      tester.widget<AdaptiveButton>(
+        find.byKey(const Key('ecard-bind-redeem-button')),
+      ).loading,
+      isFalse,
+    );
   });
 
   testWidgets('a failed bind attempt also takes the DNS tunnel down', (
@@ -339,6 +405,8 @@ final class _ScriptedTunnel implements EcardBindHijackPort {
   EcardBindHijackStatus current = EcardBindHijackStatus.inactive;
   int startCalls = 0;
   int stopCalls = 0;
+  Future<void>? stopWait;
+  bool stayActiveAfterStop = false;
 
   @override
   Future<EcardBindHijackStatus> start() async {
@@ -350,7 +418,8 @@ final class _ScriptedTunnel implements EcardBindHijackPort {
   @override
   Future<void> stop() async {
     stopCalls += 1;
-    current = EcardBindHijackStatus.inactive;
+    await stopWait;
+    if (!stayActiveAfterStop) current = EcardBindHijackStatus.inactive;
   }
 
   @override
@@ -369,6 +438,7 @@ final class _ScriptedAuthPort implements AuthPort, OpenIdAuthVerifier {
   Object? signInFailure;
   int verifyCalls = 0;
   int signInCalls = 0;
+  VoidCallback? beforeSignIn;
 
   @override
   Stream<AuthSnapshot> get changes => _changes.stream;
@@ -397,6 +467,7 @@ final class _ScriptedAuthPort implements AuthPort, OpenIdAuthVerifier {
 
   @override
   Future<AuthSnapshot> signIn(AuthCredential credential) async {
+    beforeSignIn?.call();
     final failure = signInFailure;
     if (failure != null) throw failure;
     final openIdCredential = credential as OpenIdAuthCredential;

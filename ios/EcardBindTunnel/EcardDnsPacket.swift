@@ -92,7 +92,7 @@ enum EcardDnsPacket {
       response += [
         0xc0, 0x0c, // pointer to the question's name
         0, 1, 0, 1, // A, IN
-        0, 0, 0, 30, // short TTL; the tunnel exists only for binding
+        0, 0, 0, 0, // do not cache the temporary binding address after disconnect
         0, 4,
       ]
       response += mirrorAddress

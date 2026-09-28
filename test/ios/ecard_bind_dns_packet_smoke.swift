@@ -14,6 +14,10 @@ enum EcardBindDnsPacketSmoke {
     precondition(bytes[22] == 0xbe && bytes[23] == 0xef)
     precondition(bytes[34] == 0 && bytes[35] == 1, "A answer count")
     precondition(Array(bytes.suffix(4)) == EcardDnsPacket.mirrorAddress)
+    precondition(
+      Array(bytes[(bytes.count - 10)..<(bytes.count - 6)]) == [0, 0, 0, 0],
+      "The temporary binding address must have a zero TTL"
+    )
     precondition(validChecksum(bytes[0..<20]))
 
     let aaaa = makePacket(host: "ecard.shanghaitech.edu.cn", type: 28)

@@ -81,8 +81,6 @@ final class EcardBindHijackService implements EcardBindHijackPort {
       await _channel.invokeMethod<void>('stop');
     } on MissingPluginException {
       // No host implementation: there is nothing to stop.
-    } on PlatformException {
-      // Same: the tunnel is gone either way.
     }
   }
 
