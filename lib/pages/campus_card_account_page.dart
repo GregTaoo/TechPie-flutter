@@ -136,6 +136,13 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
                       '3. 把绑定码填到下面并点「获取 OPENID」，随后自动连接 eCard。',
                       style: hintStyle,
                     ),
+                    if (isIos()) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'iOS 会临时占用系统 VPN，可能暂停现有 VPN。绑定结束后自动关闭；若取消，请点「停止自动获取」。',
+                        style: hintStyle,
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     AdaptiveButton(
                       key: const Key('ecard-bind-hijack-button'),
@@ -320,7 +327,7 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
   /// is the only thing worth telling the user.
   Future<void> _silentSelfCheck(EcardBindService bindService) async {
     final diagnosis = await bindService.diagnose();
-    if (!mounted) return;
+    if (!mounted || !bindService.hijackActive) return;
     if (diagnosis.routesToBindService && diagnosis.reachable) return;
     setState(() {
       _inlineError = true;
@@ -329,8 +336,8 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
   }
 
   /// Turns the code into an OPENID and connects with it. The code is one-shot,
-  /// so the tunnel is dropped either way: a retry would need a fresh code from
-  /// the mini program anyway.
+  /// so the tunnel is dropped after every attempt: a retry needs a fresh code
+  /// from the mini program anyway.
   Future<void> _redeem(
     CampusCardService service,
     EcardBindService bindService,
@@ -347,7 +354,6 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
         _channel = redeemed.channel;
       });
       await _save(service);
-      await bindService.stopHijack();
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -355,6 +361,7 @@ class _CampusCardAccountPageState extends State<CampusCardAccountPage> {
         _inlineMessage = _safeMessage(error);
       });
     } finally {
+      await bindService.stopHijack();
       if (mounted) setState(() => _bindBusy = false);
     }
   }

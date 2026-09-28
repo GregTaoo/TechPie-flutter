@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:techpie/features/campus_card/core/errors/app_failure.dart';
 import 'package:techpie/features/campus_card/data/auth/ecard_bind_code_client.dart';
@@ -12,6 +13,7 @@ import 'package:techpie/services/ecard_bind_service.dart';
 /// tunnel's state, hands back a plain OPENID, and stores nothing itself, so
 /// `CampusCardService` stays the only writer of the account.
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   late _ScriptedTunnel tunnel;
   late List<String> bodies;
 
@@ -97,14 +99,52 @@ void main() {
     expect(service.hijackActive, isTrue);
   });
 
-  test('the tunnel reports unsupported where there is no VpnService', () async {
+  test('iOS uses the native bind tunnel channel', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    const channel = MethodChannel('techpie/ecard_bind');
+    final calls = <String>[];
+    var active = false;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          calls.add(call.method);
+          switch (call.method) {
+            case 'start':
+              active = true;
+              expect(call.arguments, {
+                'host': EcardBindHijackService.host,
+                'ip': EcardBindHijackService.targetIp,
+              });
+              return 'active';
+            case 'stop':
+              active = false;
+              return null;
+            case 'status':
+              return active ? 'active' : 'inactive';
+          }
+          fail('unexpected method: ${call.method}');
+        });
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null),
+    );
+
+    final ios = EcardBindHijackService();
+    expect(await ios.start(), EcardBindHijackStatus.active);
+    expect(await ios.status(), EcardBindHijackStatus.active);
+    await ios.stop();
+    expect(await ios.status(), EcardBindHijackStatus.inactive);
+    expect(calls, ['start', 'status', 'stop', 'status']);
+  });
+
+  test('missing native host reports unsupported', () async {
     debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
     addTearDown(() => debugDefaultTargetPlatformOverride = null);
 
-    final android = EcardBindHijackService();
+    final ios = EcardBindHijackService();
 
-    expect(await android.start(), EcardBindHijackStatus.unsupported);
-    expect(await android.status(), EcardBindHijackStatus.unsupported);
+    expect(await ios.start(), EcardBindHijackStatus.unsupported);
+    expect(await ios.status(), EcardBindHijackStatus.unsupported);
   });
 
   test('diagnose separates a hijacked host from an answering bind service', () async {

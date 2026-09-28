@@ -4,10 +4,10 @@ import '../utils/platform.dart';
 
 /// What the DNS-only tunnel for the bind-code flow is doing right now.
 enum EcardBindHijackStatus {
-  /// No implementation on this platform (iOS, desktop, web).
+  /// No implementation on this platform (desktop, web).
   unsupported,
 
-  /// The platform can host it (Android, OHOS), and no tunnel is up.
+  /// The platform can host it (Android, iOS, OHOS), and no tunnel is up.
   inactive,
 
   /// The tunnel is answering DNS for [EcardBindHijackService.host].
@@ -33,9 +33,10 @@ abstract interface class EcardBindHijackPort {
 
 /// The platform tunnel that redirects one host name and leaves the rest alone.
 ///
-/// `EcardBindVpnService` (Android) and `EcardBindVpnAbility` (OHOS) answer only
+/// `EcardBindVpnService` (Android), `EcardBindTunnel` (iOS), and
+/// `EcardBindVpnAbility` (OHOS) answer only
 /// DNS for [EcardBindHijackService.host] with [EcardBindHijackService.targetIp];
-/// TCP still goes out the ordinary network, so this does not proxy anything the
+/// TCP is not routed through this tunnel, so it does not proxy anything the
 /// mini program or the exchange request actually send. It applies to every app,
 /// not to a list of them.
 final class EcardBindHijackService implements EcardBindHijackPort {
@@ -46,10 +47,8 @@ final class EcardBindHijackService implements EcardBindHijackPort {
   static const host = 'ecard.shanghaitech.edu.cn';
   static const targetIp = '119.78.254.196';
 
-  /// Android hosts the tunnel in a `VpnService`, OHOS in a `VpnExtensionAbility`
-  /// (see ohos/entry/src/main/ets/ecardbind). Both answer the same three calls
-  /// on the same channel, so the flow above them is one.
-  static bool get _hostsTunnel => isAndroid() || isOhos();
+  /// Each platform answers the same three calls on this channel.
+  static bool get _hostsTunnel => isAndroid() || isIos() || isOhos();
 
   /// Nothing is filtered by package name: every app's name resolution goes
   /// through the tunnel while it is up. The code is read in the mini program and

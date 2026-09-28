@@ -270,6 +270,23 @@ void main() {
     expect(find.text('开启自动获取'), findsOneWidget);
   });
 
+  testWidgets('a failed bind attempt also takes the DNS tunnel down', (
+    WidgetTester tester,
+  ) async {
+    final app = await mount(tester);
+    await tester.pumpWidget(app);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('ecard-bind-hijack-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('ecard-bind-redeem-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('请输入绑定码'), findsOneWidget);
+    expect(tunnel.stopCalls, 1);
+    expect(find.text('开启自动获取'), findsOneWidget);
+  });
+
   testWidgets('a refused VPN consent says so and stays off', (
     WidgetTester tester,
   ) async {
