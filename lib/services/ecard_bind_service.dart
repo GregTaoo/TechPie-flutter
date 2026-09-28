@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import '../features/campus_card/core/async_mutex.dart';
 import '../features/campus_card/core/errors/app_failure.dart';
 import '../features/campus_card/data/auth/ecard_bind_code_client.dart';
 import '../features/campus_card/domain/models/auth_models.dart';
@@ -92,21 +94,75 @@ final class EcardBindService extends ChangeNotifier {
   final EcardBindHijackPort _hijack;
   final EcardBindCodeClient _client;
   final Future<List<String>> Function(String host) _resolve;
+  final _tunnelMutex = AsyncMutex();
   EcardBindHijackStatus _status = EcardBindHijackStatus.inactive;
 
   EcardBindHijackStatus get status => _status;
   bool get hijackActive => _status == EcardBindHijackStatus.active;
+  bool get hijackNeedsStop =>
+      hijackActive || _status == EcardBindHijackStatus.unknown;
 
-  Future<EcardBindHijackStatus> refreshStatus() async =>
-      _record(await _hijack.status());
+  Future<EcardBindHijackStatus> refreshStatus() =>
+      _tunnelMutex.protect(_refreshStatus);
 
-  Future<EcardBindHijackStatus> startHijack() async =>
-      _record(await _hijack.start());
-
-  Future<void> stopHijack() async {
-    await _hijack.stop();
-    _record(await _hijack.status());
+  Future<EcardBindHijackStatus> _refreshStatus() async {
+    try {
+      return _record(await _hijack.status());
+    } catch (_) {
+      return _record(EcardBindHijackStatus.unknown);
+    }
   }
+
+  Future<EcardBindHijackStatus> startHijack() =>
+      _tunnelMutex.protect(() async => _record(await _hijack.start()));
+
+  Future<void> stopHijack() => _tunnelMutex.protect(_stopHijack);
+
+  Future<void> _stopHijack() async {
+    const failure = AppFailure(
+      FailureKind.network,
+      '未能停止自动获取，请先停止后重试连接',
+      code: 'ECARD_BIND_STOP_FAILED',
+    );
+    final EcardBindHijackStatus stoppedStatus;
+    try {
+      await _hijack.stop();
+      stoppedStatus = await _hijack.status();
+    } catch (_) {
+      _record(EcardBindHijackStatus.unknown);
+      throw failure;
+    }
+    _record(stoppedStatus);
+    if (!_confirmedStopped(stoppedStatus)) throw failure;
+  }
+
+  static bool _confirmedStopped(EcardBindHijackStatus status) =>
+      status == EcardBindHijackStatus.inactive ||
+      status == EcardBindHijackStatus.unsupported;
+
+  /// Shared by automatic login, manual retry, and account verification. A
+  /// stopped VPN does not prove that the resolver discarded its cached answer.
+  Future<void> prepareCampusConnection() => _tunnelMutex.protect(() async {
+    if (!_confirmedStopped(await _refreshStatus())) await _stopHijack();
+    final List<String> addresses;
+    try {
+      addresses = await _resolve(EcardBindHijackService.host)
+          .timeout(const Duration(seconds: 10));
+    } catch (_) {
+      throw const AppFailure(
+        FailureKind.network,
+        '无法确认网络已恢复，请检查网络后重试连接',
+        code: 'ECARD_BIND_DNS_UNAVAILABLE',
+      );
+    }
+    if (addresses.isEmpty || addresses.contains(EcardBindHijackService.targetIp)) {
+      throw const AppFailure(
+        FailureKind.network,
+        '网络设置尚未恢复，请稍后重试连接',
+        code: 'ECARD_BIND_DNS_NOT_RESTORED',
+      );
+    }
+  });
 
   Future<RedeemedOpenId> redeem(String code) async {
     final result = await _client.exchange(code);
