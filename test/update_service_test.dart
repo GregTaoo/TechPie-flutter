@@ -85,6 +85,9 @@ void main() {
 
     expect(release, isNotNull);
     expect(release!.version, const ProductVersion(1, 0, 1, null, 13));
+    // The title says only v1.0.1, so it must be the tag ("v1.0.1+13") that names
+    // the offer — otherwise "发现新版本 v1.0.1" reads as no change at all.
+    expect(release.name, 'v1.0.1+13');
 
     // And a build that is already the newer one is told nothing.
     expect(
