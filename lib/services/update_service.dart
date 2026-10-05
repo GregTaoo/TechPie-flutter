@@ -142,9 +142,14 @@ class UpdateService {
       return null;
     }
 
+    // Two builds of one version differ only by `+B`, and the build number is not
+    // part of the title (`v1.0.1`). Offering this update by title would read as
+    // "still 1.0.1" to everyone the build is the whole difference — so the tag,
+    // which carries `+B`, is what names it then.
+    final sameVersion = published.toString() == current.toString();
     return ReleaseInfo(
       version: published,
-      name: title.isNotEmpty ? title : tag,
+      name: title.isNotEmpty && !sameVersion ? title : tag,
       notes: _changelog(payload['body'] as String? ?? ''),
     );
   }
