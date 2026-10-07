@@ -228,6 +228,8 @@ class _BookingTabState extends State<_BookingTab> {
   bool _submitting = false;
   String? _error;
   String? _result;
+  int _availabilityRequest = 0;
+  bool _initialized = false;
 
   String get _dateString => _formatDate(_date);
   int get _startHour => _timeRange.start.round();
@@ -238,7 +240,8 @@ class _BookingTabState extends State<_BookingTab> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_availability.isEmpty && !_checking) {
+    if (!_initialized) {
+      _initialized = true;
       unawaited(_refreshAvailability());
     }
   }
@@ -263,7 +266,8 @@ class _BookingTabState extends State<_BookingTab> {
     await _refreshAvailability();
   }
 
-  Future<void> _refreshAvailability() async {
+  Future<void> _refreshAvailability({bool preserveResult = false}) async {
+    final request = ++_availabilityRequest;
     if (_sports.isEmpty) return;
     if (_selectedSlots.isEmpty) {
       setState(() {
@@ -276,7 +280,7 @@ class _BookingTabState extends State<_BookingTab> {
     setState(() {
       _checking = true;
       _error = null;
-      _result = null;
+      if (!preserveResult) _result = null;
       _availability = [];
       _selectedCourts.clear();
     });
@@ -287,14 +291,22 @@ class _BookingTabState extends State<_BookingTab> {
         date: _dateString,
         startSlot: _selectedSlots.first,
         endSlot: _selectedSlots.last,
+        shouldContinue: () => mounted && request == _availabilityRequest,
+        onProgress: (data) {
+          if (mounted && request == _availabilityRequest) {
+            setState(() => _availability = data);
+          }
+        },
       );
-      if (!mounted) return;
+      if (!mounted || request != _availabilityRequest) return;
       setState(() => _availability = data);
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || request != _availabilityRequest) return;
       setState(() => _error = e.toString());
     } finally {
-      if (mounted) setState(() => _checking = false);
+      if (mounted && request == _availabilityRequest) {
+        setState(() => _checking = false);
+      }
     }
   }
 
@@ -313,16 +325,27 @@ class _BookingTabState extends State<_BookingTab> {
 
     final service = ServiceProvider.of(context).oaGymService;
     final messages = <String>[];
+    final date = _dateString;
+    final selections = {
+      for (final entry in _selectedCourts.entries)
+        entry.key: Set<int>.of(entry.value),
+    };
+    final submitted = <String>{};
     var allSuccess = true;
     try {
-      for (final entry in _selectedCourts.entries) {
+      for (final entry in selections.entries) {
         final parts = entry.key.split('|');
         final sport = OaSport.values.firstWhere((item) => item.id == parts[0]);
         final slot = int.parse(parts[1]);
         for (final court in entry.value) {
+          if (!submitted.add(
+            '$slot|${oaCourtForSport(sport, court).physicalKey}',
+          )) {
+            continue;
+          }
           final result = await service.bookCourt(
             sport: sport,
-            date: _dateString,
+            date: date,
             timeSlot: slot,
             courtNumber: court,
             playersCount: 2,
@@ -336,10 +359,16 @@ class _BookingTabState extends State<_BookingTab> {
         _result = messages.join('\n');
         if (allSuccess) _selectedCourts.clear();
       });
-      await _refreshAvailability();
+      await _refreshAvailability(preserveResult: true);
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = e.toString());
+      if (messages.isNotEmpty) {
+        setState(() {
+          _result = messages.join('\n');
+          _selectedCourts.clear();
+        });
+      }
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -364,9 +393,23 @@ class _BookingTabState extends State<_BookingTab> {
       if (set.contains(court)) {
         set.remove(court);
       } else {
+        final parts = key.split('|');
+        final sport =
+            OaSport.values.firstWhere((sport) => sport.id == parts[0]);
+        final physical = oaCourtForSport(sport, court).physicalKey;
+        for (final entry in _selectedCourts.entries) {
+          final other = entry.key.split('|');
+          if (entry.key == key || other[1] != parts[1]) continue;
+          final otherSport =
+              OaSport.values.firstWhere((sport) => sport.id == other[0]);
+          entry.value.removeWhere(
+            (number) =>
+                oaCourtForSport(otherSport, number).physicalKey == physical,
+          );
+        }
         set.add(court);
       }
-      if (set.isEmpty) _selectedCourts.remove(key);
+      _selectedCourts.removeWhere((_, courts) => courts.isEmpty);
       _result = null;
     });
   }
@@ -407,7 +450,8 @@ class _BookingTabState extends State<_BookingTab> {
                         selected: _sports.contains(sport),
                         label: Text(sport.label),
                         avatar: Icon(_sportIcon(sport), size: 18),
-                        onSelected: (_) => _toggleSport(sport),
+                        onSelected:
+                            _submitting ? null : (_) => _toggleSport(sport),
                       ),
                   ],
                 ),
@@ -418,7 +462,7 @@ class _BookingTabState extends State<_BookingTab> {
                   title: const Text('预约日期'),
                   subtitle: Text(_dateString),
                   trailing: const Icon(Icons.chevron_right),
-                  onTap: _pickDate,
+                  onTap: _submitting ? null : _pickDate,
                 ),
                 Text(
                   '时间段 ${oaEndpointRangeLabel(_startHour, _endHour)}',
@@ -443,18 +487,23 @@ class _BookingTabState extends State<_BookingTab> {
                     "${_startHour.toString().padLeft(2, "0")}:00",
                     "${_endHour.toString().padLeft(2, "0")}:00",
                   ),
-                  onChanged: (value) {
-                    setState(() {
-                      _timeRange = value;
-                      _selectedCourts.clear();
-                    });
-                  },
+                  onChanged: _submitting
+                      ? null
+                      : (value) {
+                          setState(() {
+                            _availabilityRequest++;
+                            _timeRange = value;
+                            _availability = [];
+                            _selectedCourts.clear();
+                          });
+                        },
                   onChangeEnd: (_) => unawaited(_refreshAvailability()),
                 ),
                 Align(
                   alignment: Alignment.centerRight,
                   child: AdaptiveButton(
-                    onPressed: _checking ? null : _refreshAvailability,
+                    onPressed:
+                        _checking || _submitting ? null : _refreshAvailability,
                     icon: Icons.refresh,
                     sfSymbol: 'arrow.clockwise',
                     label: '刷新可用场地',
@@ -473,45 +522,59 @@ class _BookingTabState extends State<_BookingTab> {
         if (_error != null) _MessageCard(message: _error!, isError: true),
         if (_result != null) _MessageCard(message: _result!, isError: false),
         if (_checking)
-          const Padding(
-            padding: EdgeInsets.all(32),
-            child: Center(child: CircularProgressIndicator()),
-          )
-        else
-          for (final sport in _sports) ...[
-            Card.outlined(
-              clipBehavior: Clip.antiAlias,
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(_sportIcon(sport), color: scheme.primary),
-                        const SizedBox(width: 8),
-                        Text(sport.label, style: theme.textTheme.titleMedium),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    for (final slot in _selectedSlots)
-                      _AvailabilitySlot(
-                        sport: sport,
-                        slot: slot,
-                        availability: grouped['${sport.id}|$slot'],
-                        selectedCourts:
-                            _selectedCourts['${sport.id}|$slot'] ?? const {},
-                        onToggleCourt: (court) =>
-                            _toggleCourt('${sport.id}|$slot', court),
-                      ),
-                  ],
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
                 ),
+                const SizedBox(width: 12),
+                Text(
+                  '正在查询 ${_availability.length}/${_sports.length * _selectedSlots.length} 个时段',
+                ),
+              ],
+            ),
+          ),
+        for (final sport in _sports) ...[
+          Card.outlined(
+            clipBehavior: Clip.antiAlias,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(_sportIcon(sport), color: scheme.primary),
+                      const SizedBox(width: 8),
+                      Text(sport.label, style: theme.textTheme.titleMedium),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  for (final slot in _selectedSlots)
+                    _AvailabilitySlot(
+                      sport: sport,
+                      slot: slot,
+                      availability: grouped['${sport.id}|$slot'],
+                      selectedCourts:
+                          _selectedCourts['${sport.id}|$slot'] ?? const {},
+                      enabled: !_submitting && !_checking,
+                      onToggleCourt: (court) =>
+                          _toggleCourt('${sport.id}|$slot', court),
+                    ),
+                ],
               ),
             ),
-            const SizedBox(height: 12),
-          ],
+          ),
+          const SizedBox(height: 12),
+        ],
         AdaptiveButton(
-          onPressed: _submitting || _selectedCount == 0 ? null : _submit,
+          onPressed:
+              _submitting || _checking || _selectedCount == 0 ? null : _submit,
           icon: Icons.send,
           sfSymbol: 'paperplane.fill',
           label: _selectedCount == 0 ? '提交预约' : '提交预约 ($_selectedCount)',
@@ -530,6 +593,7 @@ class _AvailabilitySlot extends StatelessWidget {
   final OaAvailability? availability;
   final Set<int> selectedCourts;
   final ValueChanged<int> onToggleCourt;
+  final bool enabled;
 
   const _AvailabilitySlot({
     required this.sport,
@@ -537,11 +601,12 @@ class _AvailabilitySlot extends StatelessWidget {
     required this.availability,
     required this.selectedCourts,
     required this.onToggleCourt,
+    this.enabled = true,
   });
 
   @override
   Widget build(BuildContext context) {
-    final config = oaSportConfigs[sport]!;
+    final courts = oaCourtsForSport(sport);
     final time = oaTimeSlots[slot - 1];
     final available = availability?.availableCourts ?? const <int>[];
     final theme = Theme.of(context);
@@ -559,7 +624,7 @@ class _AvailabilitySlot extends StatelessWidget {
                 label: Text(
                   availability == null
                       ? '未加载'
-                      : '${available.length}/${config.courtCount} 可用',
+                      : '${available.length}/${courts.length} 可用',
                 ),
                 visualDensity: VisualDensity.compact,
                 color: WidgetStatePropertyAll(
@@ -577,12 +642,12 @@ class _AvailabilitySlot extends StatelessWidget {
             spacing: 8,
             runSpacing: 8,
             children: [
-              for (var court = 1; court <= config.courtCount; court++)
+              for (final court in courts)
                 ChoiceChip(
-                  selected: selectedCourts.contains(court),
-                  label: Text(_courtLabel(sport, court)),
-                  onSelected: available.contains(court)
-                      ? (_) => onToggleCourt(court)
+                  selected: selectedCourts.contains(court.number),
+                  label: Text(court.label),
+                  onSelected: enabled && available.contains(court.number)
+                      ? (_) => onToggleCourt(court.number)
                       : null,
                 ),
             ],
@@ -609,6 +674,15 @@ class _SearchTabState extends State<_SearchTab> {
   List<OaCourtSearchResult> _results = [];
   bool _loading = false;
   String? _error;
+  int _searchRequest = 0;
+  bool _metadataStarted = false;
+
+  void _invalidateSearch() {
+    _searchRequest++;
+    _loading = false;
+    _results = [];
+    _error = null;
+  }
 
   Future<void> _ensureMetadata() async {
     try {
@@ -622,7 +696,9 @@ class _SearchTabState extends State<_SearchTab> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (ServiceProvider.of(context).oaGymService.venues.isEmpty) {
+    if (!_metadataStarted &&
+        ServiceProvider.of(context).oaGymService.venues.isEmpty) {
+      _metadataStarted = true;
       unawaited(_ensureMetadata());
     }
   }
@@ -634,7 +710,13 @@ class _SearchTabState extends State<_SearchTab> {
       firstDate: DateTime.now().subtract(const Duration(days: 30)),
       lastDate: DateTime.now().add(const Duration(days: 30)),
     );
-    if (picked != null) setState(() => _startDate = picked);
+    if (picked != null) {
+      setState(() {
+        _invalidateSearch();
+        _startDate = picked;
+        if (_endDate.isBefore(picked)) _endDate = picked;
+      });
+    }
   }
 
   Future<void> _pickEndDate() async {
@@ -644,10 +726,16 @@ class _SearchTabState extends State<_SearchTab> {
       firstDate: _startDate,
       lastDate: DateTime.now().add(const Duration(days: 30)),
     );
-    if (picked != null) setState(() => _endDate = picked);
+    if (picked != null) {
+      setState(() {
+        _invalidateSearch();
+        _endDate = picked;
+      });
+    }
   }
 
   Future<void> _search() async {
+    final request = ++_searchRequest;
     final selectedSlots = oaSlotIdsForEndpointRange(
       _timeRange.start.round(),
       _timeRange.end.round(),
@@ -666,19 +754,30 @@ class _SearchTabState extends State<_SearchTab> {
       final ranges = <String>[
         for (final slot in selectedSlots) oaTimeSlots[slot - 1].range,
       ];
-      final data = await ServiceProvider.of(context).oaGymService.searchCourts(
-            startDate: _formatDate(_startDate),
-            endDate: _formatDate(_endDate),
-            venueNames: _venues.isNotEmpty ? _venues : <String>{},
-            timeRanges: ranges,
-          );
-      if (!mounted) return;
+      final service = ServiceProvider.of(context).oaGymService;
+      final data = await service.searchCourts(
+        startDate: _formatDate(_startDate),
+        endDate: _formatDate(_endDate),
+        venueNames: _venues.isNotEmpty
+            ? Set.of(_venues)
+            : _sports.map((sport) => oaSportConfigs[sport]!.parentName).toSet(),
+        timeRanges: ranges,
+        shouldContinue: () => mounted && request == _searchRequest,
+        onProgress: (data) {
+          if (mounted && request == _searchRequest) {
+            setState(() => _results = data);
+          }
+        },
+      );
+      if (!mounted || request != _searchRequest) return;
       setState(() => _results = data);
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || request != _searchRequest) return;
       setState(() => _error = e.toString());
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && request == _searchRequest) {
+        setState(() => _loading = false);
+      }
     }
   }
 
@@ -746,6 +845,7 @@ class _SearchTabState extends State<_SearchTab> {
                       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       onSelected: (_) {
                         setState(() {
+                          _invalidateSearch();
                           _sports.clear();
                           _venues.clear();
                         });
@@ -761,10 +861,14 @@ class _SearchTabState extends State<_SearchTab> {
                         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         onSelected: (_) {
                           setState(() {
+                            _invalidateSearch();
                             if (_sports.contains(sport)) {
                               _sports.remove(sport);
-                              _venues.removeAll(
-                                _venuesForSports(service.venues.keys, {sport}),
+                              _venues.removeWhere(
+                                (venue) => !_sports.any(
+                                  (selected) =>
+                                      oaVenueMatchesSport(venue, selected),
+                                ),
                               );
                             } else {
                               _sports.add(sport);
@@ -808,6 +912,7 @@ class _SearchTabState extends State<_SearchTab> {
                                 MaterialTapTargetSize.shrinkWrap,
                             onSelected: (_) {
                               setState(() {
+                                _invalidateSearch();
                                 if (_venues.contains(venue)) {
                                   _venues.remove(venue);
                                 } else {
@@ -838,7 +943,10 @@ class _SearchTabState extends State<_SearchTab> {
                   min: oaTimeEndpointStart.toDouble(),
                   max: oaTimeEndpointEnd.toDouble(),
                   divisions: oaTimeEndpointEnd - oaTimeEndpointStart,
-                  onChanged: (value) => setState(() => _timeRange = value),
+                  onChanged: (value) => setState(() {
+                    _invalidateSearch();
+                    _timeRange = value;
+                  }),
                 ),
                 if (_sports.isNotEmpty && _venues.isNotEmpty) ...[
                   const SizedBox(height: 8),
@@ -871,8 +979,8 @@ class _SearchTabState extends State<_SearchTab> {
                 child: CircularProgressIndicator(),
               ),
             ),
-          )
-        else if (groupedResults.isNotEmpty)
+          ),
+        if (groupedResults.isNotEmpty)
           Card.outlined(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -1026,7 +1134,9 @@ class _ProfileTabState extends State<_ProfileTab> {
     // meaning in the OA booking context.
     final displayName = cpdaily?.name?.isNotEmpty == true
         ? cpdaily!.name!
-        : (cpdaily?.account.isNotEmpty == true ? cpdaily!.account : 'TechPie 用户');
+        : (cpdaily?.account.isNotEmpty == true
+            ? cpdaily!.account
+            : 'TechPie 用户');
     final studentId = cpdaily?.sid ?? '';
     final avatarText = displayName.characters.firstOrNull ?? 'U';
 
@@ -1163,50 +1273,27 @@ Map<OaSport, List<String>> _venuesBySport(
     }.contains(item)) {
       continue;
     }
-    if (sports.contains(OaSport.badminton) && item.contains('羽毛球')) {
-      result[OaSport.badminton]!.add(item);
-      continue;
-    }
-    if (sports.contains(OaSport.pingpong) && item.contains('乒乓球')) {
-      result[OaSport.pingpong]!.add(item);
-      continue;
-    }
-    if (sports.contains(OaSport.tennis) && item.contains('网球')) {
-      result[OaSport.tennis]!.add(item);
-      continue;
-    }
-    if (sports.contains(OaSport.pickleball) && item.contains('匹克球')) {
-      result[OaSport.pickleball]!.add(item);
+    for (final sport in sports) {
+      if (oaVenueMatchesSport(item, sport)) result[sport]!.add(item);
     }
   }
   return result;
 }
 
 List<String> _venuesForSports(Iterable<String> venues, Set<OaSport> sports) =>
-    venues.where((item) {
-      if (const {
-        '所有场地',
-        '室内羽毛球场',
-        '室内乒乓球场',
-        '网球场',
-        '匹克球场',
-      }.contains(item)) {
-        return false;
-      }
-      if (sports.contains(OaSport.badminton) && item.contains('羽毛球')) {
-        return true;
-      }
-      if (sports.contains(OaSport.pingpong) && item.contains('乒乓球')) {
-        return true;
-      }
-      if (sports.contains(OaSport.tennis) && item.contains('网球')) {
-        return true;
-      }
-      if (sports.contains(OaSport.pickleball) && item.contains('匹克球')) {
-        return true;
-      }
-      return false;
-    }).toList();
+    venues
+        .where(
+          (venue) =>
+              !const {
+                '所有场地',
+                '室内羽毛球场',
+                '室内乒乓球场',
+                '网球场',
+                '匹克球场',
+              }.contains(venue) &&
+              sports.any((sport) => oaVenueMatchesSport(venue, sport)),
+        )
+        .toList();
 
 List<_SearchDateGroup> _groupSearchResults(List<OaCourtSearchResult> results) {
   final dateMap = <String, Map<String, List<_SearchResultItem>>>{};
@@ -1267,12 +1354,6 @@ List<_SearchDateGroup> _groupSearchResults(List<OaCourtSearchResult> results) {
 String _formatDate(DateTime date) => '${date.year.toString().padLeft(4, '0')}-'
     '${date.month.toString().padLeft(2, '0')}-'
     '${date.day.toString().padLeft(2, '0')}';
-
-String _courtLabel(OaSport sport, int court) {
-  if (sport == OaSport.pickleball) return '匹克球1号场地';
-  final config = oaSportConfigs[sport]!;
-  return '${config.courtNamePrefix}$court${config.courtNameSuffix}';
-}
 
 IconData _sportIcon(OaSport sport) => switch (sport) {
       OaSport.badminton => Icons.sports_tennis,

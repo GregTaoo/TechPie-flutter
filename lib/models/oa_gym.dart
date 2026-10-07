@@ -127,6 +127,70 @@ const oaSportConfigs = <OaSport, OaSportConfig>{
   ),
 };
 
+/// A choice in the app and the physical OA court it submits to. Numbers are
+/// local to the selected sport; shared courts keep their original OA category.
+class OaCourt {
+  final int number;
+  final OaSport bookingSport;
+  final int bookingNumber;
+  final String label;
+
+  const OaCourt(this.number, this.bookingSport, this.bookingNumber, this.label);
+
+  String get physicalKey => '${bookingSport.id}|$bookingNumber';
+}
+
+List<OaCourt> oaCourtsForSport(OaSport sport) => switch (sport) {
+      OaSport.tennis => const [
+          OaCourt(1, OaSport.tennis, 1, '网球场1号'),
+          OaCourt(2, OaSport.tennis, 2, '网球场2号'),
+          OaCourt(3, OaSport.tennis, 3, '网球场3号'),
+          OaCourt(4, OaSport.pickleball, 1, '匹克球1号场地（可打网球）'),
+        ],
+      OaSport.pickleball => const [
+          OaCourt(1, OaSport.pickleball, 1, '匹克球1号场地'),
+          OaCourt(2, OaSport.tennis, 1, '网球场1号（可打匹克球）'),
+        ],
+      _ => [
+          for (var number = 1;
+              number <= oaSportConfigs[sport]!.courtCount;
+              number++)
+            OaCourt(
+              number,
+              sport,
+              number,
+              '${oaSportConfigs[sport]!.courtNamePrefix}$number号',
+            ),
+        ],
+    };
+
+OaCourt oaCourtForSport(OaSport sport, int number) =>
+    oaCourtsForSport(sport).firstWhere((court) => court.number == number);
+
+String _normalizedVenue(String value) => String.fromCharCodes(
+      value.runes.map(
+        (char) => char >= 0xff10 && char <= 0xff19 ? char - 0xfee0 : char,
+      ),
+    ).replaceAll(RegExp(r'\s+'), '');
+
+bool oaIsUnusedVenue(String venue) {
+  final name = _normalizedVenue(venue);
+  return name.contains('匹克') && (name.contains('2') || name.contains('二'));
+}
+
+bool oaVenueMatchesSport(String venue, OaSport sport) {
+  if (oaIsUnusedVenue(venue)) return false;
+  final name = _normalizedVenue(venue);
+  final tennisOne =
+      name.contains('网球') && RegExp(r'(?:1号|一号|场地1|场地一|第1|第一)').hasMatch(name);
+  return switch (sport) {
+    OaSport.badminton => name.contains('羽毛球'),
+    OaSport.pingpong => name.contains('乒乓'),
+    OaSport.tennis => name.contains('网球') || name.contains('匹克'),
+    OaSport.pickleball => name.contains('匹克') || tennisOne,
+  };
+}
+
 class OaAvailability {
   final OaSport sport;
   final String date;
