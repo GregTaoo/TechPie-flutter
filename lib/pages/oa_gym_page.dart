@@ -1182,7 +1182,7 @@ class _ProfileTabState extends State<_ProfileTab> {
             : (cpdaily?.account.isNotEmpty == true
                 ? cpdaily!.account
                 : 'TechPie 用户');
-    final studentId = cpdaily?.sid ?? '';
+    final studentId = service.bookingStudentId;
     final avatarText = displayName.characters.firstOrNull ?? 'U';
 
     return ListView(

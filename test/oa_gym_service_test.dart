@@ -653,6 +653,133 @@ void main() {
   });
 
   group('OA personal information', () {
+    test('syncs immediately after binding against the legacy UUID response',
+        () async {
+      const userId = '11111111-2222-3333-4444-555555555555';
+      final fixture = await _serviceFixture(
+        bindEgate: false,
+        authClient: _FakeClient((request) async {
+          expect(request.url.path, '/api/auth/third-party/egate');
+          final body =
+              jsonDecode(await request.finalize().bytesToString()) as Map;
+          expect(body['account'], '20240001');
+          return _jsonResponse({
+            'success': true,
+            'data': {
+              'sid': userId,
+              'name': 'OA User',
+              'token': 'session',
+              'raw': {'tgc': 'tgc-value', 'sessionToken': 'session'},
+            },
+          });
+        }),
+      );
+      final paths = <String>[];
+      final service = _profileService(fixture, (request) async {
+        paths.add(request.url.path);
+        final body =
+            jsonDecode(await request.finalize().bytesToString()) as Map;
+        expect(body['auth']['userId'], userId);
+        if (request.url.path.endsWith('/profile')) return _profileResult();
+        expect(body['booking']['studentId'], '20240001');
+        return _jsonResponse({
+          'success': true,
+          'data': {'success': true},
+        });
+      });
+      service.startProfileSync();
+      await fixture.tpAuth.bind(
+        platform: ThirdPartyPlatform.cpdaily,
+        account: '20240001',
+        password: 'fixture-password',
+      );
+      await service.syncBookingProfile();
+      expect(service.profileSyncError, isNull);
+      expect(service.bookingStudentId, '20240001');
+      expect(service.profileOwner, 'user|20240001');
+      expect(fixture.tpAuth.cpdailyNode.cookieProvider!.studentId, '20240001');
+      expect(service.bookingProfile().phone, '13900000000');
+      await service.bookCourt(
+        sport: OaSport.badminton,
+        date: '2026-10-08',
+        timeSlot: 8,
+        courtNumber: 1,
+        playersCount: 2,
+      );
+      expect(paths, ['/api/oa/gym/profile', '/api/oa/gym/book']);
+    });
+
+    test('legacy SMS UUID bindings learn a school ID only from self OA data',
+        () async {
+      const userId = '11111111-2222-3333-4444-555555555555';
+      final fixture = await _serviceFixture(bindEgate: false);
+      fixture.tpAuth.sessionTree.setAccount(
+        ThirdPartyPlatform.cpdaily,
+        ThirdPartyAccount(
+          platform: ThirdPartyPlatform.cpdaily,
+          account: '13800000000',
+          sid: userId,
+          token: 'session',
+          raw: const {'tgc': 'tgc-value'},
+          boundAt: DateTime.utc(2026),
+        ),
+      );
+      final service = _profileService(fixture, (request) async {
+        if (request.url.path.endsWith('/profile')) return _profileResult();
+        final body =
+            jsonDecode(await request.finalize().bytesToString()) as Map;
+        expect(body['booking']['studentId'], '20240001');
+        expect(body['auth']['userId'], userId);
+        return _jsonResponse({
+          'success': true,
+          'data': {'success': true},
+        });
+      });
+      expect(fixture.tpAuth.cpdailyStudentId, isEmpty);
+      expect(service.bookingStudentId, isEmpty);
+      expect(service.profileOwner, 'user|$userId');
+      await service.syncBookingProfile();
+      expect(service.profileSyncError, isNull);
+      expect(service.bookingStudentId, '20240001');
+      // The school ID is not editable and survives manual saves and restart.
+      await service.saveBookingProfile(
+        const OaBookingProfile(name: 'Manual', phone: '13700000000', email: ''),
+      );
+      final restarted = _profileService(fixture, (_) async => _profileResult());
+      expect(restarted.bookingStudentId, '20240001');
+      await service.bookCourt(
+        sport: OaSport.badminton,
+        date: '2026-10-08',
+        timeSlot: 8,
+        courtNumber: 1,
+        playersCount: 2,
+      );
+    });
+
+    test('keeps normalized school and internal CpDaily IDs distinct', () {
+      const userId = '11111111-2222-3333-4444-555555555555';
+      for (final raw in [
+        {'studentId': '20240001', 'userId': userId},
+        {'openId': '20240001', 'userId': userId},
+      ]) {
+        final account = ThirdPartyAccount.fromJson(
+          ThirdPartyAccount(
+            platform: ThirdPartyPlatform.cpdaily,
+            account: '13800000000',
+            sid: '20240001',
+            token: 'session',
+            raw: raw,
+            boundAt: DateTime.utc(2026),
+          ).toJson(),
+        );
+        expect(account.cpdailyStudentId, '20240001');
+        expect(account.cpdailyUserId, userId);
+      }
+      expect(ThirdPartyAccount.cpdailySchoolId(userId), isEmpty);
+      expect(ThirdPartyAccount.cpdailySchoolId('13800000000'), isEmpty);
+      expect(ThirdPartyAccount.cpdailySchoolId(' 20240001 '), '20240001');
+    });
+
     test('syncs current-user contacts and uses them for booking', () async {
       final fixture = await _serviceFixture(withBookingProfile: false);
       final paths = <String>[];
@@ -928,6 +1055,7 @@ void main() {
 Future<_Fixture> _serviceFixture({
   bool bindEgate = true,
   bool withBookingProfile = true,
+  http.Client? authClient,
 }) async {
   SharedPreferences.setMockInitialValues({});
   FlutterSecureStorage.setMockInitialValues({});
@@ -970,7 +1098,7 @@ Future<_Fixture> _serviceFixture({
     );
   }
   final logger = DebugLogger();
-  final httpClient = LoggingHttpClient(logger);
+  final httpClient = LoggingHttpClient(logger, inner: authClient);
   final uniAuth = UniAuthService();
   final auth = AuthService(storage, httpClient, uniAuth);
   final tpAuth = ThirdPartyAuthService(storage, httpClient);

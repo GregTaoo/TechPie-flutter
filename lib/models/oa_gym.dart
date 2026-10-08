@@ -235,28 +235,33 @@ class OaBookingProfile {
   final String name;
   final String phone;
   final String email;
+  final String studentId;
 
   const OaBookingProfile({
     required this.name,
     required this.phone,
     required this.email,
+    this.studentId = '',
   });
 
   OaBookingProfile copyWith({
     String? name,
     String? phone,
     String? email,
+    String? studentId,
   }) =>
       OaBookingProfile(
         name: name ?? this.name,
         phone: phone ?? this.phone,
         email: email ?? this.email,
+        studentId: studentId ?? this.studentId,
       );
 
   Map<String, dynamic> toJson() => {
         'name': name,
         'phone': phone,
         'email': email,
+        if (studentId.isNotEmpty) 'studentId': studentId,
       };
 
   factory OaBookingProfile.fromJson(Map<String, dynamic> json) =>
@@ -264,5 +269,6 @@ class OaBookingProfile {
         name: json['name'] as String? ?? '',
         phone: json['phone'] as String? ?? '',
         email: json['email'] as String? ?? '',
+        studentId: json['studentId'] as String? ?? '',
       );
 }

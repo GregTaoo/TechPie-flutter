@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../models/oa_gym.dart';
+import '../models/third_party_account.dart';
 import 'api_base_url.dart';
 import 'auth_service.dart';
 import 'session/cookie_provider.dart';
@@ -70,8 +71,20 @@ class OaGymService extends ChangeNotifier {
     if (!_auth.isLoggedIn || !_tpAuth.hasCpdailyBinding) return '';
     final campusId = _tpAuth.cpdailyStudentId.isNotEmpty
         ? _tpAuth.cpdailyStudentId
-        : _tpAuth.cpdailyBinding!.account;
+        : _tpAuth.cpdailyBinding!.cpdailyUserId.isNotEmpty
+            ? _tpAuth.cpdailyBinding!.cpdailyUserId
+            : _tpAuth.cpdailyBinding!.account;
     return '${_auth.session!.userId}|$campusId';
+  }
+
+  String get bookingStudentId {
+    if (profileOwner.isEmpty) return '';
+    if (_tpAuth.cpdailyStudentId.isNotEmpty) return _tpAuth.cpdailyStudentId;
+    // Legacy SMS bindings have a UUID and phone but no school ID. Only a
+    // successful current-user OA response can supply their missing ID.
+    return ThirdPartyAccount.cpdailySchoolId(
+      _storage.loadOaBookingProfile(owner: profileOwner).studentId,
+    );
   }
 
   String get _currentProfileBinding => profileOwner.isEmpty
@@ -132,7 +145,7 @@ class OaGymService extends ChangeNotifier {
       if (generation != _profileGeneration || owner != profileOwner) return;
       final data = (response['data'] as Map?)?.cast<String, dynamic>();
       if (data == null) throw OaGymException('OA 个人信息响应不完整，请手动填写或重试');
-      final studentId = data['studentId'] as String? ?? '';
+      final studentId = ThirdPartyAccount.cpdailySchoolId(data['studentId']);
       if (studentId.isNotEmpty &&
           _tpAuth.cpdailyStudentId.isNotEmpty &&
           studentId != _tpAuth.cpdailyStudentId) {
@@ -163,12 +176,14 @@ class OaGymService extends ChangeNotifier {
           name: merge(current.name, incoming.name, previous.name),
           phone: merge(current.phone, phone, previous.phone),
           email: merge(current.email, email, previous.email),
+          studentId: studentId.isNotEmpty ? studentId : current.studentId,
         ),
         owner: owner,
         schoolProfile: OaBookingProfile(
           name: incoming.name.isNotEmpty ? incoming.name : previous.name,
           phone: phone.isNotEmpty ? phone : previous.phone,
           email: email.isNotEmpty ? email : previous.email,
+          studentId: studentId.isNotEmpty ? studentId : previous.studentId,
         ),
       );
       if (generation == _profileGeneration && owner == profileOwner) {
@@ -232,7 +247,10 @@ class OaGymService extends ChangeNotifier {
     _requireAuth();
     final owner = profileOwner;
     _profileRevision++;
-    await _storage.saveOaBookingProfile(profile, owner: owner);
+    await _storage.saveOaBookingProfile(
+      profile.copyWith(studentId: bookingStudentId),
+      owner: owner,
+    );
     notifyListeners();
   }
 
@@ -344,7 +362,7 @@ class OaGymService extends ChangeNotifier {
     final court = choices.single;
     _requireAuth();
     final profile = bookingProfile();
-    final studentId = _tpAuth.cpdailyStudentId;
+    final studentId = bookingStudentId;
     final userName = profile.name;
     final phone = profile.phone;
     if (userName.isEmpty || phone.isEmpty) {
