@@ -39,6 +39,14 @@ class OaGymService extends ChangeNotifier {
   Map<String, String> _venues = {};
   Map<String, String> _allVenues = {};
   Map<String, String> _timeSlots = {};
+  bool _profileSyncAttached = false;
+  bool _profileSyncing = false;
+  bool _profileSynced = false;
+  String? _profileSyncError;
+  String _profileBinding = '';
+  int _profileGeneration = 0;
+  int _profileRevision = 0;
+  Future<void>? _profileRequest;
 
   OaGymService(
     this._auth,
@@ -54,6 +62,140 @@ class OaGymService extends ChangeNotifier {
   Map<String, String> get venues => Map.unmodifiable(_venues);
   Map<String, String> get allVenues => Map.unmodifiable(_allVenues);
   Map<String, String> get timeSlots => Map.unmodifiable(_timeSlots);
+  bool get profileSyncing => _profileSyncing;
+  bool get profileSynced => _profileSynced;
+  String? get profileSyncError => _profileSyncError;
+
+  String get profileOwner {
+    if (!_auth.isLoggedIn || !_tpAuth.hasCpdailyBinding) return '';
+    final campusId = _tpAuth.cpdailyStudentId.isNotEmpty
+        ? _tpAuth.cpdailyStudentId
+        : _tpAuth.cpdailyBinding!.account;
+    return '${_auth.session!.userId}|$campusId';
+  }
+
+  String get _currentProfileBinding => profileOwner.isEmpty
+      ? ''
+      : '$profileOwner|${_tpAuth.cpdailyBinding!.boundAt.toIso8601String()}';
+
+  /// Attach after boot hydration. Binding/rebinding starts a separate,
+  /// best-effort read; login and court queries never wait for contact sync.
+  void startProfileSync() {
+    if (_profileSyncAttached) return;
+    _profileSyncAttached = true;
+    _auth.addListener(_onProfileBindingChanged);
+    _tpAuth.addListener(_onProfileBindingChanged);
+    _onProfileBindingChanged();
+  }
+
+  void _onProfileBindingChanged() {
+    if (_prepareProfileBinding() && profileOwner.isNotEmpty) {
+      unawaited(syncBookingProfile());
+    }
+  }
+
+  bool _prepareProfileBinding() {
+    final binding = _currentProfileBinding;
+    if (_profileBinding == binding) return false;
+    _profileBinding = binding;
+    _profileGeneration++;
+    _profileRequest = null;
+    _profileSyncing = false;
+    _profileSynced = false;
+    _profileSyncError = null;
+    notifyListeners();
+    return true;
+  }
+
+  Future<void> syncBookingProfile({bool overwrite = false}) {
+    _requireAuth();
+    _prepareProfileBinding();
+    final pending = _profileRequest;
+    if (pending != null) return pending;
+    late final Future<void> request;
+    request = _loadBookingProfile(overwrite: overwrite).whenComplete(() {
+      if (identical(_profileRequest, request)) _profileRequest = null;
+    });
+    _profileRequest = request;
+    return request;
+  }
+
+  Future<void> _loadBookingProfile({required bool overwrite}) async {
+    final owner = profileOwner;
+    final generation = _profileGeneration;
+    final revision = _profileRevision;
+    _profileSyncing = true;
+    _profileSyncError = null;
+    notifyListeners();
+    try {
+      final response = await _postJson('oa/gym/profile', const {});
+      if (generation != _profileGeneration || owner != profileOwner) return;
+      final data = (response['data'] as Map?)?.cast<String, dynamic>();
+      if (data == null) throw OaGymException('OA 个人信息响应不完整，请手动填写或重试');
+      final studentId = data['studentId'] as String? ?? '';
+      if (studentId.isNotEmpty &&
+          _tpAuth.cpdailyStudentId.isNotEmpty &&
+          studentId != _tpAuth.cpdailyStudentId) {
+        throw OaGymException('OA 资料与当前 eGate 账号不匹配，请重新绑定');
+      }
+      final incoming = OaBookingProfile.fromJson(data);
+      if (revision != _profileRevision) return;
+      final current = _storage.loadOaBookingProfile(owner: owner);
+      final previous = _storage.loadOaSchoolProfile(owner: owner);
+      // Never overwrite a contact edit saved while this request was running.
+      String merge(String saved, String school, String oldSchool) =>
+          school.isNotEmpty &&
+                  (overwrite || saved.isEmpty || saved == oldSchool)
+              ? school
+              : saved;
+      final phone = RegExp(r'^1[3-9]\d{9}$').hasMatch(incoming.phone)
+          ? incoming.phone
+          : '';
+      final email =
+          RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(incoming.email)
+              ? incoming.email
+              : '';
+      if (incoming.name.isEmpty && phone.isEmpty && email.isEmpty) {
+        throw OaGymException('OA 暂未提供可同步的个人信息，请手动填写');
+      }
+      await _storage.saveOaBookingProfile(
+        OaBookingProfile(
+          name: merge(current.name, incoming.name, previous.name),
+          phone: merge(current.phone, phone, previous.phone),
+          email: merge(current.email, email, previous.email),
+        ),
+        owner: owner,
+        schoolProfile: OaBookingProfile(
+          name: incoming.name.isNotEmpty ? incoming.name : previous.name,
+          phone: phone.isNotEmpty ? phone : previous.phone,
+          email: email.isNotEmpty ? email : previous.email,
+        ),
+      );
+      if (generation == _profileGeneration && owner == profileOwner) {
+        _profileSynced = true;
+      }
+    } catch (error) {
+      if (generation == _profileGeneration && owner == profileOwner) {
+        _profileSyncError =
+            error is OaGymException ? error.message : '同步 OA 个人信息失败，可手动填写或稍后重试';
+      }
+    } finally {
+      if (generation == _profileGeneration && owner == profileOwner) {
+        _profileSyncing = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    if (_profileSyncAttached) {
+      _auth.removeListener(_onProfileBindingChanged);
+      _tpAuth.removeListener(_onProfileBindingChanged);
+    }
+    _profileGeneration++;
+    super.dispose();
+  }
 
   void clearSession() {
     _generation++;
@@ -70,21 +212,27 @@ class OaGymService extends ChangeNotifier {
   }
 
   OaBookingProfile bookingProfile() {
-    final saved = _storage.loadOaBookingProfile();
-    // Fall back to the cpdaily binding's real name (not the primary SSO
-    // account, whose userName is a Casdoor UUID). Phone is not available
-    // from cpdaily, so the user must still fill it in manually.
+    if (profileOwner.isEmpty) {
+      return const OaBookingProfile(name: '', phone: '', email: '');
+    }
+    final saved = _storage.loadOaBookingProfile(owner: profileOwner);
+    // Contact sync enriches the bound school identity, never the Casdoor UUID.
     final cpdailyName = _tpAuth.cpdailyBinding?.name;
     return saved.copyWith(
       name: saved.name.isNotEmpty
           ? saved.name
           : (cpdailyName?.isNotEmpty == true ? cpdailyName! : ''),
-      phone: saved.phone.isNotEmpty ? saved.phone : '',
+      email: saved.email.isNotEmpty
+          ? saved.email
+          : (_tpAuth.cpdailyBinding?.email ?? ''),
     );
   }
 
   Future<void> saveBookingProfile(OaBookingProfile profile) async {
-    await _storage.saveOaBookingProfile(profile);
+    _requireAuth();
+    final owner = profileOwner;
+    _profileRevision++;
+    await _storage.saveOaBookingProfile(profile, owner: owner);
     notifyListeners();
   }
 
@@ -194,14 +342,11 @@ class OaGymService extends ChangeNotifier {
       throw OaGymException('所选场地、时间段或预约人数无效');
     }
     final court = choices.single;
-    final auth = _requireAuth();
+    _requireAuth();
     final profile = bookingProfile();
     final studentId = _tpAuth.cpdailyStudentId;
-    final userName =
-        profile.name.isNotEmpty ? profile.name : (auth.session?.userName ?? '');
-    final phone = profile.phone.isNotEmpty
-        ? profile.phone
-        : (auth.session?.phoneNumber ?? '');
+    final userName = profile.name;
+    final phone = profile.phone;
     if (userName.isEmpty || phone.isEmpty) {
       throw OaGymException('请先在「个人信息」里补全姓名和手机号');
     }
@@ -383,8 +528,7 @@ class OaGymService extends ChangeNotifier {
 
   /// Guard for any gym call: requires a logged-in primary account AND a
   /// bound cpdaily account (the source of the CpDaily/CASTGC session the OA
-  /// system authenticates against). Returns the AuthService so callers can
-  /// also read identity fields (name/phone) from the primary session.
+  /// system authenticates against).
   AuthService _requireAuth() {
     if (!_auth.isLoggedIn) {
       throw OaGymException('请先登录 TechPie 主账号');
@@ -459,6 +603,9 @@ class OaGymService extends ChangeNotifier {
     }
     if (generation != _generation || identity != _identity) {
       throw OaGymException('账号或登录态已变更，请重新查询');
+    }
+    if (path == 'oa/gym/profile' && response.statusCode == 404) {
+      throw OaGymException('当前后端暂不支持自动同步，请手动填写个人信息');
     }
     Map<String, dynamic> decoded;
     try {

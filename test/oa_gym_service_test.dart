@@ -652,6 +652,252 @@ void main() {
     expect(calls, 1);
   });
 
+  group('OA personal information', () {
+    test('syncs current-user contacts and uses them for booking', () async {
+      final fixture = await _serviceFixture(withBookingProfile: false);
+      final paths = <String>[];
+      final service = _profileService(fixture, (request) async {
+        paths.add(request.url.path);
+        final body =
+            jsonDecode(await request.finalize().bytesToString()) as Map;
+        expect(body['auth']['tgc'], 'tgc-value');
+        expect(body.containsKey('resourceId'), isFalse);
+        if (request.url.path.endsWith('/profile')) return _profileResult();
+        expect(body['booking']['userName'], 'OA User');
+        expect(body['booking']['phone'], '13900000000');
+        expect(body['booking']['email'], 'student@shanghaitech.edu.cn');
+        return _jsonResponse({
+          'success': true,
+          'data': {'success': true, 'message': '预约成功'},
+        });
+      });
+
+      await service.syncBookingProfile();
+      expect(service.profileSynced, isTrue);
+      expect(service.profileSyncError, isNull);
+      expect(service.bookingProfile().phone, '13900000000');
+      await service.bookCourt(
+        sport: OaSport.badminton,
+        date: '2026-10-08',
+        timeSlot: 8,
+        courtNumber: 1,
+        playersCount: 2,
+      );
+      expect(paths, ['/api/oa/gym/profile', '/api/oa/gym/book']);
+    });
+
+    test('syncs on binding and rebinding without repeating on token updates',
+        () async {
+      final fixture = await _serviceFixture(bindEgate: false);
+      var calls = 0;
+      final service = _profileService(fixture, (_) async {
+        calls++;
+        return _profileResult(phone: '1390000000$calls');
+      });
+      service.startProfileSync();
+      expect(calls, 0);
+      fixture.tpAuth.sessionTree.setAccount(
+        ThirdPartyPlatform.cpdaily,
+        _campusAccount('20240001', DateTime.utc(2026, 10, 8)),
+      );
+      await service.syncBookingProfile();
+      expect(calls, 1);
+      expect(service.bookingProfile().phone, '13900000001');
+
+      fixture.tpAuth.sessionTree.setAccount(
+        ThirdPartyPlatform.cpdaily,
+        fixture.tpAuth.cpdailyBinding!.copyWith(token: 'renewed'),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(calls, 1);
+      fixture.tpAuth.sessionTree.setAccount(
+        ThirdPartyPlatform.cpdaily,
+        _campusAccount('20240001', DateTime.utc(2026, 10, 9)),
+      );
+      await service.syncBookingProfile();
+      expect(calls, 2);
+      expect(service.bookingProfile().phone, '13900000002');
+    });
+
+    test('shares a profile request and does not mark court queries as loading',
+        () async {
+      final fixture = await _serviceFixture(withBookingProfile: false);
+      final response = Completer<http.Response>();
+      var calls = 0;
+      final service = _profileService(fixture, (_) {
+        calls++;
+        return response.future;
+      });
+      final first = service.syncBookingProfile();
+      final second = service.syncBookingProfile();
+      expect(identical(first, second), isTrue);
+      await Future<void>.delayed(Duration.zero);
+      expect(calls, 1);
+      expect(service.profileSyncing, isTrue);
+      expect(service.loading, isFalse);
+      response.complete(_profileResult());
+      await first;
+      expect(service.profileSyncing, isFalse);
+    });
+
+    test('keeps contacts account-scoped and preserves the legacy record',
+        () async {
+      final fixture = await _serviceFixture(withBookingProfile: false);
+      await fixture.storage.saveOaBookingProfile(
+        const OaBookingProfile(name: 'Legacy', phone: '13600000000', email: ''),
+      );
+      final service = _profileService(
+        fixture,
+        (_) async => _profileResult(
+          studentId: fixture.tpAuth.cpdailyStudentId,
+        ),
+      );
+      expect(service.bookingProfile().phone, isEmpty);
+      await service.syncBookingProfile();
+      await service.saveBookingProfile(
+        service.bookingProfile().copyWith(phone: '13800000000'),
+      );
+      fixture.tpAuth.sessionTree.setAccount(
+        ThirdPartyPlatform.cpdaily,
+        _campusAccount('20240002', DateTime.utc(2026, 10, 8)),
+      );
+      expect(service.bookingProfile().phone, isEmpty);
+      await service.syncBookingProfile();
+      expect(service.bookingProfile().phone, '13900000000');
+      fixture.tpAuth.sessionTree.setAccount(
+        ThirdPartyPlatform.cpdaily,
+        _campusAccount('20240001', DateTime.utc(2026, 10, 9)),
+      );
+      expect(service.bookingProfile().phone, '13800000000');
+      expect(fixture.storage.loadOaBookingProfile().phone, '13600000000');
+    });
+
+    test('discards late contacts and leaves the new account sync running',
+        () async {
+      final fixture = await _serviceFixture(withBookingProfile: false);
+      final responses = <Completer<http.Response>>[];
+      final service = _profileService(fixture, (_) {
+        final response = Completer<http.Response>();
+        responses.add(response);
+        return response.future;
+      });
+      service.startProfileSync();
+      final old = service.syncBookingProfile();
+      await Future<void>.delayed(Duration.zero);
+      fixture.tpAuth.sessionTree.setAccount(
+        ThirdPartyPlatform.cpdaily,
+        _campusAccount('20240002', DateTime.utc(2026, 10, 8)),
+      );
+      final current = service.syncBookingProfile();
+      await Future<void>.delayed(Duration.zero);
+      expect(responses, hasLength(2));
+      responses.first.complete(_profileResult());
+      await old;
+      expect(service.profileSyncing, isTrue);
+      expect(service.bookingProfile().phone, isEmpty);
+      responses.last.complete(
+        _profileResult(
+          studentId: '20240002',
+          phone: '13700000000',
+        ),
+      );
+      await current;
+      expect(service.bookingProfile().phone, '13700000000');
+      expect(service.profileSyncError, isNull);
+      expect(
+        fixture.storage.loadOaBookingProfile(owner: 'user|20240001').phone,
+        isEmpty,
+      );
+    });
+
+    test('updates OA-owned fields while preserving manual contact overrides',
+        () async {
+      final fixture = await _serviceFixture(withBookingProfile: false);
+      var response = _profileResult();
+      final service = _profileService(fixture, (_) async => response);
+      await service.syncBookingProfile();
+      await service.saveBookingProfile(
+        service.bookingProfile().copyWith(phone: '13800000000'),
+      );
+      response = _profileResult(
+        name: 'Updated OA Name',
+        phone: '13700000000',
+        email: 'updated@shanghaitech.edu.cn',
+      );
+      await service.syncBookingProfile();
+      expect(service.bookingProfile().name, 'Updated OA Name');
+      expect(service.bookingProfile().email, 'updated@shanghaitech.edu.cn');
+      expect(service.bookingProfile().phone, '13800000000');
+      await service.syncBookingProfile(overwrite: true);
+      expect(service.bookingProfile().phone, '13700000000');
+    });
+
+    test('does not overwrite a manual save made during synchronization',
+        () async {
+      final fixture = await _serviceFixture(withBookingProfile: false);
+      final response = Completer<http.Response>();
+      final service = _profileService(fixture, (_) => response.future);
+      final request = service.syncBookingProfile(overwrite: true);
+      await service.saveBookingProfile(
+        const OaBookingProfile(name: 'Manual', phone: '13800000000', email: ''),
+      );
+      response.complete(_profileResult());
+      await request;
+      expect(service.bookingProfile().name, 'Manual');
+      expect(service.bookingProfile().phone, '13800000000');
+      expect(service.bookingProfile().email, isEmpty);
+    });
+
+    test('rejects masked phones and contacts belonging to another identity',
+        () async {
+      final fixture = await _serviceFixture(withBookingProfile: false);
+      var response = _profileResult(phone: '1390000****');
+      final service = _profileService(fixture, (_) async => response);
+      await service.syncBookingProfile();
+      expect(service.bookingProfile().phone, isEmpty);
+      expect(service.bookingProfile().email, 'student@shanghaitech.edu.cn');
+      await expectLater(
+        service.bookCourt(
+          sport: OaSport.badminton,
+          date: '2026-10-08',
+          timeSlot: 8,
+          courtNumber: 1,
+          playersCount: 2,
+        ),
+        throwsA(isA<OaGymException>()),
+      );
+      response = _profileResult(studentId: '20240002');
+      await service.syncBookingProfile(overwrite: true);
+      expect(service.profileSyncError, contains('账号不匹配'));
+      expect(service.bookingProfile().phone, isEmpty);
+    });
+
+    test('old backends keep manual contacts and court queries working',
+        () async {
+      final fixture = await _serviceFixture(withBookingProfile: false);
+      final service = _profileService(fixture, (request) async {
+        if (request.url.path.endsWith('/profile')) {
+          return http.Response('<html>Not found</html>', 404);
+        }
+        return _jsonResponse({
+          'success': true,
+          'data': {
+            'venues': {'网球场1号': '25'},
+            'timeSlots': {'18:00-19:00': '8'},
+          },
+        });
+      });
+      await service.syncBookingProfile();
+      expect(service.profileSyncError, contains('暂不支持自动同步'));
+      await service.saveBookingProfile(
+        const OaBookingProfile(name: 'Manual', phone: '13800000000', email: ''),
+      );
+      await service.ensureReady();
+      expect(service.sessionReady, isTrue);
+      expect(service.bookingProfile().phone, '13800000000');
+    });
+  });
+
   test('throws when eGate binding is absent', () async {
     final fixture = await _serviceFixture(bindEgate: false);
     final client = _FakeClient(
@@ -681,6 +927,7 @@ void main() {
 
 Future<_Fixture> _serviceFixture({
   bool bindEgate = true,
+  bool withBookingProfile = true,
 }) async {
   SharedPreferences.setMockInitialValues({});
   FlutterSecureStorage.setMockInitialValues({});
@@ -699,6 +946,12 @@ Future<_Fixture> _serviceFixture({
     ),
   );
   if (bindEgate) {
+    if (withBookingProfile) {
+      await storage.saveOaBookingProfile(
+        const OaBookingProfile(name: 'User', phone: '13800000000', email: ''),
+        owner: 'user|20240001',
+      );
+    }
     await storage.saveThirdPartyAccount(
       ThirdPartyAccount(
         platform: ThirdPartyPlatform.cpdaily,
@@ -725,6 +978,52 @@ Future<_Fixture> _serviceFixture({
   await tpAuth.initialize();
   return _Fixture(storage, auth, tpAuth);
 }
+
+OaGymService _profileService(
+  _Fixture fixture,
+  Future<http.Response> Function(http.BaseRequest) handler,
+) {
+  final service = OaGymService(
+    fixture.auth,
+    fixture.storage,
+    fixture.tpAuth,
+    client: _FakeClient(handler),
+  );
+  addTearDown(service.dispose);
+  return service;
+}
+
+ThirdPartyAccount _campusAccount(String sid, DateTime boundAt) =>
+    ThirdPartyAccount(
+      platform: ThirdPartyPlatform.cpdaily,
+      account: sid,
+      sid: sid,
+      token: 'session',
+      raw: {
+        'tgc': 'tgc-$sid',
+        'cookies': 'happyVoyage=happy',
+        'sessionToken': 'session',
+        'userId': sid,
+        'tenantId': 'tenant',
+      },
+      boundAt: boundAt,
+    );
+
+http.Response _profileResult({
+  String studentId = '20240001',
+  String name = 'OA User',
+  String phone = '13900000000',
+  String email = 'student@shanghaitech.edu.cn',
+}) =>
+    _jsonResponse({
+      'success': true,
+      'data': {
+        'studentId': studentId,
+        'name': name,
+        'phone': phone,
+        'email': email,
+      },
+    });
 
 http.Response _jsonResponse(Map<String, dynamic> body) => http.Response(
       jsonEncode(body),

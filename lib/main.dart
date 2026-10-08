@@ -186,6 +186,7 @@ Future<void> _realMain(SharedPreferences prefs) async {
 
   bootMark('cached data ready');
 
+  oaGymService.startProfileSync();
   unawaited(campusCardService.refreshAccount());
 
   // The home-screen widget / shortcut only needs its handler once something

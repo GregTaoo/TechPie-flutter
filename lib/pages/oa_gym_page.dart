@@ -4,6 +4,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../models/oa_gym.dart';
+import '../services/oa_gym_service.dart';
 import '../services/service_provider.dart';
 import '../utils/platform.dart';
 import '../widgets/adaptive_button.dart';
@@ -114,7 +115,7 @@ class _OaGymPageState extends State<OaGymPage>
                               children: const {
                                 0: Text('预约'),
                                 1: Text('查询'),
-                                2: Text('个人'),
+                                2: Text('个人信息'),
                               },
                               onValueChanged: (value) {
                                 if (value != null) {
@@ -133,7 +134,7 @@ class _OaGymPageState extends State<OaGymPage>
                                   ),
                                   Tab(text: '查询', icon: Icon(Icons.search)),
                                   Tab(
-                                    text: '个人',
+                                    text: '个人信息',
                                     icon: Icon(Icons.person_outline),
                                   ),
                                 ],
@@ -1086,21 +1087,46 @@ class _ProfileTabState extends State<_ProfileTab> {
   final _name = TextEditingController();
   final _phone = TextEditingController();
   final _email = TextEditingController();
-  bool _initialized = false;
+  OaGymService? _service;
+  String _owner = '';
+  OaBookingProfile _lastProfile =
+      const OaBookingProfile(name: '', phone: '', email: '');
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_initialized) return;
-    _initialized = true;
-    final profile = ServiceProvider.of(context).oaGymService.bookingProfile();
-    _name.text = profile.name;
-    _phone.text = profile.phone;
-    _email.text = profile.email;
+    final service = ServiceProvider.of(context).oaGymService;
+    if (identical(service, _service)) return;
+    _service?.removeListener(_onProfileChanged);
+    _service = service;
+    service.addListener(_onProfileChanged);
+    _applyProfile();
+  }
+
+  void _applyProfile({bool replaceEdits = false}) {
+    final service = _service!;
+    final profile = service.bookingProfile();
+    final replace = replaceEdits || _owner != service.profileOwner;
+    // A background result fills untouched fields without replacing typing.
+    if (replace || _name.text == _lastProfile.name) _name.text = profile.name;
+    if (replace || _phone.text == _lastProfile.phone) {
+      _phone.text = profile.phone;
+    }
+    if (replace || _email.text == _lastProfile.email) {
+      _email.text = profile.email;
+    }
+    _owner = service.profileOwner;
+    _lastProfile = profile;
+  }
+
+  void _onProfileChanged() {
+    if (!mounted) return;
+    setState(_applyProfile);
   }
 
   @override
   void dispose() {
+    _service?.removeListener(_onProfileChanged);
     _name.dispose();
     _phone.dispose();
     _email.dispose();
@@ -1123,20 +1149,39 @@ class _ProfileTabState extends State<_ProfileTab> {
     );
   }
 
+  Future<void> _sync() async {
+    final service = _service!;
+    final owner = service.profileOwner;
+    await service.syncBookingProfile(overwrite: true);
+    if (!mounted || owner != service.profileOwner) return;
+    final error = service.profileSyncError;
+    if (error == null) setState(() => _applyProfile(replaceEdits: true));
+    showAdaptiveFeedback(
+      context: context,
+      message: error ?? '个人信息已更新',
+      style: error == null
+          ? AdaptiveFeedbackStyle.success
+          : AdaptiveFeedbackStyle.error,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final sp = ServiceProvider.of(context);
     final tpAuth = sp.thirdPartyAuthService;
+    final service = sp.oaGymService;
     final cpdaily = tpAuth.cpdailyBinding;
 
     // Identity card prefers cpdaily binding (real name + student id) over the
     // primary SSO account, whose userName/userId are Casdoor UUIDs with no
     // meaning in the OA booking context.
-    final displayName = cpdaily?.name?.isNotEmpty == true
-        ? cpdaily!.name!
-        : (cpdaily?.account.isNotEmpty == true
-            ? cpdaily!.account
-            : 'TechPie 用户');
+    final displayName = service.bookingProfile().name.isNotEmpty
+        ? service.bookingProfile().name
+        : cpdaily?.name?.isNotEmpty == true
+            ? cpdaily!.name!
+            : (cpdaily?.account.isNotEmpty == true
+                ? cpdaily!.account
+                : 'TechPie 用户');
     final studentId = cpdaily?.sid ?? '';
     final avatarText = displayName.characters.firstOrNull ?? 'U';
 
@@ -1181,8 +1226,31 @@ class _ProfileTabState extends State<_ProfileTab> {
                 Text('预约提交信息', style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 8),
                 Text(
-                  '提交 OA 场馆预约时会使用以下信息。姓名和手机号必填，邮箱可选。',
+                  '绑定 eGate 后自动从 OA 同步，用于场馆预约。姓名和手机号必填，邮箱可选，也可手动修改。',
                   style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 12),
+                if (service.profileSyncing) ...[
+                  const LinearProgressIndicator(),
+                  const SizedBox(height: 8),
+                  const Text('正在从 OA 同步个人信息…'),
+                ] else if (service.profileSyncError != null)
+                  Text(
+                    service.profileSyncError!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  )
+                else if (service.profileSynced)
+                  const Text('已同步 OA 提供的信息，空缺项可手动补充。'),
+                const SizedBox(height: 8),
+                AdaptiveButton(
+                  onPressed: service.profileSyncing ? null : _sync,
+                  icon: Icons.sync,
+                  sfSymbol: 'arrow.triangle.2.circlepath',
+                  label: '从 OA 同步',
+                  loading: service.profileSyncing,
+                  accessibilityLabel: '从 OA 同步个人信息',
                 ),
                 const SizedBox(height: 16),
                 TextField(
