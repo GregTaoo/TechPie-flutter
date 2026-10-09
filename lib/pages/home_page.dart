@@ -7,6 +7,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/assignment.dart';
 import '../models/course.dart';
 import '../models/course_table.dart';
+import '../models/custom_course.dart';
+import '../models/exam_course.dart';
 import '../models/feature.dart';
 import '../services/assignment_service.dart';
 import '../services/schedule_service.dart';
@@ -92,8 +94,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   void _onAssignmentsChanged() {
-    if (!mounted) return;
-    setState(() {});
+    _rebuild();
   }
 
   void _rebuild() {
@@ -118,19 +119,34 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   void _doRebuild() {
     final table = _schedule.courseTable;
-    List<Course> newCourses;
-    if (table != null) {
-      if (table.periods.isNotEmpty) {
-        _periods = table.periods.map((p) => p.toPeriod()).toList();
-      }
-      final week = _schedule.currentWeek();
-      final today = _now.weekday;
-      final all = eamsToDisplayCourses(table.courses, week);
-      newCourses = all.where((c) => c.dayOfWeek == today).toList()
-        ..sort((a, b) => a.startPeriod.compareTo(b.startPeriod));
-    } else {
-      newCourses = [];
+    if (table != null && table.periods.isNotEmpty) {
+      _periods = table.periods.map((p) => p.toPeriod()).toList();
     }
+    final week = _schedule.currentWeek();
+    final today = _now.weekday;
+    final timetableCourses = table?.courses ?? const <EamsCourse>[];
+    final withCustom = withCustomCourses(
+      eamsToDisplayCourses(
+        timetableCourses,
+        week,
+        timetablePeriods: _periods,
+      ),
+      _schedule.customCourses,
+      week,
+      _schedule.termBegin,
+      periods: _periods,
+    );
+    final all = withExamCourses(
+      withCustom,
+      examsForSemester(_assignments.assignments, _schedule.selectedSemesterId),
+      week,
+      _schedule.termBegin,
+      periods: _periods,
+    );
+    final newCourses = all
+        .where((course) => course.dayOfWeek == today && course.occursOn(_now))
+        .toList()
+      ..sort((a, b) => a.gridStart.compareTo(b.gridStart));
 
     final previousCount = _todayCourses.length;
     setState(() {
@@ -182,48 +198,20 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   String _timeForCourse(Course course) {
-    if (course.startPeriod - 1 < _periods.length &&
-        course.endPeriod - 1 < _periods.length) {
-      final start = _periods[course.startPeriod - 1];
-      final end = _periods[course.endPeriod - 1];
-      return '${start.startTime} – ${end.endTime}';
-    }
-    return '第${course.startPeriod}-${course.endPeriod}节';
+    return course.timeLabel;
   }
 
   _CourseStatus _courseStatus(Course course) {
     final nowMinutes = _now.hour * 60 + _now.minute;
-
-    // Past?
-    if (course.endPeriod - 1 < _periods.length) {
-      final endMin = _parseMinutes(_periods[course.endPeriod - 1].endTime);
-      if (endMin != null && nowMinutes > endMin) return _CourseStatus.past;
-    }
-
-    // Ongoing?
-    if (course.startPeriod - 1 < _periods.length &&
-        course.endPeriod - 1 < _periods.length) {
-      final startMin = _parseMinutes(
-        _periods[course.startPeriod - 1].startTime,
-      );
-      final endMin = _parseMinutes(_periods[course.endPeriod - 1].endTime);
-      if (startMin != null &&
-          endMin != null &&
-          nowMinutes >= startMin &&
-          nowMinutes <= endMin) {
+    final start = _parseMinutes(course.startTime);
+    final end = _parseMinutes(course.endTime);
+    if (start != null && end != null) {
+      if (nowMinutes > end) return _CourseStatus.past;
+      if (nowMinutes >= start && nowMinutes <= end) {
         return _CourseStatus.ongoing;
       }
-    }
-
-    // Starting soon (within 15 minutes)?
-    if (course.startPeriod - 1 < _periods.length) {
-      final startMin = _parseMinutes(
-        _periods[course.startPeriod - 1].startTime,
-      );
-      if (startMin != null) {
-        final diff = startMin - nowMinutes;
-        if (diff > 0 && diff <= 15) return _CourseStatus.soon;
-      }
+      final diff = start - nowMinutes;
+      return diff > 0 && diff <= 15 ? _CourseStatus.soon : _CourseStatus.upcoming;
     }
 
     return _CourseStatus.upcoming;
@@ -570,8 +558,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             Curves.easeInCubic,
             iosCurve: Curves.easeInOut,
           ),
-          transitionBuilder: (child, animation) =>
-              FadeTransition(opacity: animation, child: child),
+          transitionBuilder: (child, animation) => FadeTransition(opacity: animation, child: child),
           layoutBuilder: (currentChild, previousChildren) {
             return Stack(
               alignment: Alignment.topCenter,
@@ -748,8 +735,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   Widget _buildCourseContent({required Key key, required ThemeData theme}) {
-    final hasStagger = _staggerController != null &&
-        _itemSlides.length == _todayCourses.length;
+    final hasStagger = _staggerController != null && _itemSlides.length == _todayCourses.length;
 
     return Column(
       key: key,
@@ -803,8 +789,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     final isPast = status == _CourseStatus.past;
 
     // Smooth title weight transition
-    final titleStyle =
-        (theme.textTheme.bodyLarge ?? const TextStyle()).copyWith(
+    final titleStyle = (theme.textTheme.bodyLarge ?? const TextStyle()).copyWith(
       fontWeight: isActive ? FontWeight.w700 : FontWeight.w400,
       color: theme.colorScheme.onSurface,
     );
@@ -902,9 +887,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               context,
               const Duration(milliseconds: 250),
             ),
-            crossFadeState: _debugPanelExpanded
-                ? CrossFadeState.showSecond
-                : CrossFadeState.showFirst,
+            crossFadeState:
+                _debugPanelExpanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
             firstChild: const SizedBox(width: double.infinity),
             secondChild: Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -1005,8 +989,7 @@ class _CourseBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasBadge =
-        status == _CourseStatus.soon || status == _CourseStatus.ongoing;
+    final hasBadge = status == _CourseStatus.soon || status == _CourseStatus.ongoing;
 
     return AnimatedSwitcher(
       duration: appAnimationDuration(
@@ -1030,20 +1013,16 @@ class _CourseBadge extends StatelessWidget {
           ),
         );
       },
-      child: hasBadge
-          ? _buildBadgeContent()
-          : const SizedBox.shrink(key: ValueKey('none')),
+      child: hasBadge ? _buildBadgeContent() : const SizedBox.shrink(key: ValueKey('none')),
     );
   }
 
   Widget _buildBadgeContent() {
     final isSoon = status == _CourseStatus.soon;
-    final bgColor = isSoon
-        ? theme.colorScheme.tertiaryContainer
-        : theme.colorScheme.primaryContainer;
-    final fgColor = isSoon
-        ? theme.colorScheme.onTertiaryContainer
-        : theme.colorScheme.onPrimaryContainer;
+    final bgColor =
+        isSoon ? theme.colorScheme.tertiaryContainer : theme.colorScheme.primaryContainer;
+    final fgColor =
+        isSoon ? theme.colorScheme.onTertiaryContainer : theme.colorScheme.onPrimaryContainer;
     final label = isSoon ? '即将开始' : '正在进行';
 
     return Container(

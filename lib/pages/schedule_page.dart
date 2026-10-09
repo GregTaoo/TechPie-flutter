@@ -1,12 +1,15 @@
 import 'dart:async';
 
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../models/assignment.dart';
 import '../models/course.dart';
 import '../models/course_table.dart';
+import '../models/custom_course.dart';
+import '../models/exam_course.dart';
+import '../services/assignment_service.dart';
 import '../services/calendar/calendar_importer.dart';
 import '../services/ics/ics_export_service.dart';
 import '../services/ics/ics_file_saver.dart';
@@ -15,6 +18,7 @@ import '../services/service_provider.dart';
 import '../utils/adaptive_layout.dart';
 import '../utils/adaptive_motion.dart';
 import '../utils/platform.dart';
+import '../widgets/adaptive_alert_dialog.dart';
 import '../widgets/adaptive_button.dart';
 import '../widgets/adaptive_feedback.dart';
 import '../widgets/adaptive_page_navigation.dart';
@@ -25,6 +29,8 @@ import '../widgets/course_detail_panel.dart';
 import '../widgets/desktop_popup.dart';
 import '../widgets/desktop_select_popover.dart';
 import '../widgets/ios/ios_native_navigation_bar.dart';
+import '../widgets/schedule_picker_sheet.dart';
+import 'custom_course_editor_page.dart';
 import 'login_page.dart';
 import 'third_party_accounts_page.dart';
 
@@ -63,6 +69,7 @@ class SchedulePage extends StatefulWidget {
 class _SchedulePageState extends State<SchedulePage> {
   final IcsExportService _icsExport = IcsExportService();
   late ScheduleService _schedule;
+  late AssignmentService _assignments;
   List<Course> _courses = [];
   List<Period> _periods = defaultPeriods.toList();
   int _currentWeek = 1;
@@ -85,9 +92,11 @@ class _SchedulePageState extends State<SchedulePage> {
     super.didChangeDependencies();
     if (!_initialized) {
       _initialized = true;
-      final sp = ServiceProvider.of(context);
-      _schedule = sp.scheduleService;
+      final services = ServiceProvider.of(context);
+      _schedule = services.scheduleService;
+      _assignments = services.assignmentService;
       _schedule.addListener(_onScheduleChanged);
+      _assignments.addListener(_onAssignmentsChanged);
       _loadData();
     }
   }
@@ -96,10 +105,15 @@ class _SchedulePageState extends State<SchedulePage> {
   void dispose() {
     _weekPageController.dispose();
     _schedule.removeListener(_onScheduleChanged);
+    _assignments.removeListener(_onAssignmentsChanged);
     super.dispose();
   }
 
   void _onScheduleChanged() {
+    _rebuildCourses();
+  }
+
+  void _onAssignmentsChanged() {
     _rebuildCourses();
   }
 
@@ -111,36 +125,59 @@ class _SchedulePageState extends State<SchedulePage> {
     final auth = ServiceProvider.of(context).authService;
     if (!auth.isLoggedIn) return;
     await _schedule.fetchAll();
+    await _assignments.fetchPlatform('exam');
     if (!mounted) return;
-    final hasError = _schedule.error != null;
+    final hasError = _schedule.error != null || _assignments.platformErrors.containsKey('exam');
     showAdaptiveFeedback(
       context: context,
       message: hasError ? '刷新失败' : '已刷新',
-      style: hasError
-          ? AdaptiveFeedbackStyle.error
-          : AdaptiveFeedbackStyle.success,
+      style: hasError ? AdaptiveFeedbackStyle.error : AdaptiveFeedbackStyle.success,
       duration: const Duration(seconds: 2),
     );
   }
 
+  /// The fetched timetable with the user's own sessions folded in, through the
+  /// same week filter and ghost toggle as any other course.
+  List<Course> _coursesForWeek(int week) {
+    final table = _schedule.courseTable;
+    final fetched = table == null
+        ? const <Course>[]
+        : eamsToDisplayCourses(
+            table.courses,
+            week,
+            includeGhosts: _showGhostCourses,
+            timetablePeriods: _periods,
+          );
+    final withCustom = withCustomCourses(
+      fetched,
+      _schedule.customCourses,
+      week,
+      _schedule.termBegin,
+      includeGhosts: _showGhostCourses,
+      periods: _periods,
+    );
+    return withExamCourses(
+      withCustom,
+      examsForSemester(_assignments.assignments, _schedule.selectedSemesterId),
+      week,
+      _schedule.termBegin,
+      includeGhosts: _showGhostCourses,
+      periods: _periods,
+    );
+  }
+
+  List<ExamAssignment> get _semesterExams =>
+      examsForSemester(_assignments.assignments, _schedule.selectedSemesterId);
+
   void _rebuildCourses() {
     if (!mounted) return;
     setState(() {
-      _currentWeek =
-          _schedule.currentWeek().clamp(1, _schedule.totalWeeks).toInt();
+      _currentWeek = _schedule.currentWeek().clamp(1, _schedule.totalWeeks).toInt();
       final table = _schedule.courseTable;
-      if (table != null) {
-        if (table.periods.isNotEmpty) {
-          _periods = table.periods.map((p) => p.toPeriod()).toList();
-        }
-        _courses = eamsToDisplayCourses(
-          table.courses,
-          _currentWeek,
-          includeGhosts: _showGhostCourses,
-        );
-      } else {
-        _courses = [];
+      if (table != null && table.periods.isNotEmpty) {
+        _periods = table.periods.map((p) => p.toPeriod()).toList();
       }
+      _courses = _coursesForWeek(_currentWeek);
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_weekPageController.hasClients) return;
@@ -157,8 +194,7 @@ class _SchedulePageState extends State<SchedulePage> {
   }
 
   void _goToCurrentWeek() {
-    final computedWeek =
-        _schedule.currentWeek().clamp(1, _schedule.totalWeeks).toInt();
+    final computedWeek = _schedule.currentWeek().clamp(1, _schedule.totalWeeks).toInt();
 
     _setWeek(computedWeek);
   }
@@ -188,25 +224,7 @@ class _SchedulePageState extends State<SchedulePage> {
   }
 
   void _filterCoursesForWeek() {
-    final table = _schedule.courseTable;
-    if (table != null) {
-      _courses = eamsToDisplayCourses(
-        table.courses,
-        _currentWeek,
-        includeGhosts: _showGhostCourses,
-      );
-    }
-  }
-
-  List<Course> _coursesForWeek(int week) {
-    final table = _schedule.courseTable;
-    if (table == null) return const [];
-
-    return eamsToDisplayCourses(
-      table.courses,
-      week.clamp(1, _schedule.totalWeeks).toInt(),
-      includeGhosts: _showGhostCourses,
-    );
+    _courses = _coursesForWeek(_currentWeek);
   }
 
   DateTime _weekStartForWeek(int week) {
@@ -225,70 +243,21 @@ class _SchedulePageState extends State<SchedulePage> {
     final info = _schedule.semesterInfo;
     if (info == null || info.semesters.isEmpty) return;
 
-    var pendingSemesterId = _schedule.selectedSemesterId;
-
-    unawaited(
-      showModalBottomSheet<void>(
+    unawaited(() async {
+      final value = await showSemesterPickerSheet(
         context: context,
-        showDragHandle: true,
-        builder: (context) {
-          return SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                    child: Row(
-                      children: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: const Text('取消'),
-                        ),
-                        Expanded(
-                          child: Text(
-                            '选择学期',
-                            textAlign: TextAlign.center,
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                        ),
-                        TextButton(
-                          onPressed: () {
-                            Navigator.pop(context);
-                            final value = pendingSemesterId;
-                            if (value != null) {
-                              unawaited(_schedule.selectSemester(value));
-                            }
-                          },
-                          child: const Text('确定'),
-                        ),
-                      ],
-                    ),
-                  ),
-                  _SemesterWheelPicker(
-                    info: info,
-                    initialSemesterId: _schedule.selectedSemesterId,
-                    onSelectionChanged: (semesterId) {
-                      pendingSemesterId = semesterId;
-                    },
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
+        info: info,
+        initialSemesterId: _schedule.selectedSemesterId,
+      );
+      if (value != null && mounted) await _schedule.selectSemester(value);
+    }());
   }
 
   void _showWeekPicker() {
     // Desktop is handled directly by _DesktopWeekTitleMenu.
     if (usesSidebarLayout(context)) return;
 
-    final computedWeek =
-        _schedule.currentWeek().clamp(1, _schedule.totalWeeks).toInt();
+    final computedWeek = _schedule.currentWeek().clamp(1, _schedule.totalWeeks).toInt();
     final isInTerm = _schedule.isTodayInTerm;
 
     unawaited(
@@ -300,8 +269,7 @@ class _SchedulePageState extends State<SchedulePage> {
 
           return StatefulBuilder(
             builder: (context, setModalState) {
-              final isViewingCurrentWeek =
-                  isInTerm && _currentWeek == computedWeek;
+              final isViewingCurrentWeek = isInTerm && _currentWeek == computedWeek;
 
               void selectWeek(int week) {
                 _setWeek(week);
@@ -347,8 +315,7 @@ class _SchedulePageState extends State<SchedulePage> {
                           itemBuilder: (context, index) {
                             final week = index + 1;
                             final selected = week == _currentWeek;
-                            final isActualCurrentWeek =
-                                isInTerm && week == computedWeek;
+                            final isActualCurrentWeek = isInTerm && week == computedWeek;
 
                             return ListTile(
                               selected: selected,
@@ -359,8 +326,7 @@ class _SchedulePageState extends State<SchedulePage> {
                                     )
                                   : const SizedBox(width: 24),
                               title: Text('第 $week 周'),
-                              subtitle:
-                                  isActualCurrentWeek ? const Text('本周') : null,
+                              subtitle: isActualCurrentWeek ? const Text('本周') : null,
                               onTap: () => selectWeek(week),
                             );
                           },
@@ -399,8 +365,7 @@ class _SchedulePageState extends State<SchedulePage> {
     return 'course_table_$safe.ics';
   }
 
-  String get _defaultCalendarName =>
-      _semesterLabel.isEmpty ? '课程表' : _semesterLabel;
+  String get _defaultCalendarName => _semesterLabel.isEmpty ? '课程表' : _semesterLabel;
 
   void _startExportCalendar() {
     if (_exportingCalendar) return;
@@ -419,6 +384,9 @@ class _SchedulePageState extends State<SchedulePage> {
       fileName: _icsFileName,
       location: location,
       calendarName: calendarName,
+      // The user's own sessions are part of the week the calendar describes.
+      customCourses: _schedule.customCourses,
+      exams: _semesterExams,
     );
   }
 
@@ -443,6 +411,8 @@ class _SchedulePageState extends State<SchedulePage> {
           final events = await _icsExport.buildCalendarEventPayloads(
             table: table,
             termBegin: termBegin,
+            customCourses: _schedule.customCourses,
+            exams: _semesterExams,
           );
           final imported = await CalendarImporter.importCalendarEvents(
             events,
@@ -451,11 +421,8 @@ class _SchedulePageState extends State<SchedulePage> {
           if (!mounted) return;
           showAdaptiveFeedback(
             context: context,
-            message:
-                imported > 0 ? '已导入 $imported 个日程到“$calendarName”' : '没有可导入的日程',
-            style: imported > 0
-                ? AdaptiveFeedbackStyle.success
-                : AdaptiveFeedbackStyle.info,
+            message: imported > 0 ? '已导入 $imported 个日程到“$calendarName”' : '没有可导入的日程',
+            style: imported > 0 ? AdaptiveFeedbackStyle.success : AdaptiveFeedbackStyle.info,
           );
           return;
         } catch (_) {
@@ -518,9 +485,8 @@ class _SchedulePageState extends State<SchedulePage> {
 
         showAdaptiveFeedback(
           context: context,
-          message: fallbackFile.filePath != null
-              ? '已导出到下载目录: ${fallbackFile.filePath}'
-              : 'ICS 文件已创建。',
+          message:
+              fallbackFile.filePath != null ? '已导出到下载目录: ${fallbackFile.filePath}' : 'ICS 文件已创建。',
           style: AdaptiveFeedbackStyle.info,
         );
         return;
@@ -568,8 +534,7 @@ class _SchedulePageState extends State<SchedulePage> {
     final auth = sp.authService;
     final tpAuth = sp.thirdPartyAuthService;
     final isInTerm = _schedule.isTodayInTerm;
-    final actualCurrentWeek =
-        _schedule.currentWeek().clamp(1, _schedule.totalWeeks).toInt();
+    final actualCurrentWeek = _schedule.currentWeek().clamp(1, _schedule.totalWeeks).toInt();
     final isViewingCurrentWeek = isInTerm && _currentWeek == actualCurrentWeek;
     final useIosChrome = isIos();
     final useLegacyIosChrome = usesLegacyIosChrome();
@@ -612,6 +577,12 @@ class _SchedulePageState extends State<SchedulePage> {
                       title: '',
                       displayInline: true,
                       children: [
+                        if (_canAddCustomCourses)
+                          const IosNativeNavigationBarMenuItem(
+                            value: 'addCustom',
+                            title: '添加课程',
+                            sfSymbol: 'plus.rectangle.on.rectangle',
+                          ),
                         IosNativeNavigationBarMenuItem(
                           value: 'exportCalendar',
                           title: _exportingCalendar ? '正在导出…' : '导出课表',
@@ -662,9 +633,7 @@ class _SchedulePageState extends State<SchedulePage> {
                         trailingIcon: Icons.unfold_more,
                       ),
                     ),
-                  if (usesSidebarLayout(context) &&
-                      isInTerm &&
-                      !isViewingCurrentWeek) ...[
+                  if (usesSidebarLayout(context) && isInTerm && !isViewingCurrentWeek) ...[
                     const SizedBox(width: 12),
                     TextButton.icon(
                       onPressed: _goToCurrentWeek,
@@ -729,6 +698,12 @@ class _SchedulePageState extends State<SchedulePage> {
                         checked: _showGhostCourses,
                         child: const Text('显示非本周课程'),
                       ),
+                      const PopupMenuDivider(),
+                      PopupMenuItem(
+                        value: 'addCustom',
+                        enabled: _canAddCustomCourses,
+                        child: const Text('添加课程'),
+                      ),
                     ],
                   ),
               ],
@@ -759,9 +734,7 @@ class _SchedulePageState extends State<SchedulePage> {
                     const SizedBox(height: 20),
                     AdaptiveButton(
                       label: auth.isLoggedIn ? '去绑定 eGate' : '登录',
-                      icon: auth.isLoggedIn
-                          ? Icons.account_tree_outlined
-                          : Icons.login,
+                      icon: auth.isLoggedIn ? Icons.account_tree_outlined : Icons.login,
                       sfSymbol: auth.isLoggedIn
                           ? 'person.crop.circle.badge.plus'
                           : 'person.crop.circle.badge.checkmark',
@@ -779,8 +752,7 @@ class _SchedulePageState extends State<SchedulePage> {
                           unawaited(presentLoginPage(context));
                         }
                       },
-                      accessibilityLabel:
-                          auth.isLoggedIn ? '绑定 eGate 账号' : '登录 TechPie',
+                      accessibilityLabel: auth.isLoggedIn ? '绑定 eGate 账号' : '登录 TechPie',
                     ),
                   ],
                 ),
@@ -874,9 +846,8 @@ class _SchedulePageState extends State<SchedulePage> {
     bool animated = false,
   }) {
     final visibleDays = _visibleDayIndices;
-    final visibleCourses = courses
-        .where((course) => visibleDays.contains(course.dayOfWeek))
-        .toList();
+    final visibleCourses =
+        courses.where((course) => visibleDays.contains(course.dayOfWeek)).toList();
 
     final content = visibleCourses.isEmpty
         ? _buildEmptyWeek(theme, week)
@@ -887,6 +858,7 @@ class _SchedulePageState extends State<SchedulePage> {
             weekStart: _weekStartForWeek(week),
             today: today,
             visibleDays: visibleDays,
+            onEditCustomCourse: _editCustomCourse,
           );
 
     return Column(
@@ -929,9 +901,39 @@ class _SchedulePageState extends State<SchedulePage> {
           _showGhostCourses = !_showGhostCourses;
           _filterCoursesForWeek();
         });
+      case 'addCustom':
+        if (_canAddCustomCourses) _addCustomCourse();
       case 'exportCalendar':
         _startExportCalendar();
     }
+  }
+
+  /// Adding needs a semester and a period table, so not before a fetch.
+  bool get _canAddCustomCourses =>
+      _schedule.selectedSemesterId != null && _schedule.courseTable != null;
+
+  void _addCustomCourse() {
+    unawaited(
+      pushAdaptivePage<void>(
+        context,
+        builder: (_) => const CustomCourseEditorPage(),
+      ),
+    );
+  }
+
+  /// Editing starts from a block on the grid — the menu only adds.
+  void _editCustomCourse(Course course) {
+    final source = course.source;
+    if (source is! CustomCourseSource) return;
+    final id = source.id;
+    final existing = _schedule.findCustomCourse(id);
+    if (existing == null) return;
+    unawaited(
+      pushAdaptivePage<void>(
+        context,
+        builder: (_) => CustomCourseEditorPage(course: existing),
+      ),
+    );
   }
 
   void _showDesktopSemesterWheelPopover() {
@@ -959,7 +961,7 @@ class _SchedulePageState extends State<SchedulePage> {
                 padding: const EdgeInsets.fromLTRB(4, 4, 4, 4),
                 child: Text('选择学期', style: theme.textTheme.titleSmall),
               ),
-              _SemesterWheelPicker(
+              SemesterWheelPicker(
                 info: info,
                 initialSemesterId: _schedule.selectedSemesterId,
                 onSelectionChanged: (semesterId) {
@@ -1021,8 +1023,7 @@ class _SchedulePageState extends State<SchedulePage> {
                   ),
                   const Divider(height: 1),
                   _DesktopSemesterSelectButton(
-                    hasSemesters:
-                        _schedule.semesterInfo?.semesters.isNotEmpty ?? false,
+                    hasSemesters: _schedule.semesterInfo?.semesters.isNotEmpty ?? false,
                     onTap: () {
                       close();
                       _showDesktopSemesterWheelPopover();
@@ -1031,9 +1032,7 @@ class _SchedulePageState extends State<SchedulePage> {
                   const Divider(height: 1),
                   DesktopMenuRow(
                     leading: Icon(
-                      _showSaturday
-                          ? Icons.check
-                          : Icons.check_box_outline_blank,
+                      _showSaturday ? Icons.check : Icons.check_box_outline_blank,
                       size: 20,
                     ),
                     title: Text('显示周六', style: theme.textTheme.bodyMedium),
@@ -1049,13 +1048,25 @@ class _SchedulePageState extends State<SchedulePage> {
                   ),
                   DesktopMenuRow(
                     leading: Icon(
-                      _showGhostCourses
-                          ? Icons.check
-                          : Icons.check_box_outline_blank,
+                      _showGhostCourses ? Icons.check : Icons.check_box_outline_blank,
                       size: 20,
                     ),
                     title: Text('显示非本周课程', style: theme.textTheme.bodyMedium),
                     onTap: () => toggle('ghost'),
+                  ),
+                  const Divider(height: 1),
+                  DesktopMenuRow(
+                    leading: const Icon(
+                      Icons.event_available_outlined,
+                      size: 20,
+                    ),
+                    title: Text('添加课程', style: theme.textTheme.bodyMedium),
+                    onTap: _canAddCustomCourses
+                        ? () {
+                            close();
+                            _addCustomCourse();
+                          }
+                        : null,
                   ),
                   const Divider(height: 1),
                   DesktopMenuRow(
@@ -1103,168 +1114,6 @@ class _DesktopSemesterSelectButton extends StatelessWidget {
   }
 }
 
-/// Two synced scroll wheels (academic year, then term) for picking a semester.
-/// Reports the pending selection live via [onSelectionChanged]; the caller is
-/// responsible for confirming (or discarding) it.
-class _SemesterWheelPicker extends StatefulWidget {
-  final SemesterInfo info;
-  final String? initialSemesterId;
-  final ValueChanged<String> onSelectionChanged;
-
-  const _SemesterWheelPicker({
-    required this.info,
-    required this.initialSemesterId,
-    required this.onSelectionChanged,
-  });
-
-  @override
-  State<_SemesterWheelPicker> createState() => _SemesterWheelPickerState();
-}
-
-class _SemesterWheelPickerState extends State<_SemesterWheelPicker> {
-  late final List<String> _years;
-  late FixedExtentScrollController _yearController;
-  late FixedExtentScrollController _termController;
-  late List<MapEntry<String, String>> _termsForYear;
-  late int _yearIndex;
-  late int _termIndex;
-
-  @override
-  void initState() {
-    super.initState();
-    _years = widget.info.semesters.keys.toList()..sort();
-
-    var yearIndex = 0;
-    String? initialLabel;
-    final initialId = widget.initialSemesterId;
-    if (initialId != null) {
-      for (var i = 0; i < _years.length; i++) {
-        for (final entry in widget.info.semesters[_years[i]]!.entries) {
-          if (entry.value == initialId) {
-            yearIndex = i;
-            initialLabel = entry.key;
-          }
-        }
-      }
-    }
-
-    _yearIndex = yearIndex;
-    _termsForYear = _orderedTerms(_years[_yearIndex]);
-    final labelIndex = initialLabel == null
-        ? -1
-        : _termsForYear.indexWhere((entry) => entry.key == initialLabel);
-    _termIndex = labelIndex < 0 ? 0 : labelIndex;
-
-    _yearController = FixedExtentScrollController(initialItem: _yearIndex);
-    _termController = FixedExtentScrollController(initialItem: _termIndex);
-  }
-
-  @override
-  void dispose() {
-    _yearController.dispose();
-    _termController.dispose();
-    super.dispose();
-  }
-
-  List<MapEntry<String, String>> _orderedTerms(String year) {
-    final terms = widget.info.semesters[year] ?? const <String, String>{};
-    final entries = terms.entries.toList()
-      ..sort(
-        (a, b) => semesterTermRank(a.key).compareTo(semesterTermRank(b.key)),
-      );
-    return entries;
-  }
-
-  void _reportSelection() {
-    if (_termIndex >= _termsForYear.length) return;
-    widget.onSelectionChanged(_termsForYear[_termIndex].value);
-  }
-
-  void _onYearChanged(int index) {
-    final previousLabel = _termIndex < _termsForYear.length
-        ? _termsForYear[_termIndex].key
-        : null;
-
-    setState(() {
-      _yearIndex = index;
-      _termsForYear = _orderedTerms(_years[_yearIndex]);
-      final labelIndex = previousLabel == null
-          ? -1
-          : _termsForYear.indexWhere((entry) => entry.key == previousLabel);
-      _termIndex =
-          labelIndex < 0 ? 0 : labelIndex.clamp(0, _termsForYear.length - 1);
-    });
-    _termController.jumpToItem(_termIndex);
-    _reportSelection();
-  }
-
-  void _onTermChanged(int index) {
-    setState(() => _termIndex = index);
-    _reportSelection();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    const itemExtent = 40.0;
-
-    Widget wheel({
-      required FixedExtentScrollController controller,
-      required int itemCount,
-      required String Function(int index) labelBuilder,
-      required ValueChanged<int> onChanged,
-    }) {
-      return CupertinoPicker(
-        scrollController: controller,
-        itemExtent: itemExtent,
-        onSelectedItemChanged: onChanged,
-        selectionOverlay: Container(
-          decoration: BoxDecoration(
-            color: theme.colorScheme.primary.withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(8),
-          ),
-        ),
-        children: [
-          for (var i = 0; i < itemCount; i++)
-            Center(
-              child: Text(
-                labelBuilder(i),
-                style: theme.textTheme.bodyLarge,
-              ),
-            ),
-        ],
-      );
-    }
-
-    return SizedBox(
-      height: 200,
-      child: Row(
-        children: [
-          Expanded(
-            flex: 3,
-            child: wheel(
-              controller: _yearController,
-              itemCount: _years.length,
-              labelBuilder: (i) => _years[i],
-              onChanged: _onYearChanged,
-            ),
-          ),
-          Expanded(
-            flex: 2,
-            child: wheel(
-              controller: _termController,
-              itemCount: _termsForYear.length,
-              labelBuilder: (i) =>
-                  '${semesterTermDisplayName(_termsForYear[i].key)}学期',
-              onChanged: _onTermChanged,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _DesktopWeekTitleMenu extends StatelessWidget {
   final int currentWeek;
   final String semesterLabel;
@@ -1300,9 +1149,7 @@ class _DesktopWeekTitleMenu extends StatelessWidget {
               currentWeek: currentWeek,
               semesterLabel: semesterLabel,
               slideDirection: slideDirection,
-              trailingIcon: isOpen
-                  ? Icons.expand_less_rounded
-                  : Icons.expand_more_rounded,
+              trailingIcon: isOpen ? Icons.expand_less_rounded : Icons.expand_more_rounded,
             ),
           ),
         );
@@ -1457,9 +1304,7 @@ class _DayHeaderCell extends StatelessWidget {
         Text(
           dayLabel,
           style: theme.textTheme.labelSmall?.copyWith(
-            color: isToday
-                ? theme.colorScheme.primary
-                : theme.colorScheme.onSurfaceVariant,
+            color: isToday ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant,
           ),
         ),
         const SizedBox(height: 2),
@@ -1482,9 +1327,7 @@ class _DayHeaderCell extends StatelessWidget {
             child: Text(
               '${date.day}',
               style: theme.textTheme.labelLarge?.copyWith(
-                color: isToday
-                    ? theme.colorScheme.onPrimary
-                    : theme.colorScheme.onSurface,
+                color: isToday ? theme.colorScheme.onPrimary : theme.colorScheme.onSurface,
               ),
             ),
           ),
@@ -1500,6 +1343,7 @@ class _TimetableGrid extends StatelessWidget {
   final DateTime weekStart;
   final DateTime today;
   final List<int> visibleDays;
+  final ValueChanged<Course> onEditCustomCourse;
 
   const _TimetableGrid({
     super.key,
@@ -1508,6 +1352,7 @@ class _TimetableGrid extends StatelessWidget {
     required this.weekStart,
     required this.today,
     required this.visibleDays,
+    required this.onEditCustomCourse,
   });
 
   @override
@@ -1535,9 +1380,7 @@ class _TimetableGrid extends StatelessWidget {
               Expanded(
                 child: _DayColumn(
                   dayOfWeek: visibleDays[i],
-                  courses: courses
-                      .where((c) => c.dayOfWeek == visibleDays[i])
-                      .toList(),
+                  courses: courses.where((c) => c.dayOfWeek == visibleDays[i]).toList(),
                   periods: periods,
                   isToday: _isSameDay(
                     weekStart.add(Duration(days: visibleDays[i] - 1)),
@@ -1545,6 +1388,7 @@ class _TimetableGrid extends StatelessWidget {
                   ),
                   isLastColumn: i == visibleDays.length - 1,
                   theme: theme,
+                  onEditCustomCourse: onEditCustomCourse,
                 ),
               ),
           ],
@@ -1607,6 +1451,7 @@ class _DayColumn extends StatelessWidget {
   final bool isToday;
   final bool isLastColumn;
   final ThemeData theme;
+  final ValueChanged<Course> onEditCustomCourse;
 
   const _DayColumn({
     required this.dayOfWeek,
@@ -1615,6 +1460,7 @@ class _DayColumn extends StatelessWidget {
     required this.isToday,
     required this.isLastColumn,
     required this.theme,
+    required this.onEditCustomCourse,
   });
 
   @override
@@ -1633,9 +1479,7 @@ class _DayColumn extends StatelessWidget {
               Container(
                 height: _kPeriodHeight,
                 decoration: BoxDecoration(
-                  color: isToday
-                      ? theme.colorScheme.primaryContainer.withAlpha(25)
-                      : null,
+                  color: isToday ? theme.colorScheme.primaryContainer.withAlpha(25) : null,
                   border: Border(
                     bottom: BorderSide(
                       color: theme.colorScheme.outlineVariant.withAlpha(80),
@@ -1654,26 +1498,35 @@ class _DayColumn extends StatelessWidget {
               ),
           ],
         ),
-        for (final course in sorted)
-          Positioned(
-            top: (course.startPeriod - 1) * _kPeriodHeight + 2,
-            left: 2,
-            right: 2,
-            height:
-                (course.endPeriod - course.startPeriod + 1) * _kPeriodHeight -
-                    4,
-            child: _CourseBlock(course: course, periods: periods),
-          ),
+        for (final course in sorted) _positionedCourse(course),
       ],
+    );
+  }
+
+  Widget _positionedCourse(Course course) {
+    final exactHeight = (course.gridEnd - course.gridStart) * _kPeriodHeight - 4;
+    final minimumHeight = course.usesCustomTime ? 36.0 : 12.0;
+    return Positioned(
+      top: course.gridStart * _kPeriodHeight + 2,
+      left: 2,
+      right: 2,
+      height: exactHeight < minimumHeight ? minimumHeight : exactHeight,
+      child: _CourseBlock(
+        course: course,
+        onEditCustomCourse: onEditCustomCourse,
+      ),
     );
   }
 }
 
 class _CourseBlock extends StatelessWidget {
   final Course course;
-  final List<Period> periods;
+  final ValueChanged<Course> onEditCustomCourse;
 
-  const _CourseBlock({required this.course, required this.periods});
+  const _CourseBlock({
+    required this.course,
+    required this.onEditCustomCourse,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1714,8 +1567,20 @@ class _CourseBlock extends StatelessWidget {
                         maxLines: (maxH * 0.7 / 14.4).floor().clamp(1, 20),
                       ),
                     ),
-                    if (course.teachers != null &&
-                        course.teachers!.isNotEmpty) ...[
+                    if (course.usesCustomTime) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        '${course.startTime}–${course.endTime}',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: textColor,
+                          fontSize: 9,
+                          height: 1.1,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                    if (maxH >= 48 && course.teachers != null && course.teachers!.isNotEmpty) ...[
                       const SizedBox(height: 4),
                       Text(
                         course.teachers!,
@@ -1728,7 +1593,7 @@ class _CourseBlock extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                       ),
                     ],
-                    if (course.location.isNotEmpty) ...[
+                    if (maxH >= 42 && course.location.isNotEmpty) ...[
                       const Spacer(),
                       Text(
                         course.location,
@@ -1751,7 +1616,90 @@ class _CourseBlock extends StatelessWidget {
     );
   }
 
+  Widget _detailContent(
+    BuildContext context, {
+    required ScheduleService schedule,
+    required VoidCallback close,
+    required EdgeInsets padding,
+    bool compact = false,
+  }) {
+    if (!course.isCustom) {
+      return CourseDetailContent(course: course, compact: compact, padding: padding);
+    }
+    var deleting = false;
+    return StatefulBuilder(
+      builder: (context, setPreviewState) => Padding(
+        padding: padding,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CourseDetailContent(course: course, compact: compact, padding: EdgeInsets.zero),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              children: [
+                TextButton.icon(
+                  onPressed: deleting
+                      ? null
+                      : () {
+                          close();
+                          onEditCustomCourse(course);
+                        },
+                  icon: const Icon(Icons.edit_outlined, size: 18),
+                  label: const Text('编辑'),
+                ),
+                TextButton.icon(
+                  style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
+                  onPressed: deleting
+                      ? null
+                      : () async {
+                          setPreviewState(() => deleting = true);
+                          try {
+                            final confirmed = await showAdaptiveAlertDialog<bool>(
+                              context: context,
+                              title: '删除这节课？',
+                              message: '将删除自定义课程“${course.name}”及其所有重复安排。',
+                              actions: const [
+                                AdaptiveAlertAction(label: '取消', value: false),
+                                AdaptiveAlertAction(label: '删除', value: true, isDestructive: true),
+                              ],
+                            );
+                            if (confirmed != true || !context.mounted) return;
+                            final existing = schedule.findCustomCourse(course.customId!);
+                            if (existing != null) {
+                              final semesterId = existing.semesterId.isEmpty
+                                  ? schedule.selectedSemesterId
+                                  : existing.semesterId;
+                              if (semesterId == null) return;
+                              await schedule.deleteCustomCourse(semesterId, existing.id);
+                            }
+                            if (context.mounted) close();
+                          } catch (_) {
+                            if (context.mounted) {
+                              showAdaptiveFeedback(
+                                context: context,
+                                message: '删除失败，请重试',
+                                style: AdaptiveFeedbackStyle.error,
+                              );
+                            }
+                          } finally {
+                            if (context.mounted) setPreviewState(() => deleting = false);
+                          }
+                        },
+                  icon: const Icon(Icons.delete_outline, size: 18),
+                  label: const Text('删除'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _showCourseDetail(BuildContext context) {
+    final schedule = ServiceProvider.of(context).scheduleService;
     if (usesSidebarLayout(context)) {
       showDesktopPopover(
         anchorContext: context,
@@ -1761,10 +1709,12 @@ class _CourseBlock extends StatelessWidget {
         builder: (context, close) {
           return DesktopPopoverSurface(
             padding: EdgeInsets.zero,
-            child: CourseDetailContent(
-              course: course,
-              periods: periods,
+            child: _detailContent(
+              context,
+              schedule: schedule,
+              close: close,
               compact: true,
+              padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
             ),
           );
         },
@@ -1777,9 +1727,10 @@ class _CourseBlock extends StatelessWidget {
         context: context,
         showDragHandle: true,
         builder: (context) {
-          return CourseDetailContent(
-            course: course,
-            periods: periods,
+          return _detailContent(
+            context,
+            schedule: schedule,
+            close: () => Navigator.pop(context),
             padding: const EdgeInsets.fromLTRB(24, 0, 24, 32),
           );
         },
