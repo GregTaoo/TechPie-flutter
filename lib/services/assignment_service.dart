@@ -564,10 +564,8 @@ class AssignmentService extends ChangeNotifier {
       if (batchName.isNotEmpty) batchName,
     ];
 
-    return Assignment(
+    return ExamAssignment(
       id: '$semesterId:$batchId:$courseCode:$examRoomId',
-      platform: 'exam',
-      kind: DeadlineKind.exam,
       title: '$courseName $examType'.trim(),
       course: detailParts.isEmpty
           ? courseName
@@ -576,6 +574,9 @@ class AssignmentService extends ChangeNotifier {
       lateDue: end,
       status: examStatus.isEmpty ? null : examStatus,
       url: seatUrl.isEmpty ? null : seatUrl,
+      semesterId: semesterId,
+      location: examPlace,
+      batchName: batchName,
     );
   }
 

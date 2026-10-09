@@ -1,5 +1,25 @@
 import 'package:flutter/material.dart';
 
+sealed class CourseSource {
+  const CourseSource();
+}
+
+final class EamsCourseSource extends CourseSource {
+  const EamsCourseSource();
+}
+
+final class CustomCourseSource extends CourseSource {
+  final String id;
+
+  const CustomCourseSource(this.id);
+}
+
+final class ExamCourseSource extends CourseSource {
+  final String id;
+
+  const ExamCourseSource(this.id);
+}
+
 class Course {
   final String name;
   final String location;
@@ -8,11 +28,10 @@ class Course {
   final CourseColor color;
   final String? teachers;
   final String? weeksText;
+  final DateTime? date;
   final bool isGhost; // non-current-week course shown transparently
 
-  /// Set only on a user-entered session, whose block in the grid is a tap into
-  /// the editor for it.
-  final String? customId;
+  final CourseSource source;
 
   const Course({
     required this.name,
@@ -22,11 +41,23 @@ class Course {
     this.color = CourseColor.primary,
     this.teachers,
     this.weeksText,
+    this.date,
     this.isGhost = false,
-    this.customId,
+    this.source = const EamsCourseSource(),
   });
 
-  bool get isCustom => customId != null;
+  bool get isCustom => source is CustomCourseSource;
+  String? get customId => switch (source) {
+        CustomCourseSource(:final id) => id,
+        _ => null,
+      };
+
+  bool occursOn(DateTime value) {
+    final day = date;
+    return day == null ||
+        (day.year == value.year && day.month == value.month && day.day == value.day);
+  }
+
   int get startPeriod => placement.startPeriod;
   int get endPeriod => placement.endPeriod;
   String get startTime => placement.startTime;

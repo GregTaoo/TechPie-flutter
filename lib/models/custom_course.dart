@@ -98,8 +98,9 @@ class CustomCourse {
           color: color,
           teachers: teachers.isEmpty ? null : teachers,
           weeksText: weeksLabel,
+          date: date,
           isGhost: isGhost,
-          customId: id,
+          source: CustomCourseSource(id),
         ),
     ];
   }

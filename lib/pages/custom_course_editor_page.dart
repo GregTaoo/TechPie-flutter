@@ -653,7 +653,7 @@ class _CustomCourseEditorPageState extends State<CustomCourseEditorPage> {
       value: time,
       options: [AdaptiveSelectOption(value: time, label: time)],
       placeholder: '选择时间',
-      onTap: () => _pickTime(isStart: isStart),
+      onTap: () => unawaited(_pickTime(isStart: isStart)),
     );
   }
 

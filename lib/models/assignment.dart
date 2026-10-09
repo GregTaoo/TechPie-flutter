@@ -57,14 +57,35 @@ class Assignment {
       return DateTime.now();
     }
 
+    final kind = DeadlineKind.fromJson(json['kind']);
+    final due = json['due'] != null ? parseDate(json['due']) : DateTime.now();
+    final lateDue = json['lateDue'] != null ? parseDate(json['lateDue']) : null;
+    if (kind == DeadlineKind.exam) {
+      final rawExam = json['exam'];
+      final exam = rawExam is Map ? rawExam.cast<String, dynamic>() : const <String, dynamic>{};
+      final id = json['id'] as String? ?? '';
+      return ExamAssignment(
+        id: id,
+        title: json['title'] as String? ?? '',
+        course: json['course'] as String? ?? '',
+        due: due,
+        lateDue: lateDue,
+        status: json['status'] as String?,
+        url: json['url'] as String?,
+        semesterId: exam['semesterId'] as String? ?? _semesterIdFromExamId(id),
+        location: exam['location'] as String? ?? '',
+        batchName: exam['batchName'] as String? ?? '',
+      );
+    }
+
     return Assignment(
       id: json['id'] as String? ?? '',
       platform: json['platform'] as String? ?? 'unknown',
-      kind: DeadlineKind.fromJson(json['kind']),
+      kind: kind,
       title: json['title'] as String? ?? '',
       course: json['course'] as String? ?? '',
-      due: json['due'] != null ? parseDate(json['due']) : DateTime.now(),
-      lateDue: json['lateDue'] != null ? parseDate(json['lateDue']) : null,
+      due: due,
+      lateDue: lateDue,
       status: json['status'] as String?,
       url: json['url'] as String?,
     );
@@ -81,4 +102,38 @@ class Assignment {
         'status': status,
         'url': url,
       };
+}
+
+class ExamAssignment extends Assignment {
+  final String semesterId;
+  final String location;
+  final String batchName;
+
+  const ExamAssignment({
+    required super.id,
+    required super.title,
+    required super.course,
+    required super.due,
+    super.lateDue,
+    super.status,
+    super.url,
+    required this.semesterId,
+    required this.location,
+    required this.batchName,
+  }) : super(platform: 'exam', kind: DeadlineKind.exam);
+
+  @override
+  Map<String, dynamic> toJson() => {
+        ...super.toJson(),
+        'exam': {
+          'semesterId': semesterId,
+          'location': location,
+          'batchName': batchName,
+        },
+      };
+}
+
+String _semesterIdFromExamId(String id) {
+  final separator = id.indexOf(':');
+  return separator < 0 ? '' : id.substring(0, separator);
 }

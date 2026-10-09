@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../../models/assignment.dart';
 import '../../models/course.dart';
 import '../../models/course_table.dart';
 import '../../models/custom_course.dart';
@@ -94,6 +95,7 @@ class IcsExportService {
     required DateTime termBegin,
     String calendarName = '课表',
     List<CustomCourse> customCourses = const [],
+    List<ExamAssignment> exams = const [],
   }) {
     final buffer = StringBuffer()
       ..writeln('BEGIN:VCALENDAR')
@@ -104,7 +106,7 @@ class IcsExportService {
       ..writeln('X-WR-CALNAME:${_escapeText(calendarName)}')
       ..writeln('X-WR-TIMEZONE:Asia/Shanghai');
 
-    for (final event in _expandCalendarEvents(table, termBegin, customCourses)) {
+    for (final event in _expandCalendarEvents(table, termBegin, customCourses, exams)) {
       buffer.writeln('BEGIN:VEVENT');
       buffer.writeln('UID:${_buildUid(event)}');
       buffer.writeln(
@@ -146,12 +148,14 @@ class IcsExportService {
     required IcsSaveLocation location,
     String calendarName = 'Course Table',
     List<CustomCourse> customCourses = const [],
+    List<ExamAssignment> exams = const [],
   }) async {
     final content = await compute(_buildCalendarInBackground, {
       'table': table.toJson(),
       'termBegin': termBegin.toIso8601String(),
       'calendarName': calendarName,
       'customCourses': customCourses.map((c) => c.toJson()).toList(),
+      'exams': exams.map((exam) => exam.toJson()).toList(),
     });
     return saveIcsFile(fileName, content, location: location);
   }
@@ -160,11 +164,13 @@ class IcsExportService {
     required CourseTable table,
     required DateTime termBegin,
     List<CustomCourse> customCourses = const [],
+    List<ExamAssignment> exams = const [],
   }) {
     return compute(_buildCalendarEventPayloadsInBackground, {
       'table': table.toJson(),
       'termBegin': termBegin.toIso8601String(),
       'customCourses': customCourses.map((c) => c.toJson()).toList(),
+      'exams': exams.map((exam) => exam.toJson()).toList(),
     });
   }
 
@@ -185,6 +191,7 @@ class IcsExportService {
     CourseTable table,
     DateTime termBegin,
     List<CustomCourse> customCourses,
+    List<ExamAssignment> exams,
   ) sync* {
     final mondayOfWeekOne = termBegin.subtract(
       Duration(days: termBegin.weekday - 1),
@@ -253,6 +260,22 @@ class IcsExportService {
         }
       }
     }
+
+    for (final exam in exams) {
+      final end = exam.lateDue;
+      if (end == null || !end.isAfter(exam.due)) continue;
+      final classroom = exam.location.trim();
+      yield _CalendarEventData(
+        name: exam.title,
+        classroom: classroom,
+        teachers: exam.batchName,
+        uidSeed: 'exam-${exam.id}',
+        startDateTime: exam.due,
+        endDateTime: end,
+        location: classroom.isEmpty ? '上海科技大学' : '$classroom 上海科技大学',
+        structuredLocation: _findStructuredLocation(classroom),
+      );
+    }
   }
 
   /// The session's own clock times, else the ones its periods carry.
@@ -305,6 +328,12 @@ List<CustomCourse> _customCoursesFromPayload(Map<String, Object?> payload) =>
         .map((e) => CustomCourse.fromJson((e as Map).cast<String, dynamic>()))
         .toList();
 
+List<ExamAssignment> _examsFromPayload(Map<String, Object?> payload) =>
+    ((payload['exams'] as List?) ?? const [])
+        .map((e) => Assignment.fromJson((e as Map).cast<String, dynamic>()))
+        .whereType<ExamAssignment>()
+        .toList();
+
 String _buildCalendarInBackground(Map<String, Object?> payload) {
   final table = CourseTable.fromJson(
     (payload['table'] as Map<Object?, Object?>).cast<String, dynamic>(),
@@ -317,6 +346,7 @@ String _buildCalendarInBackground(Map<String, Object?> payload) {
     termBegin: termBegin,
     calendarName: calendarName,
     customCourses: _customCoursesFromPayload(payload),
+    exams: _examsFromPayload(payload),
   );
 }
 
@@ -329,7 +359,8 @@ List<Map<String, Object?>> _buildCalendarEventPayloadsInBackground(
   final termBegin = DateTime.parse(payload['termBegin'] as String);
   final service = IcsExportService();
   final customCourses = _customCoursesFromPayload(payload);
-  return service._expandCalendarEvents(table, termBegin, customCourses).map((event) {
+  final exams = _examsFromPayload(payload);
+  return service._expandCalendarEvents(table, termBegin, customCourses, exams).map((event) {
     final payload = <String, Object?>{
       'title': event.name,
       'location': event.location,

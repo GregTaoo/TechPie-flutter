@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -44,10 +45,14 @@ class ScheduleService extends ChangeNotifier {
   bool get loading => _loading;
   String? get error => _error;
 
-  /// Teaching weeks in the selected semester, i.e. the upper bound for week
-  /// navigation. Falls back to a generous default until the calendar loads.
-  int get totalWeeks =>
-      (_termCalendar?.allTeachWeeks ?? 0) > 0 ? _termCalendar!.allTeachWeeks : _fallbackTotalWeeks;
+  /// Calendar weeks in the selected semester, including an exam period after
+  /// teaching ends. Falls back to a generous default until the calendar loads.
+  int get totalWeeks {
+    final calendar = _termCalendar;
+    if (calendar == null) return _fallbackTotalWeeks;
+    final weeks = math.max(calendar.allTeachWeeks, calendar.allTermWeeks);
+    return weeks > 0 ? weeks : _fallbackTotalWeeks;
+  }
 
   ScheduleService(this._storage, this._http, AuthService _, this._tpAuth) {
     // A renewed campus session, a cookie minted for a child service (eams,

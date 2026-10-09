@@ -4,9 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../models/assignment.dart';
 import '../models/course.dart';
 import '../models/course_table.dart';
 import '../models/custom_course.dart';
+import '../models/exam_course.dart';
+import '../services/assignment_service.dart';
 import '../services/calendar/calendar_importer.dart';
 import '../services/ics/ics_export_service.dart';
 import '../services/ics/ics_file_saver.dart';
@@ -66,6 +69,7 @@ class SchedulePage extends StatefulWidget {
 class _SchedulePageState extends State<SchedulePage> {
   final IcsExportService _icsExport = IcsExportService();
   late ScheduleService _schedule;
+  late AssignmentService _assignments;
   List<Course> _courses = [];
   List<Period> _periods = defaultPeriods.toList();
   int _currentWeek = 1;
@@ -88,8 +92,11 @@ class _SchedulePageState extends State<SchedulePage> {
     super.didChangeDependencies();
     if (!_initialized) {
       _initialized = true;
-      _schedule = ServiceProvider.of(context).scheduleService;
+      final services = ServiceProvider.of(context);
+      _schedule = services.scheduleService;
+      _assignments = services.assignmentService;
       _schedule.addListener(_onScheduleChanged);
+      _assignments.addListener(_onAssignmentsChanged);
       _loadData();
     }
   }
@@ -98,10 +105,15 @@ class _SchedulePageState extends State<SchedulePage> {
   void dispose() {
     _weekPageController.dispose();
     _schedule.removeListener(_onScheduleChanged);
+    _assignments.removeListener(_onAssignmentsChanged);
     super.dispose();
   }
 
   void _onScheduleChanged() {
+    _rebuildCourses();
+  }
+
+  void _onAssignmentsChanged() {
     _rebuildCourses();
   }
 
@@ -113,8 +125,9 @@ class _SchedulePageState extends State<SchedulePage> {
     final auth = ServiceProvider.of(context).authService;
     if (!auth.isLoggedIn) return;
     await _schedule.fetchAll();
+    await _assignments.fetchPlatform('exam');
     if (!mounted) return;
-    final hasError = _schedule.error != null;
+    final hasError = _schedule.error != null || _assignments.platformErrors.containsKey('exam');
     showAdaptiveFeedback(
       context: context,
       message: hasError ? '刷新失败' : '已刷新',
@@ -135,7 +148,7 @@ class _SchedulePageState extends State<SchedulePage> {
             includeGhosts: _showGhostCourses,
             timetablePeriods: _periods,
           );
-    return withCustomCourses(
+    final withCustom = withCustomCourses(
       fetched,
       _schedule.customCourses,
       week,
@@ -143,7 +156,18 @@ class _SchedulePageState extends State<SchedulePage> {
       includeGhosts: _showGhostCourses,
       periods: _periods,
     );
+    return withExamCourses(
+      withCustom,
+      examsForSemester(_assignments.assignments, _schedule.selectedSemesterId),
+      week,
+      _schedule.termBegin,
+      includeGhosts: _showGhostCourses,
+      periods: _periods,
+    );
   }
+
+  List<ExamAssignment> get _semesterExams =>
+      examsForSemester(_assignments.assignments, _schedule.selectedSemesterId);
 
   void _rebuildCourses() {
     if (!mounted) return;
@@ -362,6 +386,7 @@ class _SchedulePageState extends State<SchedulePage> {
       calendarName: calendarName,
       // The user's own sessions are part of the week the calendar describes.
       customCourses: _schedule.customCourses,
+      exams: _semesterExams,
     );
   }
 
@@ -387,6 +412,7 @@ class _SchedulePageState extends State<SchedulePage> {
             table: table,
             termBegin: termBegin,
             customCourses: _schedule.customCourses,
+            exams: _semesterExams,
           );
           final imported = await CalendarImporter.importCalendarEvents(
             events,
@@ -897,8 +923,9 @@ class _SchedulePageState extends State<SchedulePage> {
 
   /// Editing starts from a block on the grid — the menu only adds.
   void _editCustomCourse(Course course) {
-    final id = course.customId;
-    if (id == null) return;
+    final source = course.source;
+    if (source is! CustomCourseSource) return;
+    final id = source.id;
     final existing = _schedule.findCustomCourse(id);
     if (existing == null) return;
     unawaited(

@@ -8,6 +8,7 @@ import '../models/assignment.dart';
 import '../models/course.dart';
 import '../models/course_table.dart';
 import '../models/custom_course.dart';
+import '../models/exam_course.dart';
 import '../models/feature.dart';
 import '../services/assignment_service.dart';
 import '../services/schedule_service.dart';
@@ -93,8 +94,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   void _onAssignmentsChanged() {
-    if (!mounted) return;
-    setState(() {});
+    _rebuild();
   }
 
   void _rebuild() {
@@ -119,29 +119,34 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   void _doRebuild() {
     final table = _schedule.courseTable;
-    List<Course> newCourses;
-    if (table != null) {
-      if (table.periods.isNotEmpty) {
-        _periods = table.periods.map((p) => p.toPeriod()).toList();
-      }
-      final week = _schedule.currentWeek();
-      final today = _now.weekday;
-      final all = withCustomCourses(
-        eamsToDisplayCourses(
-          table.courses,
-          week,
-          timetablePeriods: _periods,
-        ),
-        _schedule.customCourses,
-        week,
-        _schedule.termBegin,
-        periods: _periods,
-      );
-      newCourses = all.where((c) => c.dayOfWeek == today).toList()
-        ..sort((a, b) => a.gridStart.compareTo(b.gridStart));
-    } else {
-      newCourses = [];
+    if (table != null && table.periods.isNotEmpty) {
+      _periods = table.periods.map((p) => p.toPeriod()).toList();
     }
+    final week = _schedule.currentWeek();
+    final today = _now.weekday;
+    final timetableCourses = table?.courses ?? const <EamsCourse>[];
+    final withCustom = withCustomCourses(
+      eamsToDisplayCourses(
+        timetableCourses,
+        week,
+        timetablePeriods: _periods,
+      ),
+      _schedule.customCourses,
+      week,
+      _schedule.termBegin,
+      periods: _periods,
+    );
+    final all = withExamCourses(
+      withCustom,
+      examsForSemester(_assignments.assignments, _schedule.selectedSemesterId),
+      week,
+      _schedule.termBegin,
+      periods: _periods,
+    );
+    final newCourses = all
+        .where((course) => course.dayOfWeek == today && course.occursOn(_now))
+        .toList()
+      ..sort((a, b) => a.gridStart.compareTo(b.gridStart));
 
     final previousCount = _todayCourses.length;
     setState(() {

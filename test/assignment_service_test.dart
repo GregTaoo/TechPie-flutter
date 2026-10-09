@@ -244,6 +244,10 @@ void main() {
     final exam = service.assignments.single;
     expect(exam.platform, 'exam');
     expect(exam.kind, DeadlineKind.exam);
+    expect(exam, isA<ExamAssignment>());
+    final examDetails = exam as ExamAssignment;
+    expect(examDetails.semesterId, '263');
+    expect(examDetails.location, '教学中心204');
     expect(exam.title, '操作系统I 期中考试');
     expect(exam.course, contains('教学中心204'));
     expect(exam.due, DateTime(2026, 4, 23, 15));
@@ -260,6 +264,9 @@ void main() {
       ),
     );
     expect(storage.loadCachedAssignments().single['kind'], 'exam');
+    final cached = Assignment.fromJson(storage.loadCachedAssignments().single);
+    expect(cached, isA<ExamAssignment>());
+    expect((cached as ExamAssignment).semesterId, '263');
   });
 }
 

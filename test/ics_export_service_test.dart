@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:techpie/models/assignment.dart';
 import 'package:techpie/models/course.dart';
 import 'package:techpie/models/course_table.dart';
 import 'package:techpie/models/custom_course.dart';
@@ -33,5 +34,28 @@ void main() {
     expect(calendar, contains('UID:custom-a-20260909@techpie'));
     expect(calendar, contains('UID:custom-b-20260909@techpie'));
     expect(calendar, isNot(contains('custom-a-20260909-1-1')));
+  });
+
+  test('loaded exams are exported with their stable exam id', () {
+    const table = CourseTable(periods: [], courses: []);
+    final exam = ExamAssignment(
+      id: '263:1222:CS130.01:7987',
+      title: '操作系统I 期中考试',
+      course: '操作系统I · 教学中心204',
+      due: DateTime(2026, 4, 23, 15),
+      lateDue: DateTime(2026, 4, 23, 16, 40),
+      semesterId: '263',
+      location: '教学中心204',
+      batchName: '期中考试',
+    );
+
+    final calendar = IcsExportService().buildCalendar(
+      table: table,
+      termBegin: DateTime(2026, 3, 2),
+      exams: [exam],
+    );
+
+    expect(calendar, contains('UID:exam-263%3A1222%3ACS130.01%3A7987@techpie'));
+    expect(calendar, contains('DTSTART;TZID=Asia/Shanghai:20260423T150000'));
   });
 }
