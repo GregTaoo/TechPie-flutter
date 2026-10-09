@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -16,6 +15,7 @@ import '../services/service_provider.dart';
 import '../utils/adaptive_layout.dart';
 import '../utils/adaptive_motion.dart';
 import '../utils/platform.dart';
+import '../widgets/adaptive_alert_dialog.dart';
 import '../widgets/adaptive_button.dart';
 import '../widgets/adaptive_feedback.dart';
 import '../widgets/adaptive_page_navigation.dart';
@@ -26,6 +26,7 @@ import '../widgets/course_detail_panel.dart';
 import '../widgets/desktop_popup.dart';
 import '../widgets/desktop_select_popover.dart';
 import '../widgets/ios/ios_native_navigation_bar.dart';
+import '../widgets/schedule_picker_sheet.dart';
 import 'custom_course_editor_page.dart';
 import 'login_page.dart';
 import 'third_party_accounts_page.dart';
@@ -218,62 +219,14 @@ class _SchedulePageState extends State<SchedulePage> {
     final info = _schedule.semesterInfo;
     if (info == null || info.semesters.isEmpty) return;
 
-    var pendingSemesterId = _schedule.selectedSemesterId;
-
-    unawaited(
-      showModalBottomSheet<void>(
+    unawaited(() async {
+      final value = await showSemesterPickerSheet(
         context: context,
-        showDragHandle: true,
-        builder: (context) {
-          return SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                    child: Row(
-                      children: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: const Text('取消'),
-                        ),
-                        Expanded(
-                          child: Text(
-                            '选择学期',
-                            textAlign: TextAlign.center,
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                        ),
-                        TextButton(
-                          onPressed: () {
-                            Navigator.pop(context);
-                            final value = pendingSemesterId;
-                            if (value != null) {
-                              unawaited(_schedule.selectSemester(value));
-                            }
-                          },
-                          child: const Text('确定'),
-                        ),
-                      ],
-                    ),
-                  ),
-                  _SemesterWheelPicker(
-                    info: info,
-                    initialSemesterId: _schedule.selectedSemesterId,
-                    onSelectionChanged: (semesterId) {
-                      pendingSemesterId = semesterId;
-                    },
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
+        info: info,
+        initialSemesterId: _schedule.selectedSemesterId,
+      );
+      if (value != null && mounted) await _schedule.selectSemester(value);
+    }());
   }
 
   void _showWeekPicker() {
@@ -981,7 +934,7 @@ class _SchedulePageState extends State<SchedulePage> {
                 padding: const EdgeInsets.fromLTRB(4, 4, 4, 4),
                 child: Text('选择学期', style: theme.textTheme.titleSmall),
               ),
-              _SemesterWheelPicker(
+              SemesterWheelPicker(
                 info: info,
                 initialSemesterId: _schedule.selectedSemesterId,
                 onSelectionChanged: (semesterId) {
@@ -1130,163 +1083,6 @@ class _DesktopSemesterSelectButton extends StatelessWidget {
       leading: const Icon(Icons.swap_horiz, size: 20),
       title: Text('切换学期', style: Theme.of(context).textTheme.bodyMedium),
       onTap: hasSemesters ? onTap : null,
-    );
-  }
-}
-
-/// Two synced scroll wheels (academic year, then term) for picking a semester.
-/// Reports the pending selection live via [onSelectionChanged]; the caller is
-/// responsible for confirming (or discarding) it.
-class _SemesterWheelPicker extends StatefulWidget {
-  final SemesterInfo info;
-  final String? initialSemesterId;
-  final ValueChanged<String> onSelectionChanged;
-
-  const _SemesterWheelPicker({
-    required this.info,
-    required this.initialSemesterId,
-    required this.onSelectionChanged,
-  });
-
-  @override
-  State<_SemesterWheelPicker> createState() => _SemesterWheelPickerState();
-}
-
-class _SemesterWheelPickerState extends State<_SemesterWheelPicker> {
-  late final List<String> _years;
-  late FixedExtentScrollController _yearController;
-  late FixedExtentScrollController _termController;
-  late List<MapEntry<String, String>> _termsForYear;
-  late int _yearIndex;
-  late int _termIndex;
-
-  @override
-  void initState() {
-    super.initState();
-    _years = widget.info.semesters.keys.toList()..sort();
-
-    var yearIndex = 0;
-    String? initialLabel;
-    final initialId = widget.initialSemesterId;
-    if (initialId != null) {
-      for (var i = 0; i < _years.length; i++) {
-        for (final entry in widget.info.semesters[_years[i]]!.entries) {
-          if (entry.value == initialId) {
-            yearIndex = i;
-            initialLabel = entry.key;
-          }
-        }
-      }
-    }
-
-    _yearIndex = yearIndex;
-    _termsForYear = _orderedTerms(_years[_yearIndex]);
-    final labelIndex =
-        initialLabel == null ? -1 : _termsForYear.indexWhere((entry) => entry.key == initialLabel);
-    _termIndex = labelIndex < 0 ? 0 : labelIndex;
-
-    _yearController = FixedExtentScrollController(initialItem: _yearIndex);
-    _termController = FixedExtentScrollController(initialItem: _termIndex);
-  }
-
-  @override
-  void dispose() {
-    _yearController.dispose();
-    _termController.dispose();
-    super.dispose();
-  }
-
-  List<MapEntry<String, String>> _orderedTerms(String year) {
-    final terms = widget.info.semesters[year] ?? const <String, String>{};
-    final entries = terms.entries.toList()
-      ..sort(
-        (a, b) => semesterTermRank(a.key).compareTo(semesterTermRank(b.key)),
-      );
-    return entries;
-  }
-
-  void _reportSelection() {
-    if (_termIndex >= _termsForYear.length) return;
-    widget.onSelectionChanged(_termsForYear[_termIndex].value);
-  }
-
-  void _onYearChanged(int index) {
-    final previousLabel = _termIndex < _termsForYear.length ? _termsForYear[_termIndex].key : null;
-
-    setState(() {
-      _yearIndex = index;
-      _termsForYear = _orderedTerms(_years[_yearIndex]);
-      final labelIndex = previousLabel == null
-          ? -1
-          : _termsForYear.indexWhere((entry) => entry.key == previousLabel);
-      _termIndex = labelIndex < 0 ? 0 : labelIndex.clamp(0, _termsForYear.length - 1);
-    });
-    _termController.jumpToItem(_termIndex);
-    _reportSelection();
-  }
-
-  void _onTermChanged(int index) {
-    setState(() => _termIndex = index);
-    _reportSelection();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    const itemExtent = 40.0;
-
-    Widget wheel({
-      required FixedExtentScrollController controller,
-      required int itemCount,
-      required String Function(int index) labelBuilder,
-      required ValueChanged<int> onChanged,
-    }) {
-      return CupertinoPicker(
-        scrollController: controller,
-        itemExtent: itemExtent,
-        onSelectedItemChanged: onChanged,
-        selectionOverlay: Container(
-          decoration: BoxDecoration(
-            color: theme.colorScheme.primary.withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(8),
-          ),
-        ),
-        children: [
-          for (var i = 0; i < itemCount; i++)
-            Center(
-              child: Text(
-                labelBuilder(i),
-                style: theme.textTheme.bodyLarge,
-              ),
-            ),
-        ],
-      );
-    }
-
-    return SizedBox(
-      height: 200,
-      child: Row(
-        children: [
-          Expanded(
-            flex: 3,
-            child: wheel(
-              controller: _yearController,
-              itemCount: _years.length,
-              labelBuilder: (i) => _years[i],
-              onChanged: _onYearChanged,
-            ),
-          ),
-          Expanded(
-            flex: 2,
-            child: wheel(
-              controller: _termController,
-              itemCount: _termsForYear.length,
-              labelBuilder: (i) => '${semesterTermDisplayName(_termsForYear[i].key)}学期',
-              onChanged: _onTermChanged,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -1793,7 +1589,90 @@ class _CourseBlock extends StatelessWidget {
     );
   }
 
+  Widget _detailContent(
+    BuildContext context, {
+    required ScheduleService schedule,
+    required VoidCallback close,
+    required EdgeInsets padding,
+    bool compact = false,
+  }) {
+    if (!course.isCustom) {
+      return CourseDetailContent(course: course, compact: compact, padding: padding);
+    }
+    var deleting = false;
+    return StatefulBuilder(
+      builder: (context, setPreviewState) => Padding(
+        padding: padding,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CourseDetailContent(course: course, compact: compact, padding: EdgeInsets.zero),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              children: [
+                TextButton.icon(
+                  onPressed: deleting
+                      ? null
+                      : () {
+                          close();
+                          onEditCustomCourse(course);
+                        },
+                  icon: const Icon(Icons.edit_outlined, size: 18),
+                  label: const Text('编辑'),
+                ),
+                TextButton.icon(
+                  style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
+                  onPressed: deleting
+                      ? null
+                      : () async {
+                          setPreviewState(() => deleting = true);
+                          try {
+                            final confirmed = await showAdaptiveAlertDialog<bool>(
+                              context: context,
+                              title: '删除这节课？',
+                              message: '将删除自定义课程“${course.name}”及其所有重复安排。',
+                              actions: const [
+                                AdaptiveAlertAction(label: '取消', value: false),
+                                AdaptiveAlertAction(label: '删除', value: true, isDestructive: true),
+                              ],
+                            );
+                            if (confirmed != true || !context.mounted) return;
+                            final existing = schedule.findCustomCourse(course.customId!);
+                            if (existing != null) {
+                              final semesterId = existing.semesterId.isEmpty
+                                  ? schedule.selectedSemesterId
+                                  : existing.semesterId;
+                              if (semesterId == null) return;
+                              await schedule.deleteCustomCourse(semesterId, existing.id);
+                            }
+                            if (context.mounted) close();
+                          } catch (_) {
+                            if (context.mounted) {
+                              showAdaptiveFeedback(
+                                context: context,
+                                message: '删除失败，请重试',
+                                style: AdaptiveFeedbackStyle.error,
+                              );
+                            }
+                          } finally {
+                            if (context.mounted) setPreviewState(() => deleting = false);
+                          }
+                        },
+                  icon: const Icon(Icons.delete_outline, size: 18),
+                  label: const Text('删除'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _showCourseDetail(BuildContext context) {
+    final schedule = ServiceProvider.of(context).scheduleService;
     if (usesSidebarLayout(context)) {
       showDesktopPopover(
         anchorContext: context,
@@ -1803,10 +1682,12 @@ class _CourseBlock extends StatelessWidget {
         builder: (context, close) {
           return DesktopPopoverSurface(
             padding: EdgeInsets.zero,
-            child: CourseDetailContent(
-              course: course,
+            child: _detailContent(
+              context,
+              schedule: schedule,
+              close: close,
               compact: true,
-              onEdit: course.isCustom ? () => onEditCustomCourse(course) : null,
+              padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
             ),
           );
         },
@@ -1819,10 +1700,11 @@ class _CourseBlock extends StatelessWidget {
         context: context,
         showDragHandle: true,
         builder: (context) {
-          return CourseDetailContent(
-            course: course,
+          return _detailContent(
+            context,
+            schedule: schedule,
+            close: () => Navigator.pop(context),
             padding: const EdgeInsets.fromLTRB(24, 0, 24, 32),
-            onEdit: course.isCustom ? () => onEditCustomCourse(course) : null,
           );
         },
       ),

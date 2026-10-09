@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../models/course.dart';
@@ -10,15 +11,16 @@ import '../services/service_provider.dart';
 import '../utils/platform.dart';
 import '../widgets/adaptive_button.dart';
 import '../widgets/adaptive_confirmation_button.dart';
-import '../widgets/adaptive_date_picker.dart';
 import '../widgets/adaptive_feedback.dart';
 import '../widgets/adaptive_multi_select.dart';
+import '../widgets/adaptive_page_navigation.dart';
 import '../widgets/adaptive_select.dart';
 import '../widgets/adaptive_text_field_group.dart';
-import '../widgets/adaptive_time_picker.dart';
 import '../widgets/app_shell/app_shell_metrics.dart';
 import '../widgets/blurred_app_bar.dart';
 import '../widgets/ios/ios_native_navigation_bar.dart';
+import '../widgets/schedule_picker_sheet.dart';
+import 'custom_course_period_picker.dart';
 
 /// Add or edit one hand-entered session — a tutorial, a recitation, a lab.
 ///
@@ -40,7 +42,6 @@ class _CustomCourseEditorPageState extends State<CustomCourseEditorPage> {
   late ScheduleService _schedule;
   List<Period> _periods = const [];
   late int _totalWeeks;
-  DateTime? _termBegin;
 
   bool _initialized = false;
   bool _saving = false;
@@ -124,7 +125,6 @@ class _CustomCourseEditorPageState extends State<CustomCourseEditorPage> {
     final table = _schedule.courseTableFor(semesterId);
     _periods = table?.periods.map((period) => period.toPeriod()).toList() ?? const [];
     final calendar = _schedule.termCalendarFor(semesterId);
-    _termBegin = calendar?.termBegin;
     _totalWeeks = (calendar?.allTeachWeeks ?? 0) > 0
         ? calendar!.allTeachWeeks
         : semesterId == _schedule.selectedSemesterId
@@ -163,10 +163,18 @@ class _CustomCourseEditorPageState extends State<CustomCourseEditorPage> {
 
   String get _weeksSummary {
     if (_weeks.isEmpty) return '';
-    return formatWeekRanges(_weeks.toList()..sort());
+    final ranges = formatWeekRanges(_weeks.toList()..sort())
+        .replaceAll('-', '~')
+        .replaceAll(', ', '、')
+        .replaceAll('周', '');
+    return '第 $ranges 周';
   }
 
-  String get _weekdaySummary => _effectiveWeekdays.map((day) => _weekdayLabels[day - 1]).join('、');
+  String get _weekdaySummary {
+    final days = _effectiveWeekdays;
+    if (days.isEmpty) return '';
+    return '周${days.map((day) => _weekdayLabels[day - 1].substring(1)).join('、')}';
+  }
 
   /// Null when the timetable is shorter than the period asked for.
   Period? _periodOf(int number) =>
@@ -189,46 +197,77 @@ class _CustomCourseEditorPageState extends State<CustomCourseEditorPage> {
     });
   }
 
-  void _setStartPeriod(String value) {
-    setState(() {
-      _startPeriod = int.parse(value);
-      if (_endPeriod < _startPeriod) _endPeriod = _startPeriod;
-    });
+  Future<void> _pickSemester() async {
+    final info = _schedule.semesterInfo;
+    if (info == null) return;
+    final picked = await showSemesterPickerSheet(
+      context: context,
+      info: info,
+      initialSemesterId: _semesterId,
+    );
+    if (picked != null && mounted) _setSemester(picked);
   }
 
-  void _setEndPeriod(String value) {
+  Future<void> _pickPeriods() async {
+    final picked = await showCustomCoursePeriodPicker(
+      context: context,
+      periods: _periods,
+      start: _startPeriod,
+      end: _endPeriod,
+    );
+    if (picked == null || !mounted) return;
     setState(() {
-      _endPeriod = int.parse(value);
-      if (_startPeriod > _endPeriod) _startPeriod = _endPeriod;
+      _startPeriod = picked.$1;
+      _endPeriod = picked.$2;
     });
   }
 
   Future<void> _pickDate() async {
-    final termBegin = _termBegin;
-    final now = DateTime.now();
-    final firstDate =
-        termBegin?.subtract(const Duration(days: 30)) ?? now.subtract(const Duration(days: 365));
-    final lastDate =
-        termBegin?.add(const Duration(days: 400)) ?? now.add(const Duration(days: 365));
-
-    var initialDate = _date ?? now;
-    if (initialDate.isBefore(firstDate)) initialDate = firstDate;
-    if (initialDate.isAfter(lastDate)) initialDate = lastDate;
-
-    final picked = await showAdaptiveDatePicker(
-      context: context,
-      initialDate: initialDate,
-      firstDate: firstDate,
-      lastDate: lastDate,
-    );
+    final initialDate = _date ?? DateTime.now();
+    DateTime? picked;
+    if (isIos()) {
+      var pending = initialDate;
+      picked = await showSchedulePickerSheet<DateTime>(
+        context: context,
+        title: '上课日期',
+        selection: () => pending,
+        builder: (_) => SizedBox(
+          height: 200,
+          child: CupertinoDatePicker(
+            mode: CupertinoDatePickerMode.date,
+            initialDateTime: initialDate,
+            onDateTimeChanged: (value) => pending = value,
+          ),
+        ),
+      );
+    } else {
+      // Material requires finite bounds; these are calendar bounds, not a term window.
+      picked = await showDatePicker(
+        context: context,
+        initialDate: initialDate,
+        firstDate: DateTime(1),
+        lastDate: DateTime(9999, 12, 31),
+      );
+    }
     if (picked == null || !mounted) return;
     setState(() => _date = picked);
   }
 
   Future<void> _pickTime({required bool isStart}) async {
-    final picked = await showAdaptiveTimePicker(
+    var pending = isStart ? _startTime : _endTime;
+    final picked = await showSchedulePickerSheet<TimeOfDay>(
       context: context,
-      initialTime: isStart ? _startTime : _endTime,
+      title: isStart ? '开始时间' : '结束时间',
+      selection: () => pending,
+      builder: (_) => SizedBox(
+        height: 200,
+        child: CupertinoDatePicker(
+          mode: CupertinoDatePickerMode.time,
+          use24hFormat: true,
+          initialDateTime: DateTime(2026, 1, 1, pending.hour, pending.minute),
+          onDateTimeChanged: (date) => pending = TimeOfDay.fromDateTime(date),
+        ),
+      ),
     );
     if (picked == null || !mounted) return;
     setState(() {
@@ -279,8 +318,7 @@ class _CustomCourseEditorPageState extends State<CustomCourseEditorPage> {
         teachers: _teachers.text.trim(),
         // A one-off is placed by its own date; a stored column could only
         // disagree with it later.
-        weekdays: _isOneOff ? const [] : _weekdays.toList()
-          ..sort(),
+        weekdays: _isOneOff ? const [] : (_weekdays.toList()..sort()),
         time: _timeMode == 0
             ? PeriodCourseTime(
                 startPeriod: _startPeriod,
@@ -290,8 +328,7 @@ class _CustomCourseEditorPageState extends State<CustomCourseEditorPage> {
                 startTime: _formatTime(_startTime),
                 endTime: _formatTime(_endTime),
               ),
-        weeks: _isOneOff ? const [] : _weeks.toList()
-          ..sort(),
+        weeks: _isOneOff ? const [] : (_weeks.toList()..sort()),
         date: _isOneOff ? _date : null,
         color: _color,
       ),
@@ -313,6 +350,9 @@ class _CustomCourseEditorPageState extends State<CustomCourseEditorPage> {
   @override
   Widget build(BuildContext context) {
     final title = widget.course == null ? '添加课程' : '编辑课程';
+    final cardMargin = (Theme.of(context).cardTheme.margin ?? const EdgeInsets.all(4))
+        .resolve(Directionality.of(context));
+    final actionPadding = EdgeInsets.only(left: cardMargin.left, right: cardMargin.right);
     final useIosChrome = isIos();
     final useLegacyIosChrome = usesLegacyIosChrome();
     final topInset = useIosChrome || useLegacyIosChrome
@@ -321,9 +361,25 @@ class _CustomCourseEditorPageState extends State<CustomCourseEditorPage> {
 
     return Scaffold(
       extendBodyBehindAppBar: !useIosChrome && !useLegacyIosChrome,
-      appBar:
-          useIosChrome ? IosNativeNavigationBar(title: title) : BlurredAppBar(title: Text(title)),
+      appBar: useIosChrome
+          ? IosNativeNavigationBar(
+              title: title,
+              leadingItems: const [
+                IosNativeNavigationBarItem(
+                  id: 'back',
+                  title: '返回',
+                  sfSymbol: 'chevron.left',
+                  accessibilityLabel: '返回',
+                  placementGroup: 'leading-main',
+                ),
+              ],
+              onItemPressed: (id) {
+                if (id == 'back') unawaited(maybePopAdaptivePage<void>(context));
+              },
+            )
+          : BlurredAppBar(title: Text(title)),
       body: ListView(
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         padding: EdgeInsets.fromLTRB(
           16,
           topInset + 12,
@@ -346,22 +402,25 @@ class _CustomCourseEditorPageState extends State<CustomCourseEditorPage> {
           _section(
             '课程信息',
             children: [
-              AdaptiveTextFieldGroup(
-                items: [
-                  AdaptiveTextFieldGroupItem(
-                    controller: _name,
-                    placeholder: '课程名称',
-                  ),
-                  AdaptiveTextFieldGroupItem(
-                    controller: _location,
-                    placeholder: '上课地点（可选）',
-                  ),
-                  AdaptiveTextFieldGroupItem(
-                    controller: _teachers,
-                    placeholder: '教师（可选）',
-                    textInputAction: TextInputAction.done,
-                  ),
-                ],
+              TapRegion(
+                onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
+                child: AdaptiveTextFieldGroup(
+                  items: [
+                    AdaptiveTextFieldGroupItem(
+                      controller: _name,
+                      placeholder: '课程名称',
+                    ),
+                    AdaptiveTextFieldGroupItem(
+                      controller: _location,
+                      placeholder: '上课地点（可选）',
+                    ),
+                    AdaptiveTextFieldGroupItem(
+                      controller: _teachers,
+                      placeholder: '教师（可选）',
+                      textInputAction: TextInputAction.done,
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -369,15 +428,6 @@ class _CustomCourseEditorPageState extends State<CustomCourseEditorPage> {
           _section(
             '课程时间',
             children: [
-              _select(
-                value: _scheduleMode.toString(),
-                options: const [
-                  AdaptiveSelectOption(value: '0', label: '按周重复'),
-                  AdaptiveSelectOption(value: '1', label: '只上一次'),
-                ],
-                placeholder: '选择方式',
-                onChanged: (value) => setState(() => _scheduleMode = int.parse(value)),
-              ),
               const SizedBox(height: 12),
               if (_isOneOff)
                 _dateTile()
@@ -411,14 +461,18 @@ class _CustomCourseEditorPageState extends State<CustomCourseEditorPage> {
                           ),
                           _shortcut(
                             '单周',
-                            _weeks.isNotEmpty && _weeks.every((week) => week.isOdd),
+                            _weeks.isNotEmpty &&
+                                _weeks.length == _allWeeks.where((week) => week.isOdd).length &&
+                                _weeks.containsAll(_allWeeks.where((week) => week.isOdd)),
                             () => _setWeeks(
                               _allWeeks.where((week) => week.isOdd).toSet(),
                             ),
                           ),
                           _shortcut(
                             '双周',
-                            _weeks.isNotEmpty && _weeks.every((week) => week.isEven),
+                            _weeks.isNotEmpty &&
+                                _weeks.length == _allWeeks.where((week) => week.isEven).length &&
+                                _weeks.containsAll(_allWeeks.where((week) => week.isEven)),
                             () => _setWeeks(
                               _allWeeks.where((week) => week.isEven).toSet(),
                             ),
@@ -452,30 +506,45 @@ class _CustomCourseEditorPageState extends State<CustomCourseEditorPage> {
                   ),
                 ],
               ],
+              const SizedBox(height: 4),
+              Align(
+                alignment: AlignmentDirectional.centerEnd,
+                child: TextButton.icon(
+                  onPressed: () => setState(() => _scheduleMode = _isOneOff ? 0 : 1),
+                  icon: Icon(_isOneOff ? Icons.repeat : Icons.event_outlined, size: 18),
+                  label: Text(_isOneOff ? '按周重复' : '只上一次'),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 12),
           _section('时间段', children: _timeFields()),
           const SizedBox(height: 20),
-          AdaptiveButton(
-            onPressed: _saving ? null : _save,
-            icon: Icons.check_rounded,
-            sfSymbol: 'checkmark',
-            label: '保存',
-            role: AdaptiveButtonRole.prominent,
-            loading: _saving,
-            accessibilityLabel: '保存课程',
+          Padding(
+            padding: actionPadding,
+            child: AdaptiveButton(
+              onPressed: _saving ? null : _save,
+              icon: Icons.check_rounded,
+              sfSymbol: 'checkmark',
+              label: '保存',
+              role: AdaptiveButtonRole.prominent,
+              loading: _saving,
+              accessibilityLabel: '保存课程',
+            ),
           ),
           if (widget.course != null) ...[
             const SizedBox(height: 8),
-            AdaptiveConfirmationButton(
-              label: '删除',
-              confirmTitle: '删除这节课？',
-              confirmLabel: '删除',
-              icon: Icons.delete_outline,
-              sfSymbol: 'trash',
-              destructive: true,
-              onConfirmed: _delete,
+            Padding(
+              padding: actionPadding,
+              child: AdaptiveConfirmationButton(
+                label: '删除',
+                confirmTitle: '删除这节课？',
+                confirmLabel: '删除',
+                icon: Icons.delete_outline,
+                sfSymbol: 'trash',
+                destructive: true,
+                onConfirmed: _delete,
+              ),
             ),
           ],
         ],
@@ -530,7 +599,6 @@ class _CustomCourseEditorPageState extends State<CustomCourseEditorPage> {
               label: '第 ${period.number} 节  ${period.startTime}',
             ),
         ],
-        onChanged: _setStartPeriod,
       ),
       const SizedBox(height: 12),
       _periodRow(
@@ -543,7 +611,6 @@ class _CustomCourseEditorPageState extends State<CustomCourseEditorPage> {
               label: '第 ${period.number} 节  ${period.endTime}',
             ),
         ],
-        onChanged: _setEndPeriod,
       ),
       const SizedBox(height: 4),
       Align(
@@ -570,38 +637,55 @@ class _CustomCourseEditorPageState extends State<CustomCourseEditorPage> {
     required String label,
     required String value,
     required List<AdaptiveSelectOption> options,
-    required ValueChanged<String> onChanged,
-  }) {
-    return Row(
-      children: [
-        Text(label, style: Theme.of(context).textTheme.bodyMedium),
-        const SizedBox(width: 12),
-        Expanded(
-          child: AdaptiveSelect(
-            options: options,
-            value: value,
-            placeholder: '选择节次',
-            width: double.infinity,
-            onChanged: onChanged,
-          ),
-        ),
-      ],
+  }) =>
+      _timeInputRow(
+        label: label,
+        value: value,
+        options: options,
+        placeholder: '选择节次',
+        onTap: options.isEmpty ? null : _pickPeriods,
+      );
+
+  Widget _timeTile({required bool isStart}) {
+    final time = _formatTime(isStart ? _startTime : _endTime);
+    return _timeInputRow(
+      label: isStart ? '开始' : '结束',
+      value: time,
+      options: [AdaptiveSelectOption(value: time, label: time)],
+      placeholder: '选择时间',
+      onTap: () => _pickTime(isStart: isStart),
     );
   }
 
-  Widget _timeTile({required bool isStart}) {
-    final value = isStart ? _startTime : _endTime;
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: Icon(isStart ? Icons.play_arrow_outlined : Icons.stop_outlined),
-      title: Text(isStart ? '开始时间' : '结束时间'),
-      trailing: Text(
-        _formatTime(value),
-        style: Theme.of(context).textTheme.bodyLarge,
-      ),
-      onTap: () => unawaited(_pickTime(isStart: isStart)),
-    );
-  }
+  Widget _timeInputRow({
+    required String label,
+    required String value,
+    required List<AdaptiveSelectOption> options,
+    required String placeholder,
+    required VoidCallback? onTap,
+  }) =>
+      Row(
+        children: [
+          Text(label, style: Theme.of(context).textTheme.bodyMedium),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _pickerField(
+              onTap: onTap,
+              child: AdaptiveSelect(
+                options: options,
+                value: value,
+                placeholder: placeholder,
+                width: double.infinity,
+                onChanged: (_) {},
+              ),
+            ),
+          ),
+        ],
+      );
+
+  // Keep the existing field rendering; only its presentation action changes.
+  Widget _pickerField({required Widget child, required VoidCallback? onTap}) =>
+      SchedulePickerField(onTap: onTap, child: child);
 
   Widget _dateTile() {
     final theme = Theme.of(context);
@@ -649,14 +733,17 @@ class _CustomCourseEditorPageState extends State<CustomCourseEditorPage> {
     required String placeholder,
     required ValueChanged<String> onChanged,
   }) {
-    return SizedBox(
-      width: double.infinity,
-      child: AdaptiveSelect(
-        options: options,
-        value: value,
-        placeholder: placeholder,
+    return _pickerField(
+      onTap: options.isEmpty ? null : _pickSemester,
+      child: SizedBox(
         width: double.infinity,
-        onChanged: onChanged,
+        child: AdaptiveSelect(
+          options: options,
+          value: value,
+          placeholder: placeholder,
+          width: double.infinity,
+          onChanged: onChanged,
+        ),
       ),
     );
   }
