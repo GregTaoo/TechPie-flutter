@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		0466199614A1C831219073CE /* widget-background.png in Resources */ = {isa = PBXBuildFile; fileRef = 66FA21E796749A1D7DF0A728 /* widget-background.png */; };
 		05B05AA7B58B0CE3C234F319 /* WatchSupport in Frameworks */ = {isa = PBXBuildFile; productRef = 2EDA78A467DB8C886816A613 /* WatchSupport */; };
+		13FF8EA569E74B186F9B73DC /* EcardBindTunnel.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = B3FC6938E07628F035A3D587 /* EcardBindTunnel.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */; };
 		185C656BE1F09722B49981C5 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3B7035B6F9EF034B7C94942F /* Assets.xcassets */; };
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
@@ -19,16 +20,20 @@
 		5A0010142F1A000100000001 /* NativeGlassPresenterPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0010132F1A000100000001 /* NativeGlassPresenterPlugin.swift */; };
 		5A0010152F1A000100000001 /* IcsFilePresenterPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0010162F1A000100000001 /* IcsFilePresenterPlugin.swift */; };
 		5A0010182F1A000100000001 /* NativeNavigationBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0010172F1A000100000001 /* NativeNavigationBar.swift */; };
+		674C1E9FBF132F0F79A1B9EB /* EcardBindTunnelPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A57A3E0C7844F433A2F16B /* EcardBindTunnelPlugin.swift */; };
 		6BFBE954DB868241E9E9810B /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 052EF181B45C1F8AB028A91F /* Pods_Runner.framework */; };
 		74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74858FAE1ED2DC5600515810 /* AppDelegate.swift */; };
 		75CE913AF0FADB4E2A1F4D42 /* WatchSupport in Frameworks */ = {isa = PBXBuildFile; productRef = 5D3F4FB42B7E14FFEF02E328 /* WatchSupport */; };
 		78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */ = {isa = PBXBuildFile; productRef = 78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */; };
 		8066B5453B1AFDE3DDF599AF /* Logo.png in Resources */ = {isa = PBXBuildFile; fileRef = EDBA650E1E348D1232D8FA94 /* Logo.png */; };
 		8F7428AE32B6D2B9B94C07A2 /* WatchConnectivityBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EC2EF3B17D3D84D1DBF4E10 /* WatchConnectivityBridge.swift */; };
+		9533B1DC3170FC28FFA48AC1 /* EcardDnsPacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4CE62D1C4D99E7AF9BB15F7 /* EcardDnsPacket.swift */; };
 		97C146FC1CF9000F007C117D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FA1CF9000F007C117D /* Main.storyboard */; };
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
 		AE9BB45FC9E1D531003A2DF5 /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 95DFA3F27C43BF6B489182B8 /* Pods_RunnerTests.framework */; };
+		B4A6C8E0F2A41122B3C4D5E7 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4A6C8E0F2A41122B3C4D5E6 /* SceneDelegate.swift */; };
+		CB908AF5922ECD48E35C02D9 /* PacketTunnelProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD092160D46B5A93DA6BBB11 /* PacketTunnelProvider.swift */; };
 		CC8599484806003B6A672E9F /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EA485BF4890DBA17E765148E /* Foundation.framework */; };
 		D6C82C39D032342980C3BFD3 /* TechPieWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A891BE60F0002963D9D212B0 /* TechPieWatchApp.swift */; };
 		ECAD00000000000000000004 /* EcardPayWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECAD00000000000000000001 /* EcardPayWidget.swift */; };
@@ -44,6 +49,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		03FD7F3699CA76F7A98AB5D8 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 97C146E61CF9000F007C117D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = EF33076DA77CC3FE157CBB2F;
+			remoteInfo = EcardBindTunnel;
+		};
 		331C8085294A63A400263BE5 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 97C146E61CF9000F007C117D /* Project object */;
@@ -96,6 +108,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				ECAD00000000000000000005 /* EcardPayWidget.appex in Embed App Extensions */,
+				13FF8EA569E74B186F9B73DC /* EcardBindTunnel.appex in Embed App Extensions */,
 			);
 			name = "Embed App Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -107,6 +120,7 @@
 		0987CA72269BC175F4FC0A1A /* WatchStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchStore.swift; sourceTree = "<group>"; };
 		1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GeneratedPluginRegistrant.h; sourceTree = "<group>"; };
 		1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GeneratedPluginRegistrant.m; sourceTree = "<group>"; };
+		2387C4FA62C2D68EF7E977E0 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		296F06645E00F213C9654F8F /* Pods-RunnerTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.debug.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.debug.xcconfig"; sourceTree = "<group>"; };
 		2EC2EF3B17D3D84D1DBF4E10 /* WatchConnectivityBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WatchConnectivityBridge.swift; sourceTree = "<group>"; };
 		331C807B294A618700263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
@@ -121,6 +135,7 @@
 		5A0010172F1A000100000001 /* NativeNavigationBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeNavigationBar.swift; sourceTree = "<group>"; };
 		66FA21E796749A1D7DF0A728 /* widget-background.png */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = image.png; name = "widget-background.png"; path = "../assets/campus_card/images/widget-background.png"; sourceTree = SOURCE_ROOT; };
 		6B0AD00AB3D979A68E9ABE84 /* Pods-RunnerTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release.xcconfig"; sourceTree = "<group>"; };
+		71A57A3E0C7844F433A2F16B /* EcardBindTunnelPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EcardBindTunnelPlugin.swift; sourceTree = "<group>"; };
 		74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Runner-Bridging-Header.h"; sourceTree = "<group>"; };
 		74858FAE1ED2DC5600515810 /* AppDelegate.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		776CD06E7F9DDAC30B1D93AD /* Pods-Runner.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.profile.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"; sourceTree = "<group>"; };
@@ -136,6 +151,9 @@
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		98F496C6E33E8AC1C6A63AB8 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A891BE60F0002963D9D212B0 /* TechPieWatchApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TechPieWatchApp.swift; sourceTree = "<group>"; };
+		B3FC6938E07628F035A3D587 /* EcardBindTunnel.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = EcardBindTunnel.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		B4A6C8E0F2A41122B3C4D5E6 /* SceneDelegate.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
+		C4CE62D1C4D99E7AF9BB15F7 /* EcardDnsPacket.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EcardDnsPacket.swift; sourceTree = "<group>"; };
 		C6ECDBC06E9BDB1CBA58B7DB /* Pods-Runner.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.release.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"; sourceTree = "<group>"; };
 		C7BBB453CDB9F73A63A4A327 /* Pods-Runner.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.debug.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"; sourceTree = "<group>"; };
 		D2C4C3D10C634BB53BF3F9A6 /* TechPieWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TechPieWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -160,6 +178,8 @@
 		ECAD00000000000000000052 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		ECAD00000000000000000053 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		EDBA650E1E348D1232D8FA94 /* Logo.png */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = image.png; name = Logo.png; path = ../assets/logo/Logo.png; sourceTree = SOURCE_ROOT; };
+		EDF612F5A0C8AF62A7546F7B /* EcardBindTunnel.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = EcardBindTunnel.entitlements; sourceTree = "<group>"; };
+		FD092160D46B5A93DA6BBB11 /* PacketTunnelProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PacketTunnelProvider.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -187,6 +207,13 @@
 				78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */,
 				6BFBE954DB868241E9E9810B /* Pods_Runner.framework in Frameworks */,
 				05B05AA7B58B0CE3C234F319 /* WatchSupport in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CB28617BA775F30D90DEEE47 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -229,6 +256,18 @@
 				331C807B294A618700263BE5 /* RunnerTests.swift */,
 			);
 			path = RunnerTests;
+			sourceTree = "<group>";
+		};
+		46D609042B9BA1A3F0658A68 /* EcardBindTunnel */ = {
+			isa = PBXGroup;
+			children = (
+				FD092160D46B5A93DA6BBB11 /* PacketTunnelProvider.swift */,
+				C4CE62D1C4D99E7AF9BB15F7 /* EcardDnsPacket.swift */,
+				2387C4FA62C2D68EF7E977E0 /* Info.plist */,
+				EDF612F5A0C8AF62A7546F7B /* EcardBindTunnel.entitlements */,
+			);
+			name = EcardBindTunnel;
+			path = EcardBindTunnel;
 			sourceTree = "<group>";
 		};
 		5A0010082F1A000100000001 /* NativeGlass */ = {
@@ -283,6 +322,7 @@
 				1FD71643C385FC3B24A7C891 /* Pods */,
 				199709143E3688A7CDC91428 /* Frameworks */,
 				99B11879EDB0416AA00498FB /* TechPieWatch */,
+				46D609042B9BA1A3F0658A68 /* EcardBindTunnel */,
 			);
 			sourceTree = "<group>";
 		};
@@ -293,6 +333,7 @@
 				331C8081294A63A400263BE5 /* RunnerTests.xctest */,
 				ECAD00000000000000000003 /* EcardPayWidget.appex */,
 				D2C4C3D10C634BB53BF3F9A6 /* TechPieWatch.app */,
+				B3FC6938E07628F035A3D587 /* EcardBindTunnel.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -307,11 +348,13 @@
 				1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */,
 				1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */,
 				74858FAE1ED2DC5600515810 /* AppDelegate.swift */,
+				B4A6C8E0F2A41122B3C4D5E6 /* SceneDelegate.swift */,
 				ECAD00000000000000000031 /* EcardFeedback.swift */,
 				ECAD00000000000000000042 /* Shortcuts */,
 				5A0010082F1A000100000001 /* NativeGlass */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 				2EC2EF3B17D3D84D1DBF4E10 /* WatchConnectivityBridge.swift */,
+				71A57A3E0C7844F433A2F16B /* EcardBindTunnelPlugin.swift */,
 			);
 			path = Runner;
 			sourceTree = "<group>";
@@ -388,12 +431,14 @@
 				CA04EC23E8705233D4FF5218 /* Embed Watch Content */,
 				3B06AD1E1E4923F5004D2608 /* Thin Binary */,
 				1C676109FBCDA2409F8A534A /* [CP] Embed Pods Frameworks */,
+				8AD6F1658E1E2176223E1A95 /* [CP] Copy Pods Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				ECAD00000000000000000011 /* PBXTargetDependency */,
 				A12CF311F3590B09CDF532E5 /* PBXTargetDependency */,
+				5BB3ABCB79102264B917D20E /* PBXTargetDependency */,
 			);
 			name = Runner;
 			packageProductDependencies = (
@@ -441,6 +486,23 @@
 			productReference = ECAD00000000000000000003 /* EcardPayWidget.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		EF33076DA77CC3FE157CBB2F /* EcardBindTunnel */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F181114D5360C4C82B2900EF /* Build configuration list for PBXNativeTarget "EcardBindTunnel" */;
+			buildPhases = (
+				2E8ECD073F4F3F226FD9596B /* Sources */,
+				CB28617BA775F30D90DEEE47 /* Frameworks */,
+				0070BC7F20261CBB5E0D3D84 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = EcardBindTunnel;
+			productName = EcardBindTunnel;
+			productReference = B3FC6938E07628F035A3D587 /* EcardBindTunnel.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -485,11 +547,19 @@
 				331C8080294A63A400263BE5 /* RunnerTests */,
 				ECAD0000000000000000000B /* EcardPayWidget */,
 				E34C05B9C95E87D00F79F0EE /* TechPieWatch */,
+				EF33076DA77CC3FE157CBB2F /* EcardBindTunnel */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		0070BC7F20261CBB5E0D3D84 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		331C807F294A63A400263BE5 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -610,6 +680,23 @@
 			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
 			showEnvVarsInLog = 0;
 		};
+		8AD6F1658E1E2176223E1A95 /* [CP] Copy Pods Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-Runner/Pods-Runner-resources-${CONFIGURATION}-input-files.xcfilelist",
+			);
+			name = "[CP] Copy Pods Resources";
+			outputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-Runner/Pods-Runner-resources-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Runner/Pods-Runner-resources.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
 		9740EEB61CF901F6004384FC /* Run Script */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -628,6 +715,15 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		2E8ECD073F4F3F226FD9596B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CB908AF5922ECD48E35C02D9 /* PacketTunnelProvider.swift in Sources */,
+				9533B1DC3170FC28FFA48AC1 /* EcardDnsPacket.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		331C807D294A63A400263BE5 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -646,10 +742,12 @@
 				5A0010052F1A000100000001 /* NativeGlassTabBarView.swift in Sources */,
 				5A0010032F1A000100000001 /* NativeGlassRegistry.swift in Sources */,
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
+				B4A6C8E0F2A41122B3C4D5E7 /* SceneDelegate.swift in Sources */,
 				ECAD00000000000000000030 /* EcardFeedback.swift in Sources */,
 				ECAD00000000000000000040 /* EcardShortcuts.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
 				8F7428AE32B6D2B9B94C07A2 /* WatchConnectivityBridge.swift in Sources */,
+				674C1E9FBF132F0F79A1B9EB /* EcardBindTunnelPlugin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -677,6 +775,12 @@
 			isa = PBXTargetDependency;
 			target = 97C146ED1CF9000F007C117D /* Runner */;
 			targetProxy = 331C8085294A63A400263BE5 /* PBXContainerItemProxy */;
+		};
+		5BB3ABCB79102264B917D20E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = EcardBindTunnel;
+			target = EF33076DA77CC3FE157CBB2F /* EcardBindTunnel */;
+			targetProxy = 03FD7F3699CA76F7A98AB5D8 /* PBXContainerItemProxy */;
 		};
 		A12CF311F3590B09CDF532E5 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -795,7 +899,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.5;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -811,6 +915,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
@@ -901,6 +1006,35 @@
 			};
 			name = Release;
 		};
+		618B0032B9BFBBA4F4594630 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 9740EEB31CF90195004384FC /* Generated.xcconfig */;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = EcardBindTunnel/EcardBindTunnel.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = EcardBindTunnel/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.techpie.EcardBindTunnel;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 		6356BD0E37165BD660C8B87D /* Debug */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 3A18B1C545E34121D35EA8DC /* Watch.xcconfig */;
@@ -976,7 +1110,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.5;
 				MTL_ENABLE_DEBUG_INFO = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
@@ -1029,7 +1163,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.5;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -1047,6 +1181,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
@@ -1069,6 +1204,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
@@ -1084,6 +1220,63 @@
 			};
 			name = Release;
 		};
+		B95FC7205EDA48277A0AF9AC /* Profile */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 9740EEB31CF90195004384FC /* Generated.xcconfig */;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = EcardBindTunnel/EcardBindTunnel.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = EcardBindTunnel/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.techpie.EcardBindTunnel;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Profile;
+		};
+		BB5FFCA8BA64D0F689799DE0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 9740EEB31CF90195004384FC /* Generated.xcconfig */;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = EcardBindTunnel/EcardBindTunnel.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = EcardBindTunnel/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.techpie.EcardBindTunnel;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
 		ECAD0000000000000000000C /* Debug */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 9740EEB31CF90195004384FC /* Generated.xcconfig */;
@@ -1092,7 +1285,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
 				INFOPLIST_FILE = EcardPayWidget/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.5;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1120,7 +1313,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
 				INFOPLIST_FILE = EcardPayWidget/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.5;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1147,7 +1340,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
 				INFOPLIST_FILE = EcardPayWidget/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.5;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1240,6 +1433,16 @@
 				ECAD0000000000000000000C /* Debug */,
 				ECAD0000000000000000000D /* Release */,
 				ECAD0000000000000000000E /* Profile */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		F181114D5360C4C82B2900EF /* Build configuration list for PBXNativeTarget "EcardBindTunnel" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				618B0032B9BFBBA4F4594630 /* Release */,
+				BB5FFCA8BA64D0F689799DE0 /* Debug */,
+				B95FC7205EDA48277A0AF9AC /* Profile */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

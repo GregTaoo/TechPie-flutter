@@ -36,6 +36,10 @@ void main() {
         sid: '2024xxxx',
         name: 'Test',
         token: 'tok',
+        expire: DateTime.now()
+                .add(const Duration(days: 30))
+                .millisecondsSinceEpoch ~/
+            1000,
         raw: {
           'sessionToken': 'st-v0',
           'tgc': tgc,
@@ -45,7 +49,6 @@ void main() {
         },
         boundAt: DateTime.now(),
       );
-
   setUp(() {
     client = _CountingClient();
     probeDisplays = [];
@@ -75,14 +78,39 @@ void main() {
       contains('CASTGC=tgc-v1'),
     );
   });
-  test('cpdaily schedules the next renewal one month after success', () async {
+
+  test('legacy CpDaily UUID remains the protocol userId during renewal',
+      () async {
+    const userId = '11111111-2222-3333-4444-555555555555';
+    final legacy = ThirdPartyAccount(
+      platform: ThirdPartyPlatform.cpdaily,
+      account: '20240001',
+      sid: userId,
+      token: 'session',
+      raw: const {
+        'sessionToken': 'session',
+        'tgc': 'tgc-v0',
+        'tenantId': 'tenant',
+      },
+      boundAt: DateTime.now(),
+    );
+    tree.cpdaily.setAccount(legacy);
+    expect(tree.cpdaily.rawFields['userId'], userId);
+    expect(tree.cpdaily.cookieProvider!.studentId, '20240001');
+    expect(await tree.cpdaily.renew(), isTrue);
+    expect(client.lastRenewBody!['userId'], userId);
+    expect(tree.cpdaily.rawFields['userId'], userId);
+    expect(tree.cpdaily.account!.cpdailyStudentId, '20240001');
+  });
+
+  test('cpdaily schedules renewal three days before account expiry', () async {
     final before = DateTime.now();
     await tree.cpdaily.renew();
 
     final next = tree.cpdaily.nextRenewTimestamp;
     expect(next, isNotNull);
-    expect(next!.isAfter(before.add(const Duration(days: 27))), true);
-    expect(next.isBefore(before.add(const Duration(days: 32))), true);
+    expect(next!.isAfter(before.add(const Duration(days: 26))), true);
+    expect(next.isBefore(before.add(const Duration(days: 28))), true);
   });
 
   test('derived cookie schedules the next renewal ten minutes after success',
@@ -218,7 +246,8 @@ void main() {
     expect(cp?.cookies, 'JSESSIONID=js-v2; CASTGC=tgc-v2');
   });
 
-  test('freshCookie leaves a node alone while its schedule is not due', () async {
+  test('freshCookie leaves a node alone while its schedule is not due',
+      () async {
     await tree.cpdaily.renew();
 
     final cp = await tree.freshCookie(tree.cpdaily);
@@ -227,7 +256,8 @@ void main() {
     expect(cp?.cookies, 'JSESSIONID=js-v1; CASTGC=tgc-v1');
   });
 
-  test('freshCookie renews a stale parent before re-minting the child', () async {
+  test('freshCookie renews a stale parent before re-minting the child',
+      () async {
     await tree.eams.renew();
     tree.cpdaily.seedNextRenewTimestamp(
       DateTime.now().subtract(const Duration(seconds: 1)),
@@ -392,6 +422,7 @@ class _CountingClient extends http.BaseClient {
   List<int> eamsStatuses = const [];
   List<String?> eamsTokens = const [];
   Map<String, dynamic>? lastEamsBody;
+  Map<String, dynamic>? lastRenewBody;
   int _renewVersion = 0;
   int _eamsVersion = 0;
 
@@ -401,12 +432,15 @@ class _CountingClient extends http.BaseClient {
 
     if (url.endsWith('/auth/renew')) {
       renewCalls++;
+      lastRenewBody = request is http.Request
+          ? jsonDecode(request.body) as Map<String, dynamic>
+          : <String, dynamic>{};
       _renewVersion++;
       final resp = jsonEncode({
         'success': true,
         'sessionToken': 'st-v$_renewVersion',
         'tgc': 'tgc-v$_renewVersion',
-        'userId': 'u1',
+        'userId': lastRenewBody?['userId'] ?? 'u1',
         'tenantId': 't1',
         'cookies': 'JSESSIONID=js-v$_renewVersion',
       });

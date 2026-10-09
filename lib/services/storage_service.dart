@@ -182,7 +182,8 @@ class StorageService {
   }
 
   // SharedPreferences for non-sensitive data
-  bool get debugMode => !kReleaseMode && (_prefs.getBool(_debugModeKey) ?? false);
+  bool get debugMode =>
+      !kReleaseMode && (_prefs.getBool(_debugModeKey) ?? false);
   Future<void> setDebugMode(bool value) => _prefs.setBool(_debugModeKey, value);
 
   String get cachedSchoolName => _prefs.getString(_schoolNameKey) ?? '';
@@ -197,8 +198,10 @@ class StorageService {
   String get colorScheme => _prefs.getString(_colorSchemeKey) ?? 'system';
   Future<void> setColorScheme(String scheme) => _prefs.setString(_colorSchemeKey, scheme);
 
-  bool get useLocalhost => !kReleaseMode && (_prefs.getBool(_useLocalhostKey) ?? false);
-  Future<void> setUseLocalhost(bool value) => _prefs.setBool(_useLocalhostKey, value);
+  bool get useLocalhost =>
+      !kReleaseMode && (_prefs.getBool(_useLocalhostKey) ?? false);
+  Future<void> setUseLocalhost(bool value) =>
+      _prefs.setBool(_useLocalhostKey, value);
 
   // Cloud-sync settings. The master-password-derived key is the one sensitive
   // piece — it lives in secure storage, never in SharedPreferences.
@@ -343,21 +346,46 @@ class StorageService {
 
   Future<void> clearAssignmentOverrides() => _prefs.remove(_assignmentOverridesKey);
 
-  // OA gym booking profile. This is non-sensitive contact info used to submit
-  // reservation forms and can be edited by the user.
+  // Local reservation contact details, scoped to the primary and eGate
+  // accounts. Keep the old unscoped record, but do not assign it to a new user.
   static const _oaBookingProfileKey = 'oa_booking_profile';
 
-  Future<void> saveOaBookingProfile(OaBookingProfile profile) =>
-      _prefs.setString(_oaBookingProfileKey, jsonEncode(profile.toJson()));
+  String _bookingProfileKey(String? owner) => owner == null
+      ? _oaBookingProfileKey
+      : '${_oaBookingProfileKey}_v2_${Uri.encodeComponent(owner)}';
 
-  OaBookingProfile loadOaBookingProfile() {
-    final raw = _prefs.getString(_oaBookingProfileKey);
-    if (raw == null) {
-      return const OaBookingProfile(name: '', phone: '', email: '');
+  Future<void> saveOaBookingProfile(
+    OaBookingProfile profile, {
+    String? owner,
+    OaBookingProfile? schoolProfile,
+  }) {
+    final data = profile.toJson();
+    final school =
+        schoolProfile?.toJson() ?? _bookingProfileRecord(owner)['school'];
+    if (school is Map) data['school'] = school;
+    return _prefs.setString(_bookingProfileKey(owner), jsonEncode(data));
+  }
+
+  Map<String, dynamic> _bookingProfileRecord(String? owner) {
+    final raw = _prefs.getString(_bookingProfileKey(owner));
+    if (raw == null) return const {};
+    try {
+      return jsonDecode(raw) as Map<String, dynamic>;
+    } catch (_) {
+      return const {};
     }
+  }
+
+  OaBookingProfile loadOaBookingProfile({String? owner}) =>
+      _parseBookingProfile(_bookingProfileRecord(owner));
+
+  OaBookingProfile loadOaSchoolProfile({required String owner}) =>
+      _parseBookingProfile(_bookingProfileRecord(owner)['school']);
+
+  OaBookingProfile _parseBookingProfile(Object? value) {
     try {
       return OaBookingProfile.fromJson(
-        jsonDecode(raw) as Map<String, dynamic>,
+        (value as Map?)?.cast<String, dynamic>() ?? const {},
       );
     } catch (_) {
       return const OaBookingProfile(name: '', phone: '', email: '');

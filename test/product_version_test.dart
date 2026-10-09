@@ -5,11 +5,11 @@ void main() {
   group('tryParse', () {
     test('reads the shapes we publish, and nothing else', () {
       // pubspec's version line, a release name, a candidate tag, a legacy tag.
-      expect(ProductVersion.tryParse('1.0.1+5'), const ProductVersion(1, 0, 1));
+      expect(ProductVersion.tryParse('1.0.1+5'), const ProductVersion(1, 0, 1, null, 5));
       expect(ProductVersion.tryParse('1.0.1-rc.2'), const ProductVersion(1, 0, 1, 2));
-      expect(ProductVersion.tryParse('v1.0.1-rc.2+5'), const ProductVersion(1, 0, 1, 2));
-      expect(ProductVersion.tryParse('android-v1.0.0-rc.1+3'), const ProductVersion(1, 0, 0, 1));
-      expect(ProductVersion.tryParse(' v1.0.0+12 '), const ProductVersion(1, 0, 0));
+      expect(ProductVersion.tryParse('v1.0.1-rc.2+5'), const ProductVersion(1, 0, 1, 2, 5));
+      expect(ProductVersion.tryParse('android-v1.0.0-rc.1+3'), const ProductVersion(1, 0, 0, 1, 3));
+      expect(ProductVersion.tryParse(' v1.0.0+12 '), const ProductVersion(1, 0, 0, null, 12));
 
       // A shape we do not know is not a version we may act on: an "update" that
       // is not one is worse than no update.
@@ -23,9 +23,17 @@ void main() {
   });
 
   group('ordering', () {
-    test('the build number is not part of the version', () {
-      expect(ProductVersion.tryParse('1.0.1+5'), ProductVersion.tryParse('1.0.1+6'));
-      expect(ProductVersion.tryParse('v1.0.1+6')!.isNewerThan(ProductVersion.tryParse('1.0.1+5')!), isFalse);
+    test('the build number orders two builds of one version', () {
+      // Our policy ships many builds of a single X.Y.Z, so a check on 1.0.1+12 has
+      // to see 1.0.1+13 as an update — comparing only X.Y.Z would call it even.
+      expect(ProductVersion.tryParse('1.0.1+13')!.isNewerThan(ProductVersion.tryParse('1.0.1+12')!), isTrue);
+      expect(ProductVersion.tryParse('v1.0.1+6')!.isNewerThan(ProductVersion.tryParse('v1.0.1+5')!), isTrue);
+      // A shape that carried no `+B` cannot be said to beat a build of its
+      // version, so neither is newer than the other.
+      expect(ProductVersion.tryParse('1.0.1+5')!.isNewerThan(ProductVersion.tryParse('1.0.1')!), isFalse);
+      expect(ProductVersion.tryParse('1.0.1')!.isNewerThan(ProductVersion.tryParse('1.0.1+5')!), isFalse);
+      // A gatherer of one version still outranks any build of a higher version.
+      expect(ProductVersion.tryParse('1.0.1+99')!.isNewerThan(ProductVersion.tryParse('1.0.2+1')!), isFalse);
     });
 
     test('a stable release outranks every candidate of itself', () {

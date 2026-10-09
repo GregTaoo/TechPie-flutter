@@ -29,7 +29,7 @@ void main() {
     final release = await service.checkForUpdate(const ProductVersion(1, 0, 1, 2));
 
     expect(release, isNotNull);
-    expect(release!.version, const ProductVersion(1, 0, 2));
+    expect(release!.version, const ProductVersion(1, 0, 2, null, 7));
     expect(release.name, 'v1.0.2');
     // The checksum block the release pipeline writes into the same body is not
     // part of what a user is shown as the changelog.
@@ -58,7 +58,7 @@ void main() {
     // stable release it led to is newer, so it is offered.
     final fromCandidate =
         await service.checkForUpdate(const ProductVersion(1, 0, 1, 2));
-    expect(fromCandidate!.version, const ProductVersion(1, 0, 1));
+    expect(fromCandidate!.version, const ProductVersion(1, 0, 1, null, 5));
   });
 
   test('reads a legacy tag shape and a candidate', () async {
@@ -69,7 +69,31 @@ void main() {
     );
 
     final release = await service.checkForUpdate(const ProductVersion(1, 0, 1));
-    expect(release!.version, const ProductVersion(1, 0, 2, 3));
+    expect(release!.version, const ProductVersion(1, 0, 2, 3, 9));
+  });
+
+  test('offers a higher build of the same stable version', () async {
+    // The bug this was written for: v1.0.1+13 landed, but a build on 1.0.1+12 saw
+    // only "1.0.1" and was told it was up to date.
+    final service = UpdateService(
+      client: _FakeClient(
+        (_) async => _jsonResponse({'tag_name': 'v1.0.1+13', 'name': 'v1.0.1', 'body': 'n'}),
+      ),
+    );
+
+    final release = await service.checkForUpdate(const ProductVersion(1, 0, 1, null, 12));
+
+    expect(release, isNotNull);
+    expect(release!.version, const ProductVersion(1, 0, 1, null, 13));
+    // The title says only v1.0.1, so it must be the tag ("v1.0.1+13") that names
+    // the offer — otherwise "发现新版本 v1.0.1" reads as no change at all.
+    expect(release.name, 'v1.0.1+13');
+
+    // And a build that is already the newer one is told nothing.
+    expect(
+      await service.checkForUpdate(const ProductVersion(1, 0, 1, null, 13)),
+      isNull,
+    );
   });
 
   test('refuses to prompt from a version it cannot read', () async {

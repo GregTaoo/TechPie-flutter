@@ -8,16 +8,45 @@ import WidgetKit
   private var ecardDeepLinkChannel: FlutterMethodChannel?
   private var pendingEcardRoute: String?
   private var ecardFeedback: EcardFeedback?
+  private var ecardBindTunnel: EcardBindTunnelPlugin?
   private var watchBridge: WatchConnectivityBridge?
+  private var flutterConfigured = false
 
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    GeneratedPluginRegistrant.register(with: self)
+    if let url = launchOptions?[.url] as? URL {
+      _ = captureEcardPayURL(url, notifyFlutter: false)
+    }
+
+    let launched = super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    if let shortcut = launchOptions?[.shortcutItem] as? UIApplicationShortcutItem,
+      handleEcardQuickAction(shortcut, notifyFlutter: false)
+    {
+      // Already queued for Flutter; prevent UIKit from delivering the action twice.
+      return false
+    }
+    return launched
+  }
+
+  func configureFlutter(with window: UIWindow?) -> Bool {
+    if flutterConfigured {
+      return true
+    }
+
+    guard let window,
+      let flutterViewController = window.rootViewController as? FlutterViewController
+    else {
+      assertionFailure("Failed to find the scene's FlutterViewController")
+      return false
+    }
+
+    self.window = window
+    GeneratedPluginRegistrant.register(with: flutterViewController)
 
     guard
-      let registrar = self.registrar(
+      let registrar = flutterViewController.registrar(
         forPlugin: "TechPieNativeGlassRegistry"
       )
     else {
@@ -27,6 +56,7 @@ import WidgetKit
 
     NativeGlassRegistry.registerAll(with: registrar)
     ecardFeedback = EcardFeedback(registrar: registrar)
+    ecardBindTunnel = EcardBindTunnelPlugin(messenger: registrar.messenger())
     watchBridge = WatchConnectivityBridge(registrar: registrar)
 
     let deepLinkChannel = FlutterMethodChannel(
@@ -63,18 +93,8 @@ import WidgetKit
       EcardAppShortcuts.updateAppShortcutParameters()
     }
 
-    if let url = launchOptions?[.url] as? URL {
-      _ = captureEcardPayURL(url, notifyFlutter: false)
-    }
-
-    let launched = super.application(application, didFinishLaunchingWithOptions: launchOptions)
-    if let shortcut = launchOptions?[.shortcutItem] as? UIApplicationShortcutItem,
-      handleEcardQuickAction(shortcut, notifyFlutter: false)
-    {
-      // Already queued for Flutter; prevent UIKit from delivering the action twice.
-      return false
-    }
-    return launched
+    flutterConfigured = true
+    return true
   }
 
   override func application(
