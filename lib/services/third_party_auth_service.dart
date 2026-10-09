@@ -271,7 +271,7 @@ class ThirdPartyAuthService extends ChangeNotifier {
   String cpdailyCookies() => _tree.cpdaily.cookieProvider?.cookies ?? '';
 
   /// Student id surfaced by the cpdaily binding, or '' if unbound.
-  String get cpdailyStudentId => _tree.cpdaily.account?.sid ?? '';
+  String get cpdailyStudentId => _tree.cpdaily.account?.cpdailyStudentId ?? '';
 
   /// Best-effort renewal of the cpdaily binding's CpDaily session. Delegates
   /// to [SessionNode.renew], which is single-flighted: concurrent callers

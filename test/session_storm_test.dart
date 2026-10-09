@@ -79,6 +79,30 @@ void main() {
     );
   });
 
+  test('legacy CpDaily UUID remains the protocol userId during renewal',
+      () async {
+    const userId = '11111111-2222-3333-4444-555555555555';
+    final legacy = ThirdPartyAccount(
+      platform: ThirdPartyPlatform.cpdaily,
+      account: '20240001',
+      sid: userId,
+      token: 'session',
+      raw: const {
+        'sessionToken': 'session',
+        'tgc': 'tgc-v0',
+        'tenantId': 'tenant',
+      },
+      boundAt: DateTime.now(),
+    );
+    tree.cpdaily.setAccount(legacy);
+    expect(tree.cpdaily.rawFields['userId'], userId);
+    expect(tree.cpdaily.cookieProvider!.studentId, '20240001');
+    expect(await tree.cpdaily.renew(), isTrue);
+    expect(client.lastRenewBody!['userId'], userId);
+    expect(tree.cpdaily.rawFields['userId'], userId);
+    expect(tree.cpdaily.account!.cpdailyStudentId, '20240001');
+  });
+
   test('cpdaily schedules renewal three days before account expiry', () async {
     final before = DateTime.now();
     await tree.cpdaily.renew();
@@ -398,6 +422,7 @@ class _CountingClient extends http.BaseClient {
   List<int> eamsStatuses = const [];
   List<String?> eamsTokens = const [];
   Map<String, dynamic>? lastEamsBody;
+  Map<String, dynamic>? lastRenewBody;
   int _renewVersion = 0;
   int _eamsVersion = 0;
 
@@ -407,12 +432,15 @@ class _CountingClient extends http.BaseClient {
 
     if (url.endsWith('/auth/renew')) {
       renewCalls++;
+      lastRenewBody = request is http.Request
+          ? jsonDecode(request.body) as Map<String, dynamic>
+          : <String, dynamic>{};
       _renewVersion++;
       final resp = jsonEncode({
         'success': true,
         'sessionToken': 'st-v$_renewVersion',
         'tgc': 'tgc-v$_renewVersion',
-        'userId': 'u1',
+        'userId': lastRenewBody?['userId'] ?? 'u1',
         'tenantId': 't1',
         'cookies': 'JSESSIONID=js-v$_renewVersion',
       });

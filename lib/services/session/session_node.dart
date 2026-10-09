@@ -277,7 +277,13 @@ class SessionNode extends ChangeNotifier {
   /// Raw fields from the bound account (top-level only). Downstream services
   /// (OA gym) and child nodes read tgc/sessionToken/userId/tenantId through
   /// this. Returns an empty map for non-top-level nodes.
-  Map<String, dynamic> get rawFields => _account?.raw ?? const {};
+  Map<String, dynamic> get rawFields {
+    final acc = _account;
+    if (id == 'cpdaily' && acc != null && acc.cpdailyUserId.isNotEmpty) {
+      return {...acc.raw, 'userId': acc.cpdailyUserId};
+    }
+    return acc?.raw ?? const {};
+  }
 
   void setAccount(ThirdPartyAccount? acc) {
     if (parent != null) return; // non-top-level: no account
@@ -320,7 +326,7 @@ class SessionNode extends ChangeNotifier {
       if (cookie.isEmpty) return null;
       return CookieProvider(
         cookies: cookie,
-        studentId: acc.sid ?? '',
+        studentId: id == 'cpdaily' ? acc.cpdailyStudentId : acc.sid ?? '',
         domain: _domain,
       );
     }
@@ -618,7 +624,7 @@ class SessionNode extends ChangeNotifier {
         body: jsonEncode({
           'sessionToken': acc.raw['sessionToken'] ?? '',
           'tgc': acc.raw['tgc'] ?? '',
-          'userId': acc.raw['userId'] ?? '',
+          'userId': acc.cpdailyUserId,
           'tenantId': acc.raw['tenantId'] ?? '',
         }),
         tag: 'cpdailyRenew',
@@ -632,7 +638,7 @@ class SessionNode extends ChangeNotifier {
         'sessionToken':
             data['sessionToken'] as String? ?? acc.raw['sessionToken'] ?? '',
         'tgc': data['tgc'] as String? ?? acc.raw['tgc'] ?? '',
-        'userId': data['userId'] as String? ?? acc.raw['userId'] ?? '',
+        'userId': data['userId'] as String? ?? acc.cpdailyUserId,
         'tenantId': data['tenantId'] as String? ?? acc.raw['tenantId'] ?? '',
         'cookies': data['cookies'] as String? ?? acc.raw['cookies'] ?? '',
       };

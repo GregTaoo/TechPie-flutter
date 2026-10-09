@@ -31,7 +31,6 @@ enum ThirdPartyPlatform {
   }
 }
 
-
 class ThirdPartyAccount {
   final ThirdPartyPlatform platform;
   final String account;
@@ -87,12 +86,42 @@ class ThirdPartyAccount {
       ? null
       : DateTime.fromMillisecondsSinceEpoch(expire! * 1000);
 
-  bool get isExpired =>
-      expireAt != null && DateTime.now().isAfter(expireAt!);
+  bool get isExpired => expireAt != null && DateTime.now().isAfter(expireAt!);
 
   String get displayName {
     if (name != null && name!.isNotEmpty) return name!;
     return account;
+  }
+
+  /// School identity is distinct from CpDaily's internal user UUID. Older
+  /// backends put that UUID in sid and omitted it from raw.userId.
+  String get cpdailyStudentId {
+    if (platform != ThirdPartyPlatform.cpdaily) return '';
+    for (final value in [raw['studentId'], raw['openId'], account, sid]) {
+      final id = cpdailySchoolId(value);
+      if (id.isNotEmpty) return id;
+    }
+    return '';
+  }
+
+  static String cpdailySchoolId(Object? value) {
+    if (value is! String) return '';
+    final id = value.trim();
+    return RegExp(r'^\d+$').hasMatch(id) &&
+            !RegExp(r'^1[3-9]\d{9}$').hasMatch(id)
+        ? id
+        : '';
+  }
+
+  String get cpdailyUserId {
+    if (platform != ThirdPartyPlatform.cpdaily) return '';
+    final value = raw['userId'];
+    if (value is String && value.isNotEmpty) return value;
+    final legacy = sid ?? '';
+    return RegExp(r'^[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}$')
+            .hasMatch(legacy)
+        ? legacy
+        : '';
   }
 
   /// Comparison key for LWW merge: newer [updatedAt] wins; on a tie the
