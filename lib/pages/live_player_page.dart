@@ -12,6 +12,7 @@ import '../services/live_playback_session.dart';
 import '../services/service_provider.dart';
 import '../widgets/adaptive_page_navigation.dart';
 import '../widgets/media_player_scaffold.dart';
+import '../widgets/media_volume_menu.dart';
 
 bool get supportsLivePlayback =>
     !kIsWeb &&
@@ -184,10 +185,15 @@ class _LivePlayerPageState extends State<LivePlayerPage> with WidgetsBindingObse
       seekGesture: false,
       seekOnDoubleTap: false,
       visibleOnMount: true,
-      primaryButtonBar: const [],
+      buttonBarHeight: 52,
+      bottomButtonBarMargin: EdgeInsets.zero,
+      primaryButtonBar: const [
+        Spacer(),
+        MaterialPlayOrPauseButton(iconSize: 48),
+        Spacer(),
+      ],
       bottomButtonBar: [
-        const MaterialPlayOrPauseButton(),
-        _LiveVolumeControl(player: _player!),
+        MediaVolumeMenu(player: _player!),
         const Spacer(),
         const MaterialFullscreenButton(),
       ],
@@ -231,41 +237,4 @@ class _LivePlayerPageState extends State<LivePlayerPage> with WidgetsBindingObse
           : null,
     );
   }
-}
-
-class _LiveVolumeControl extends StatelessWidget {
-  const _LiveVolumeControl({required this.player});
-
-  final Player player;
-
-  @override
-  Widget build(BuildContext context) => StreamBuilder<double>(
-        stream: player.stream.volume,
-        initialData: player.state.volume,
-        builder: (context, snapshot) {
-          final volume = (snapshot.data ?? 100).clamp(0.0, 100.0);
-          return Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              IconButton(
-                tooltip: volume == 0 ? '取消静音' : '静音',
-                color: Colors.white,
-                icon: Icon(volume == 0 ? Icons.volume_off : Icons.volume_up),
-                onPressed: () => unawaited(player.setVolume(volume == 0 ? 100 : 0)),
-              ),
-              SizedBox(
-                width: 88,
-                child: Slider(
-                  value: volume,
-                  min: 0,
-                  max: 100,
-                  activeColor: Colors.white,
-                  inactiveColor: Colors.white38,
-                  onChanged: (value) => unawaited(player.setVolume(value)),
-                ),
-              ),
-            ],
-          );
-        },
-      );
 }

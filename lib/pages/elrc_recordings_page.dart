@@ -3,7 +3,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../services/auth_service.dart';
-import '../services/elrc_browser.dart';
 import '../services/elrc_client.dart';
 import '../services/service_provider.dart';
 import '../services/third_party_auth_service.dart';
@@ -18,22 +17,14 @@ class ElrcRecordingsPage extends StatefulWidget {
 }
 
 class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
-  static final _reviewUri = Uri.parse(
-    'https://elrc.shanghaitech.edu.cn/learn/videoreview?type=1',
-  );
-
-  ElrcBrowser? _browser;
-  bool _browserReady = false;
   ElrcClient? _client;
   List<ElrcCourse>? _courses;
   ElrcCourse? _selectedCourse;
   List<ElrcLesson>? _lessons;
   String? _error;
-  Uri? _activeUri;
   int _request = 0;
   bool _starting = true;
   bool _busy = false;
-  bool _reviewFinished = false;
   ThirdPartyAuthService? _tpAuth;
   AuthService? _auth;
   String? _primaryUserId;
@@ -45,10 +36,6 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
           defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.macOS ||
           defaultTargetPlatform == TargetPlatform.windows);
-
-  bool get _desktop =>
-      defaultTargetPlatform == TargetPlatform.windows ||
-      defaultTargetPlatform == TargetPlatform.macOS;
 
   @override
   void didChangeDependencies() {
@@ -66,7 +53,7 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
     }
     _bindingOwner = _tpAuth!.campusWebSession.owner;
     _tpAuth!.addListener(_bindingChanged);
-    if (_supported) unawaited(_prepare());
+    if (_supported) _prepare();
   }
 
   bool get _authorized => _auth!.isLoggedIn && _auth!.session?.userId == _primaryUserId;
@@ -74,11 +61,8 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
   void _primaryAccountChanged() {
     if (_authorized || !mounted) return;
     _request++;
-    _browser?.dispose();
     _client?.dispose();
     _client = null;
-    _browser = null;
-    _browserReady = false;
     setState(() {
       _courses = null;
       _lessons = null;
@@ -94,11 +78,8 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
     if (generation == _bindingOwner || !mounted) return;
     _bindingOwner = generation;
     _request++;
-    _browser?.dispose();
     _client?.dispose();
     _client = null;
-    _browser = null;
-    _browserReady = false;
     setState(() {
       _courses = null;
       _lessons = null;
@@ -106,173 +87,21 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
       _busy = false;
       _starting = true;
     });
-    if (_supported) unawaited(_prepare());
+    if (_supported) _prepare();
   }
 
-  Future<void> _prepare() async {
-    final generation = _bindingOwner;
-    late final ElrcBrowser browser;
-    browser = createElrcBrowser(
-      auth: _tpAuth!,
-      onNavigation: (uri, replace) {
-        if (!_authorized || !identical(_browser, browser)) {
-          return ElrcNavigationAction.prevent;
-        }
-        _trace('navigation request ${_safeUri(uri)}');
-        if (uri?.toString() == 'about:blank') return ElrcNavigationAction.allow;
-        if (_isHttpElrc(uri)) {
-          final target = uri!.replace(scheme: 'https', port: 443);
-          replace(target);
-          return ElrcNavigationAction.replace;
-        }
-        if (_isLogin(uri)) {
-          _pageLoadFailed();
-          return ElrcNavigationAction.prevent;
-        }
-        return _isHttpsElrc(uri)
-            ? ElrcNavigationAction.allow
-            : ElrcNavigationAction.prevent;
-      },
-      onReady: () async {
-        if (!mounted || !_authorized || !identical(_browser, browser)) {
-          return;
-        }
-        final client = ElrcClient(
-          auth: _tpAuth!,
-          writeCookies: browser.writeCookies,
-          registerMessages: browser.registerMessages,
-          runJavaScript: browser.runJavaScript,
-        );
-        try {
-          await client.initialize();
-          if (!mounted || !_authorized || !identical(_browser, browser)) {
-            client.dispose();
-            return;
-          }
-          _client = client;
-          await browser.navigate(_reviewUri);
-        } catch (_) {
-          if (identical(_client, client)) _client = null;
-          client.dispose();
-          rethrow;
-        }
-      },
-      onStarted: (url) => _activate(url, pageStarted: true),
-      onUrlChanged: _activate,
-      onFinished: _navigationFinished,
-      onFailed: _pageLoadFailed,
-    );
-    _browser?.dispose();
+  void _prepare() {
     _client?.dispose();
-    _client = null;
-    _browser = browser;
-    if (_browserReady) setState(() => _browserReady = false);
-    try {
-      await browser.prepare();
-      if (!mounted ||
-          !_authorized ||
-          generation != _bindingOwner ||
-          !identical(_browser, browser)) {
-        return;
-      }
-      setState(() => _browserReady = true);
-    } catch (_) {
-      if (!mounted || generation != _bindingOwner || !identical(_browser, browser)) {
-        return;
-      }
-      setState(() {
-        _starting = false;
-        _busy = false;
-        _error = 'ELRC 页面加载失败';
-      });
-    }
-  }
-
-  bool _isHttpElrc(Uri? uri) =>
-      uri?.scheme == 'http' &&
-      uri?.host == 'elrc.shanghaitech.edu.cn' &&
-      uri?.port == 80 &&
-      uri?.userInfo.isEmpty == true;
-
-  bool _isHttpsElrc(Uri? uri) =>
-      uri?.scheme == 'https' &&
-      uri?.host == 'elrc.shanghaitech.edu.cn' &&
-      uri?.port == 443 &&
-      uri?.userInfo.isEmpty == true;
-
-  bool _isReview(Uri? uri) =>
-      _isHttpsElrc(uri) &&
-      (uri?.path == '/learn/videoreview' || uri?.path == '/learn/videoreview/');
-
-  bool _isAppSide(Uri? uri) =>
-      _isHttpsElrc(uri) && (uri?.path == '/appside' || uri?.path == '/appside/');
-
-  bool _isSessionPage(Uri? uri) => _isReview(uri) || _isAppSide(uri);
-
-  bool _isLogin(Uri? uri) =>
-      uri?.scheme == 'https' &&
-      uri?.host == 'ids.shanghaitech.edu.cn' &&
-      uri?.port == 443 &&
-      uri?.userInfo.isEmpty == true;
-
-  void _trace(String message) {
-    if (kDebugMode) debugPrint('[ELRC] $message');
-  }
-
-  String _safeUri(Uri? uri) {
-    if (uri == null) return '<invalid URL>';
-    final port = uri.hasPort ? ':${uri.port}' : '';
-    return '${uri.scheme}://${uri.host}$port${uri.path}';
-  }
-
-  void _activate(String? url, {bool pageStarted = false}) {
-    final uri = Uri.tryParse(url ?? '');
-    if (uri == null) return;
-    final wasSessionPage = _isSessionPage(_activeUri);
-    _activeUri = uri;
-    if (_isSessionPage(uri) && (pageStarted || !wasSessionPage)) {
-      _reviewFinished = false;
-    }
-    if (!mounted) return;
-
-    if (!_isHttpsElrc(uri)) return;
-    setState(() {
-      _starting = _courses == null;
-      if (_isSessionPage(uri)) {
-        _error = null;
-      }
-    });
-  }
-
-  void _navigationFinished(String url) {
-    final uri = Uri.tryParse(url);
-    if (_isSessionPage(uri) && _isSessionPage(_activeUri)) {
-      if (_reviewFinished) return;
-      _reviewFinished = true;
-      if (mounted) {
+    final client = _client = ElrcClient(auth: _tpAuth!);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _authorized && identical(_client, client)) {
         unawaited(_loadCourses());
       }
-      return;
-    }
-  }
-
-  void _pageLoadFailed() {
-    if (!mounted) return;
-    setState(() {
-      _starting = false;
-      _busy = false;
-      _error = 'ELRC 页面加载失败';
     });
   }
 
   Future<void> _reloadReview() async {
-    if (_browser?.isReady != true) {
-      await _tpAuth!.elrcNode.renew();
-      await _prepare();
-      return;
-    }
     final request = ++_request;
-    _reviewFinished = false;
     setState(() {
       _courses = null;
       _selectedCourse = null;
@@ -285,25 +114,21 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
       if (!await _tpAuth!.elrcNode.renew()) {
         throw const ElrcException('ELRC 登录续期失败，请重试');
       }
-      final provider = await _tpAuth!.sessionTree.freshCookie(_tpAuth!.elrcNode);
-      if (provider == null) throw const ElrcException('ELRC 登录续期失败，请重试');
       if (!mounted || !_authorized || request != _request) return;
-      await _browser!.writeCookies(provider);
-      await _browser!.navigate(_reviewUri);
+      await _loadCourses();
     } catch (_) {
       if (!mounted || !_authorized || request != _request) return;
       setState(() {
         _starting = false;
-        _error = 'ELRC 登录续期或页面加载失败，请重试';
+        _error = 'ELRC 登录续期失败，请重试';
       });
     }
   }
 
   Future<void> _loadCourses() async {
     final client = _client;
-    if (client == null || _busy || !_isSessionPage(_activeUri)) return;
+    if (client == null || _busy) return;
     final request = ++_request;
-    _trace('course request started from ${_safeUri(_activeUri)}');
     setState(() {
       _busy = true;
       _starting = false;
@@ -312,7 +137,6 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
     try {
       final courses = await client.courses();
       if (!mounted || request != _request) return;
-      _trace('course request completed with ${courses.length} courses');
       setState(() {
         _courses = courses;
         _selectedCourse = null;
@@ -320,7 +144,6 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
       });
     } on ElrcException catch (error) {
       if (!mounted || request != _request) return;
-      _trace('course request failed: ${error.message}');
       setState(() {
         _error = error.message;
       });
@@ -334,7 +157,7 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
 
   Future<void> _loadLessons(ElrcCourse course) async {
     final client = _client;
-    if (client == null || _busy || !_isSessionPage(_activeUri)) return;
+    if (client == null || _busy) return;
     final request = ++_request;
     setState(() {
       _selectedCourse = course;
@@ -372,14 +195,7 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
       final sources = await client.sources(course, lesson);
       if (!mounted || request != _request) return;
       setState(() => _busy = false);
-      String? cookie;
-      if (_desktop) {
-        try {
-          cookie = await _browser!.mediaCookie();
-        } catch (_) {
-          // Signed media may still play without a readable browser cookie.
-        }
-      }
+      final cookie = client.mediaCookie;
       if (!mounted || request != _request) return;
       await pushAdaptivePage<void>(
         context,
@@ -555,10 +371,8 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
     _auth?.removeListener(_primaryAccountChanged);
     _request++;
     _tpAuth?.removeListener(_bindingChanged);
-    _browser?.dispose();
     _client?.dispose();
     _client = null;
-    _browser = null;
     super.dispose();
   }
 
@@ -595,13 +409,6 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
             child: Stack(
               children: [
                 Positioned.fill(child: _content()),
-                if (_browserReady && _browser != null)
-                  Positioned.fill(
-                    child: Offstage(
-                      offstage: true,
-                      child: _browser!.buildView(),
-                    ),
-                  ),
                 if (_busy && (_courses != null || _lessons != null))
                   const Align(
                     alignment: Alignment.topCenter,

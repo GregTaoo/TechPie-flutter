@@ -66,37 +66,40 @@ class MediaPlayerScaffold extends StatelessWidget {
                 ),
               if (sourceLabels.length > 1) _sourceSelector(),
               Expanded(
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    ColoredBox(color: Colors.black, child: player ?? const SizedBox.expand()),
-                    if (loading && error == null)
-                      const ColoredBox(
-                        color: Colors.black,
-                        child: Center(child: CircularProgressIndicator()),
-                      ),
-                    if (error != null)
-                      ColoredBox(
-                        color: Theme.of(context).colorScheme.surface,
-                        child: Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.error_outline, size: 40),
-                              const SizedBox(height: 12),
-                              Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 24),
-                                child: Text(error!, textAlign: TextAlign.center),
-                              ),
-                              if (onRetry != null) ...[
-                                const SizedBox(height: 16),
-                                FilledButton(onPressed: onRetry, child: const Text('重试')),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      ColoredBox(color: Colors.black, child: player ?? const SizedBox.expand()),
+                      if (loading && error == null)
+                        const ColoredBox(
+                          color: Colors.black,
+                          child: Center(child: CircularProgressIndicator()),
+                        ),
+                      if (error != null)
+                        ColoredBox(
+                          color: Theme.of(context).colorScheme.surface,
+                          child: Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.error_outline, size: 40),
+                                const SizedBox(height: 12),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                                  child: Text(error!, textAlign: TextAlign.center),
+                                ),
+                                if (onRetry != null) ...[
+                                  const SizedBox(height: 16),
+                                  FilledButton(onPressed: onRetry, child: const Text('重试')),
+                                ],
                               ],
-                            ],
+                            ),
                           ),
                         ),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ],
