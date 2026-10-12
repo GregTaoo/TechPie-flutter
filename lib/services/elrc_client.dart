@@ -3,6 +3,8 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import 'debug_logger.dart';
+import 'http_client.dart';
 import 'session/cookie_provider.dart';
 import 'session/session_tree.dart';
 import 'third_party_auth_service.dart';
@@ -94,12 +96,19 @@ class ElrcException implements Exception {
 enum _EnvelopeKind { status, success }
 
 class ElrcClient {
-  ElrcClient({required ThirdPartyAuthService auth, http.Client? client})
+  ElrcClient({
+    required ThirdPartyAuthService auth,
+    required DebugLogger logger,
+    http.Client? client,
+  })
       : _auth = auth,
-        _client = client ?? http.Client();
+        _client = LoggingHttpClient(
+          _ElrcSafeLogger(logger),
+          inner: _NoRedirectClient(client ?? http.Client()),
+        );
 
   final ThirdPartyAuthService _auth;
-  final http.Client _client;
+  final LoggingHttpClient _client;
   var _disposed = false;
 
   String? get mediaCookie => _auth.elrcNode.cookieProvider?.cookies;
@@ -449,22 +458,23 @@ class ElrcClient {
   ) async {
     if (_disposed) throw const ElrcException('ELRC 页面已关闭');
     try {
-      final request = http.Request(body == null ? 'GET' : 'POST', uri)
-        ..followRedirects = false
-        ..headers.addAll({
-          'Cookie': provider.cookies,
-          'Referer': referer.toString(),
-          'Accept': '*/*',
-          'Accept-Language': 'zh-CN,zh;q=0.8,en-US;q=0.7',
-          if (body != null) 'Origin': _origin,
-          if (body != null) 'Content-Type': 'application/json; charset=utf-8',
-        });
-      if (body != null) request.body = jsonEncode(body);
-      final response = await (() async {
-        final streamed = await _client.send(request);
-        return http.Response.fromStream(streamed);
-      })()
-          .timeout(const Duration(seconds: 25));
+      final headers = {
+        'Cookie': provider.cookies,
+        'Referer': referer.toString(),
+        'Accept': '*/*',
+        'Accept-Language': 'zh-CN,zh;q=0.8,en-US;q=0.7',
+        if (body != null) 'Origin': _origin,
+        if (body != null) 'Content-Type': 'application/json; charset=utf-8',
+      };
+      final request = body == null
+          ? _client.get(uri, headers: headers, tag: 'elrc')
+          : _client.post(
+              uri,
+              headers: headers,
+              body: jsonEncode(body),
+              tag: 'elrc',
+            );
+      final response = await request.timeout(const Duration(seconds: 25));
       if (response.bodyBytes.length > 4 * 1024 * 1024) {
         throw const ElrcException('ELRC 返回内容过大');
       }
@@ -481,6 +491,54 @@ class ElrcClient {
   void dispose() {
     _disposed = true;
     _client.close();
+  }
+}
+
+// Preserve the ELRC client's redirect-as-login behavior with the existing
+// LoggingHttpClient.get/post API (which otherwise follows redirects).
+class _NoRedirectClient extends http.BaseClient {
+  _NoRedirectClient(this._inner);
+
+  final http.Client _inner;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    request.followRedirects = false;
+    return _inner.send(request);
+  }
+
+  @override
+  void close() => _inner.close();
+}
+
+// LoggingHttpClient normally records response bodies and full URLs. ELRC
+// responses may contain media URLs, and request queries identify courses.
+class _ElrcSafeLogger extends DebugLogger {
+  _ElrcSafeLogger(this._target);
+
+  final DebugLogger _target;
+
+  @override
+  void log({
+    required String method,
+    required String url,
+    int? statusCode,
+    String? requestBody,
+    String? responseBody,
+    String? error,
+    String? tag,
+    int? durationMicros,
+    int? prepMicros,
+  }) {
+    _target.log(
+      method: method,
+      url: Uri.parse(url).replace(query: '', fragment: '').toString(),
+      statusCode: statusCode,
+      error: error?.split(':').first,
+      tag: tag,
+      durationMicros: durationMicros,
+      prepMicros: prepMicros,
+    );
   }
 }
 

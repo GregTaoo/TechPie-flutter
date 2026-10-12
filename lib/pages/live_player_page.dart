@@ -26,8 +26,9 @@ bool get supportsLivePlayback =>
 Future<void> enterCourseLive(
   BuildContext context,
   String title,
-  String classroom,
-) async {
+  String classroom, {
+  required DateTime endsAt,
+}) async {
   if (!supportsLivePlayback) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('当前平台暂不支持直播播放')),
@@ -36,7 +37,11 @@ Future<void> enterCourseLive(
   }
   await Navigator.of(context, rootNavigator: true).push<void>(
     adaptivePageRoute<void>(
-      builder: (_) => LivePlayerPage(title: title, classroom: classroom),
+      builder: (_) => LivePlayerPage(
+        title: title,
+        classroom: classroom,
+        expiresAt: endsAt.add(const Duration(minutes: 5)),
+      ),
     ),
   );
 }
@@ -47,11 +52,13 @@ class LivePlayerPage extends StatefulWidget {
     required this.title,
     this.classroom,
     this.roomId,
+    this.expiresAt,
   }) : assert((classroom == null) != (roomId == null));
 
   final String title;
   final String? classroom;
   final int? roomId;
+  final DateTime? expiresAt;
 
   @override
   State<LivePlayerPage> createState() => _LivePlayerPageState();
@@ -67,6 +74,42 @@ class _LivePlayerPageState extends State<LivePlayerPage> with WidgetsBindingObse
   String? _owner;
   String? _semesterId;
   String? _blockedMessage;
+  Timer? _expiryTimer;
+  bool _leaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleExpiry();
+  }
+
+  void _scheduleExpiry() {
+    final deadline = widget.expiresAt;
+    if (deadline == null) return;
+    final remaining = deadline.difference(DateTime.now());
+    _expiryTimer = Timer(
+      remaining.isNegative ? Duration.zero : remaining,
+      _checkExpiry,
+    );
+  }
+
+  void _checkExpiry() {
+    if (!mounted || _leaving || widget.expiresAt == null) return;
+    if (DateTime.now().isBefore(widget.expiresAt!)) {
+      _scheduleExpiry();
+      return;
+    }
+    final route = ModalRoute.of(context);
+    if (route == null) return;
+    _leaving = true;
+    unawaited(_session?.shutdown());
+    final navigator = Navigator.of(context);
+    if (route.isCurrent) {
+      navigator.pop();
+    } else {
+      navigator.removeRoute(route);
+    }
+  }
 
   String _identity(ServiceProvider services) {
     final primary = services.authService.session?.userId ?? '';
@@ -77,6 +120,10 @@ class _LivePlayerPageState extends State<LivePlayerPage> with WidgetsBindingObse
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    if (widget.expiresAt != null && !DateTime.now().isBefore(widget.expiresAt!)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _checkExpiry());
+      return;
+    }
     if (_services != null || !supportsLivePlayback) return;
     final services = ServiceProvider.of(context);
     _services = services;
@@ -107,7 +154,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> with WidgetsBindingObse
       }
       final fingerprint = table == null ? '' : liveScheduleFingerprint(table);
       final session = LivePlaybackSession(
-        fetch: (camera) => widget.roomId != null
+        fetch: (camera) async => widget.roomId != null
             ? client.byId(widget.roomId!, camera)
             : client.byClassroom(
                 widget.classroom!,
@@ -127,7 +174,10 @@ class _LivePlayerPageState extends State<LivePlayerPage> with WidgetsBindingObse
       );
       _session = session;
       session.addListener(_update);
-      _errors = player.stream.error.listen((_) => session.playbackFailed());
+      _errors = player.stream.error.listen((error) {
+        if (kDebugMode) debugPrint('Live player error: $error');
+        session.playbackFailed();
+      });
       unawaited(session.select(LiveCamera.panorama));
     } catch (_) {
       _blockedMessage = '播放器初始化失败，请重新进入直播';
@@ -153,6 +203,8 @@ class _LivePlayerPageState extends State<LivePlayerPage> with WidgetsBindingObse
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _checkExpiry();
+    if (_leaving) return;
     if (_blockedMessage != null) return;
     if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
       unawaited(_player?.pause());
@@ -161,6 +213,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> with WidgetsBindingObse
 
   @override
   void dispose() {
+    _expiryTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _services?.scheduleService.removeListener(_checkAccount);
     _services?.authService.removeListener(_checkAccount);

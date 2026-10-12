@@ -218,6 +218,15 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     return _CourseStatus.upcoming;
   }
 
+  bool _canEnterLive(Course course) {
+    if (course.isCustom) return false;
+    final start = _parseMinutes(course.startTime);
+    final end = _parseMinutes(course.endTime);
+    if (start == null || end == null) return false;
+    final nowMinutes = _now.hour * 60 + _now.minute;
+    return nowMinutes >= start - 10 && nowMinutes <= end;
+  }
+
   static int? _parseMinutes(String time) {
     final parts = time.split(':');
     if (parts.length != 2) return null;
@@ -827,12 +836,29 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           mainAxisSize: MainAxisSize.min,
           children: [
             _CourseBadge(status: status, theme: theme),
-            if (isActive && course.location.trim().isNotEmpty) ...[
+            if (_canEnterLive(course) && course.location.trim().isNotEmpty) ...[
               const SizedBox(width: 8),
               TextButton(
-                onPressed: () => unawaited(
-                  enterCourseLive(context, course.name, course.location),
-                ),
+                onPressed: () {
+                  if (!_canEnterLive(course)) return;
+                  final end = _parseMinutes(course.endTime)!;
+                  final day = course.date ?? _now;
+                  final endsAt = DateTime(
+                    day.year,
+                    day.month,
+                    day.day,
+                    end ~/ 60,
+                    end % 60,
+                  );
+                  unawaited(
+                    enterCourseLive(
+                      context,
+                      course.name,
+                      course.location,
+                      endsAt: endsAt,
+                    ),
+                  );
+                },
                 child: const Text('进入直播'),
               ),
             ],

@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../services/auth_service.dart';
+import '../services/debug_logger.dart';
 import '../services/elrc_client.dart';
 import '../services/service_provider.dart';
 import '../services/third_party_auth_service.dart';
@@ -26,6 +27,7 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
   bool _starting = true;
   bool _busy = false;
   ThirdPartyAuthService? _tpAuth;
+  late final DebugLogger _debugLogger;
   AuthService? _auth;
   String? _primaryUserId;
   String? _bindingOwner;
@@ -42,6 +44,7 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
     super.didChangeDependencies();
     if (_tpAuth != null) return;
     final services = ServiceProvider.of(context);
+    _debugLogger = services.debugLogger;
     _tpAuth = services.thirdPartyAuthService;
     _auth = services.authService;
     _primaryUserId = _auth!.session?.userId;
@@ -92,7 +95,7 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
 
   void _prepare() {
     _client?.dispose();
-    final client = _client = ElrcClient(auth: _tpAuth!);
+    final client = _client = ElrcClient(auth: _tpAuth!, logger: _debugLogger);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _authorized && identical(_client, client)) {
         unawaited(_loadCourses());
