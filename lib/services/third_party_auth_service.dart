@@ -21,6 +21,7 @@ const List<String> _allSessionNodeIds = [
   'eams',
   'elearning',
   'egateApp',
+  'elrc',
 ];
 
 class ThirdPartyBindException implements Exception {
@@ -97,6 +98,9 @@ class ThirdPartyAuthService extends ChangeNotifier {
   /// Convenience: the egate-app (xshdapp activity check-in) downstream node
   /// (child of cpdaily).
   SessionNode get egateAppNode => _tree.egateApp;
+
+  /// ELRC session cookies minted by the backend from the parent CASTGC.
+  SessionNode get elrcNode => _tree.elrc;
 
   /// Convenience: the Gradescope top-level node.
   SessionNode get gradescopeNode => _tree.gradescope;
@@ -241,6 +245,7 @@ class ThirdPartyAuthService extends ChangeNotifier {
         'eams' => _tree.eams,
         'elearning' => _tree.elearning,
         'egateApp' => _tree.egateApp,
+        'elrc' => _tree.elrc,
         _ => _tree.cpdaily,
       };
 
@@ -290,7 +295,7 @@ class ThirdPartyAuthService extends ChangeNotifier {
     // Hydrate child node derived cookies so cold start can skip the SSO
     // bounce. These are best-effort — if stale, withCookie's 401 retry will
     // re-mint transparently.
-    for (final id in const ['eams', 'elearning', 'egateApp']) {
+    for (final id in const ['eams', 'elearning', 'egateApp', 'elrc']) {
       final cookie = await _storage.loadDerivedCookie(id);
       _tree.setDerivedCookie(id, cookie);
     }
@@ -313,6 +318,7 @@ class ThirdPartyAuthService extends ChangeNotifier {
       _tree.eams,
       _tree.elearning,
       _tree.egateApp,
+      _tree.elrc,
     ]) {
       if (node.isAvailable && node.nextRenewTimestamp == null) {
         await node.scheduleNextRenew();
@@ -331,6 +337,7 @@ class ThirdPartyAuthService extends ChangeNotifier {
         'eams' => _tree.eams,
         'elearning' => _tree.elearning,
         'egateApp' => _tree.egateApp,
+        'elrc' => _tree.elrc,
         _ => null,
       };
 

@@ -21,11 +21,6 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
   static final _reviewUri = Uri.parse(
     'https://elrc.shanghaitech.edu.cn/learn/videoreview?type=1',
   );
-  static final _loginUri = Uri.https(
-    'elrc.shanghaitech.edu.cn',
-    '/unifiedlogin/v1/loginmanage/login/direction',
-    {'redirect_url': _reviewUri.toString()},
-  );
 
   ElrcBrowser? _browser;
   bool _browserReady = false;
@@ -38,15 +33,11 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
   int _request = 0;
   bool _starting = true;
   bool _busy = false;
-  bool _webVisible = false;
   bool _reviewFinished = false;
-  bool _sessionReloadRequired = false;
-  bool _loginPresented = false;
   ThirdPartyAuthService? _tpAuth;
   AuthService? _auth;
   String? _primaryUserId;
   String? _bindingOwner;
-  bool _campusAttempted = false;
 
   bool get _supported =>
       !kIsWeb &&
@@ -93,7 +84,6 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
       _lessons = null;
       _selectedCourse = null;
       _starting = false;
-      _webVisible = false;
       _error = '请先登录 TechPie';
     });
     Navigator.of(context).popUntil((route) => route.isFirst);
@@ -104,8 +94,6 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
     if (generation == _bindingOwner || !mounted) return;
     _bindingOwner = generation;
     _request++;
-    _campusAttempted = false;
-    _loginPresented = false;
     _browser?.dispose();
     _client?.dispose();
     _client = null;
@@ -117,7 +105,6 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
       _selectedCourse = null;
       _busy = false;
       _starting = true;
-      _webVisible = false;
     });
     if (_supported) unawaited(_prepare());
   }
@@ -138,11 +125,11 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
           replace(target);
           return ElrcNavigationAction.replace;
         }
-        if (_isLogin(uri) && !_campusAttempted && _tpAuth!.hasCpdailyBinding) {
-          unawaited(_openLogin());
-          return ElrcNavigationAction.replace;
+        if (_isLogin(uri)) {
+          _pageLoadFailed();
+          return ElrcNavigationAction.prevent;
         }
-        return _isHttpsElrc(uri) || _isLogin(uri)
+        return _isHttpsElrc(uri)
             ? ElrcNavigationAction.allow
             : ElrcNavigationAction.prevent;
       },
@@ -151,6 +138,8 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
           return;
         }
         final client = ElrcClient(
+          auth: _tpAuth!,
+          writeCookies: browser.writeCookies,
           registerMessages: browser.registerMessages,
           runJavaScript: browser.runJavaScript,
         );
@@ -177,7 +166,6 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
     _client?.dispose();
     _client = null;
     _browser = browser;
-    _campusAttempted = true;
     if (_browserReady) setState(() => _browserReady = false);
     try {
       await browser.prepare();
@@ -195,8 +183,6 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
       setState(() {
         _starting = false;
         _busy = false;
-        _webVisible = false;
-        _sessionReloadRequired = true;
         _error = 'ELRC 页面加载失败';
       });
     }
@@ -249,19 +235,11 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
     }
     if (!mounted) return;
 
-    final login = _isLogin(uri);
+    if (!_isHttpsElrc(uri)) return;
     setState(() {
-      _webVisible = login;
-      if (login) {
-        _loginPresented = true;
-        _starting = false;
-        _busy = false;
-      } else if (_isHttpsElrc(uri)) {
-        _starting = _courses == null;
-        if (_isSessionPage(uri)) {
-          _error = null;
-          _sessionReloadRequired = false;
-        }
+      _starting = _courses == null;
+      if (_isSessionPage(uri)) {
+        _error = null;
       }
     });
   }
@@ -272,16 +250,9 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
       if (_reviewFinished) return;
       _reviewFinished = true;
       if (mounted) {
-        setState(() => _webVisible = false);
         unawaited(_loadCourses());
       }
       return;
-    }
-    if (_isLogin(uri) && _isLogin(_activeUri) && mounted) {
-      setState(() {
-        _starting = false;
-        _webVisible = true;
-      });
     }
   }
 
@@ -290,14 +261,13 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
     setState(() {
       _starting = false;
       _busy = false;
-      _sessionReloadRequired = true;
       _error = 'ELRC 页面加载失败';
-      if (!_isLogin(_activeUri)) _webVisible = false;
     });
   }
 
   Future<void> _reloadReview() async {
     if (_browser?.isReady != true) {
+      await _tpAuth!.elrcNode.renew();
       await _prepare();
       return;
     }
@@ -310,51 +280,21 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
       _error = null;
       _starting = true;
       _busy = false;
-      _webVisible = false;
-      _sessionReloadRequired = false;
     });
     try {
+      if (!await _tpAuth!.elrcNode.renew()) {
+        throw const ElrcException('ELRC 登录续期失败，请重试');
+      }
+      final provider = await _tpAuth!.sessionTree.freshCookie(_tpAuth!.elrcNode);
+      if (provider == null) throw const ElrcException('ELRC 登录续期失败，请重试');
+      if (!mounted || !_authorized || request != _request) return;
+      await _browser!.writeCookies(provider);
       await _browser!.navigate(_reviewUri);
     } catch (_) {
       if (!mounted || !_authorized || request != _request) return;
       setState(() {
         _starting = false;
-        _sessionReloadRequired = true;
-        _error = 'ELRC 页面加载失败';
-      });
-    }
-  }
-
-  Future<void> _openLogin() async {
-    final browser = _browser;
-    if (browser?.isReady != true) {
-      await _prepare();
-      return;
-    }
-    _reviewFinished = false;
-    setState(() {
-      _loginPresented = true;
-      _error = null;
-      _starting = true;
-      _busy = false;
-      _webVisible = false;
-      _sessionReloadRequired = true;
-    });
-    _trace('opening fixed ELRC login entry');
-    final request = ++_request;
-    try {
-      if (!_campusAttempted) {
-        _campusAttempted = true;
-        await browser!.refreshCampusCookies();
-        _trace('IDS cookie written; awaiting official SSO');
-      }
-      if (!mounted || request != _request) return;
-      await browser!.navigate(_loginUri);
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _starting = false;
-        _error = 'ELRC 登录页面加载失败';
+        _error = 'ELRC 登录续期或页面加载失败，请重试';
       });
     }
   }
@@ -368,17 +308,11 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
       _busy = true;
       _starting = false;
       _error = null;
-      _sessionReloadRequired = false;
     });
     try {
       final courses = await client.courses();
       if (!mounted || request != _request) return;
       _trace('course request completed with ${courses.length} courses');
-      if (courses.isEmpty && !_loginPresented) {
-        _trace('empty initial course list; opening login');
-        await _openLogin();
-        return;
-      }
       setState(() {
         _courses = courses;
         _selectedCourse = null;
@@ -387,13 +321,8 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
     } on ElrcException catch (error) {
       if (!mounted || request != _request) return;
       _trace('course request failed: ${error.message}');
-      if (error.needsLogin) {
-        await _openLogin();
-        return;
-      }
       setState(() {
         _error = error.message;
-        _sessionReloadRequired = error.needsLogin;
       });
     } catch (_) {
       if (!mounted || request != _request) return;
@@ -412,7 +341,6 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
       _lessons = null;
       _error = null;
       _busy = true;
-      _sessionReloadRequired = false;
     });
     try {
       final lessons = await client.lessons(course);
@@ -422,7 +350,6 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
       if (!mounted || request != _request) return;
       setState(() {
         _error = error.message;
-        _sessionReloadRequired = error.needsLogin;
       });
     } catch (_) {
       if (!mounted || request != _request) return;
@@ -440,7 +367,6 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
     setState(() {
       _busy = true;
       _error = null;
-      _sessionReloadRequired = false;
     });
     try {
       final sources = await client.sources(course, lesson);
@@ -469,7 +395,6 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
       if (!mounted || request != _request) return;
       setState(() {
         _error = error.message;
-        _sessionReloadRequired = error.needsLogin;
       });
     } catch (_) {
       if (!mounted || request != _request) return;
@@ -485,24 +410,15 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
       _selectedCourse = null;
       _lessons = null;
       _error = null;
-      _sessionReloadRequired = false;
     });
   }
 
   void _retryCourses() {
-    unawaited(
-      _sessionReloadRequired
-          ? _openLogin()
-          : _courses == null
-              ? _reloadReview()
-              : _loadCourses(),
-    );
+    unawaited(_courses == null ? _reloadReview() : _loadCourses());
   }
 
   void _retryLessons(ElrcCourse course) {
-    unawaited(
-      _sessionReloadRequired ? _openLogin() : _loadLessons(course),
-    );
+    unawaited(_loadLessons(course));
   }
 
   Widget _message(String text, VoidCallback retry) => Center(
@@ -548,7 +464,7 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
     if (!_supported) {
       return const Center(child: Text('当前平台暂不支持录播'));
     }
-    if (_error != null && _courses == null && !_webVisible) {
+    if (_error != null && _courses == null) {
       return _message(_error!, _retryCourses);
     }
     if ((_starting || _busy) && _courses == null) {
@@ -605,8 +521,8 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
             const Text('当前账号暂无课程录播'),
             const SizedBox(height: 16),
             FilledButton(
-              onPressed: _openLogin,
-              child: const Text('重新登录'),
+              onPressed: _reloadReview,
+              child: const Text('重新加载'),
             ),
           ],
         ),
@@ -661,9 +577,9 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
                     onPressed: _busy ? null : _showCourses,
                     icon: const Icon(Icons.arrow_back),
                   ),
-            title: Text(_webVisible ? '登录课程录播' : '课程录播'),
+            title: const Text('课程录播'),
             actions: [
-              if (!_webVisible && !_starting)
+              if (!_starting)
                 IconButton(
                   tooltip: '刷新',
                   onPressed: _busy
@@ -682,11 +598,11 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
                 if (_browserReady && _browser != null)
                   Positioned.fill(
                     child: Offstage(
-                      offstage: !_webVisible,
+                      offstage: true,
                       child: _browser!.buildView(),
                     ),
                   ),
-                if (_busy && (_courses != null || _lessons != null) && !_webVisible)
+                if (_busy && (_courses != null || _lessons != null))
                   const Align(
                     alignment: Alignment.topCenter,
                     child: LinearProgressIndicator(),

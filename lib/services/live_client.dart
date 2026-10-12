@@ -1,8 +1,11 @@
 import 'dart:convert';
 
+import 'package:http/http.dart' as http_pkg;
+
 import 'api_base_url.dart';
 import 'http_client.dart';
 import 'live_classroom_cache.dart';
+import 'session/session_tree.dart';
 import 'storage_service.dart';
 import 'third_party_auth_service.dart';
 
@@ -31,6 +34,7 @@ class LiveClient {
   final ThirdPartyAuthService auth;
   final StorageService storage;
   final LoggingHttpClient http;
+  final Map<int, _SignedUrlBatch> _signedUrls = {};
 
   String? get _owner {
     final account = auth.cpdailyNode.account;
@@ -58,7 +62,7 @@ class LiveClient {
         classroom: classroom,
         isCurrent: current,
         fetch: () async {
-          final data = await _request('classrooms', {'semesterId': semesterId});
+          final data = await _requestClassrooms({'semesterId': semesterId});
           final raw = data['classrooms'];
           if (raw is! Map<String, dynamic> ||
               raw.values
@@ -77,8 +81,42 @@ class LiveClient {
   }
 
   Future<Uri> byId(int id, LiveCamera camera) async {
-    final data = await _request('url', {'id': id, 'camera': camera.name});
-    final raw = data['url'];
+    final cached = _signedUrls[id];
+    if (cached != null &&
+        cached.owner == _owner &&
+        cached.baseUrl == apiBaseUrl(storage) &&
+        cached.generation == storage.liveCacheGeneration &&
+        DateTime.now().isBefore(cached.expiresAt)) {
+      return cached.urls[camera]!;
+    }
+    final data = await _requestUrl(id, camera);
+    final uri = _playbackUri(data['url']);
+    final batch = data['urls'];
+    if (batch is Map<String, dynamic> &&
+        LiveCamera.values.every((source) => batch.containsKey(source.name))) {
+      final urls = {
+        for (final source in LiveCamera.values)
+          source: _playbackUri(batch[source.name]),
+      };
+      // Signed links have a limited lifetime. Never retain them for more than
+      // 30 seconds, and respect a recognizable upstream expiry when provided.
+      var expiresAt = DateTime.now().add(const Duration(seconds: 30));
+      for (final signed in urls.values) {
+        final expiry = _signedExpiry(signed);
+        if (expiry != null && expiry.isBefore(expiresAt)) expiresAt = expiry;
+      }
+      _signedUrls[id] = _SignedUrlBatch(
+        _owner,
+        apiBaseUrl(storage),
+        storage.liveCacheGeneration,
+        expiresAt.subtract(const Duration(seconds: 3)),
+        urls,
+      );
+    }
+    return uri;
+  }
+
+  Uri _playbackUri(Object? raw) {
     final uri = raw is String ? Uri.tryParse(raw) : null;
     if (uri == null ||
         uri.scheme != 'https' ||
@@ -90,48 +128,110 @@ class LiveClient {
     return uri;
   }
 
-  Future<Map<String, dynamic>> _request(String endpoint, Map<String, Object> input) async {
+  DateTime? _signedExpiry(Uri uri) {
+    final raw = uri.queryParameters['expires'] ??
+        uri.queryParameters['expire'] ??
+        uri.queryParameters['exp'] ??
+        uri.queryParameters['auth_key']?.split('-').first;
+    final seconds = int.tryParse(raw ?? '');
+    if (seconds == null || seconds < 1000000000) return null;
+    return DateTime.fromMillisecondsSinceEpoch(
+      seconds > 100000000000 ? seconds : seconds * 1000,
+    );
+  }
+
+  // Stream signing no longer consumes ELRC credentials. In particular, do not
+  // mint a derived cookie just to switch cameras in an existing live session.
+  Future<Map<String, dynamic>> _requestUrl(int id, LiveCamera camera) async {
     final owner = _owner;
     final generation = storage.liveCacheGeneration;
     final baseUrl = apiBaseUrl(storage);
     if (owner == null) throw const LiveException('请先绑定校园账号');
-    final initialTgc = auth.cpdailyNode.rawFields['tgc'];
-    for (var attempt = 0; attempt < 2; attempt++) {
-      if (_owner != owner ||
-          storage.liveCacheGeneration != generation ||
-          apiBaseUrl(storage) != baseUrl) {
-        throw const LiveException('账号已变化，请重新进入直播');
-      }
-      final tgc = auth.cpdailyNode.rawFields['tgc'];
-      if (tgc is! String || tgc.isEmpty) throw const LiveException('请重新登录校园账号');
-      final response = await http
-          .post(
-            Uri.parse('$baseUrl/live/$endpoint'),
-            headers: {'Content-Type': 'application/json; charset=UTF-8'},
-            body: jsonEncode({...input, 'tgc': tgc}),
-            tag: 'liveRequest',
-          )
-          .timeout(Duration(seconds: endpoint == 'classrooms' ? 65 : 30));
-      if (_owner != owner ||
-          storage.liveCacheGeneration != generation ||
-          apiBaseUrl(storage) != baseUrl) {
-        throw const LiveException('账号已变化，请重新进入直播');
-      }
-      if (response.statusCode == 401 && attempt == 0) {
-        final refreshed =
-            auth.cpdailyNode.rawFields['tgc'] != initialTgc || await auth.refreshCastgc();
-        if (!refreshed) throw const LiveException('校园登录已失效，请重新登录校园账号');
-        continue;
-      }
-      final body = jsonDecode(response.body);
-      if (body is! Map<String, dynamic>) throw const LiveException('直播服务返回异常');
-      if (response.statusCode != 200 || body['success'] != true) {
-        throw LiveException(body['error'] is String ? body['error'] as String : '直播服务暂不可用');
-      }
-      final data = body['data'];
-      if (data is! Map<String, dynamic>) throw const LiveException('直播服务返回异常');
-      return data;
+    final response = await http
+        .post(
+          Uri.parse('$baseUrl/live/url'),
+          headers: {'Content-Type': 'application/json; charset=UTF-8'},
+          body: jsonEncode({'id': id, 'camera': camera.name}),
+          tag: 'liveRequest',
+        )
+        .timeout(const Duration(seconds: 30));
+    if (_owner != owner ||
+        storage.liveCacheGeneration != generation ||
+        apiBaseUrl(storage) != baseUrl) {
+      throw const LiveException('账号已变化，请重新进入直播');
     }
-    throw const LiveException('校园登录已失效，请重新登录校园账号');
+    return _readResponse(response);
   }
+
+  Future<Map<String, dynamic>> _requestClassrooms(Map<String, Object> input) async {
+    final owner = _owner;
+    final generation = storage.liveCacheGeneration;
+    final baseUrl = apiBaseUrl(storage);
+    if (owner == null) throw const LiveException('请先绑定校园账号');
+    void checkCurrent() {
+      if (_owner != owner ||
+          storage.liveCacheGeneration != generation ||
+          apiBaseUrl(storage) != baseUrl) {
+        throw const LiveException('账号已变化，请重新进入直播');
+      }
+    }
+    final initialTgc = auth.cpdailyNode.rawFields['tgc'];
+    Future<http_pkg.Response?> send() => auth.sessionTree.withCookie<http_pkg.Response>(auth.elrcNode, (provider) async {
+          checkCurrent();
+          final response = await http
+              .post(
+                Uri.parse('$baseUrl/live/classrooms'),
+                headers: {'Content-Type': 'application/json; charset=UTF-8'},
+                body: jsonEncode({
+                  ...input,
+                  'cookie': provider.cookies,
+                  'tgc': auth.cpdailyNode.rawFields['tgc'],
+                }),
+                tag: 'liveRequest',
+              )
+              .timeout(const Duration(seconds: 65));
+          checkCurrent();
+          return CookieAction(response, expired: response.statusCode == 401);
+        });
+    var response = await send();
+    // The ELRC cookie retry cannot repair an expired parent CASTGC: /auth/renew
+    // refreshes CpDaily but does not log back in to IDS. Restore the password
+    // rebind fallback for a genuine 401, then mint ELRC from the new CASTGC.
+    if (response == null || response.statusCode == 401) {
+      checkCurrent();
+      final refreshed = auth.cpdailyNode.rawFields['tgc'] != initialTgc ||
+          await auth.refreshCastgc();
+      checkCurrent();
+      if (refreshed && await auth.elrcNode.renew()) {
+        checkCurrent();
+        response = await send();
+      }
+    }
+    checkCurrent();
+    if (response == null || response.statusCode == 401) {
+      throw const LiveException('ELRC 登录续期失败，请重试');
+    }
+    return _readResponse(response);
+  }
+
+  Map<String, dynamic> _readResponse(http_pkg.Response response) {
+    final body = jsonDecode(response.body);
+    if (body is! Map<String, dynamic>) throw const LiveException('直播服务返回异常');
+    if (response.statusCode != 200 || body['success'] != true) {
+      throw LiveException(body['error'] is String ? body['error'] as String : '直播服务暂不可用');
+    }
+    final data = body['data'];
+    if (data is! Map<String, dynamic>) throw const LiveException('直播服务返回异常');
+    return data;
+  }
+}
+
+class _SignedUrlBatch {
+  const _SignedUrlBatch(this.owner, this.baseUrl, this.generation, this.expiresAt, this.urls);
+
+  final String? owner;
+  final String baseUrl;
+  final int generation;
+  final DateTime expiresAt;
+  final Map<LiveCamera, Uri> urls;
 }

@@ -1,10 +1,12 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart' as inapp;
 
 import '../pages/campus_session_handle.dart';
 import 'elrc_browser.dart';
+import 'session/cookie_provider.dart';
 import 'third_party_auth_service.dart';
 
 class ElrcWindowsBrowser implements ElrcBrowser {
@@ -28,6 +30,11 @@ class ElrcWindowsBrowser implements ElrcBrowser {
 
   inapp.InAppWebViewController? _controller;
   bool _disposed = false;
+  Timer? _startupTimeout;
+
+  // The plugin creates separate facade objects for creation and event callbacks.
+  bool _ownsController(inapp.InAppWebViewController controller) =>
+      identical(_controller?.platform, controller.platform);
 
   @override
   bool get isReady => _controller != null;
@@ -37,25 +44,23 @@ class ElrcWindowsBrowser implements ElrcBrowser {
     final cookies = inapp.CookieManager.instance();
     await cookies.deleteCookies(url: inapp.WebUri('https://elrc.shanghaitech.edu.cn/'));
     await cookies.deleteCookies(url: inapp.WebUri('https://ids.shanghaitech.edu.cn/'));
-    await refreshCampusCookies();
+    final session = CampusSessionHandle(auth, auth.elrcNode);
+    await session.prepare();
+    final provider = auth.elrcNode.cookieProvider;
+    if (provider == null) throw StateError('ELRC session renewal failed');
+    await writeCookies(provider);
   }
 
   @override
-  Future<void> refreshCampusCookies() async {
-    try {
-      final session = CampusSessionHandle(auth, auth.cpdailyNode);
-      await session.prepare();
-      for (final cookie in session.cookies) {
-        await inapp.CookieManager.instance().setCookie(
-          url: inapp.WebUri('https://${cookie.domain}/'),
-          name: cookie.name,
-          value: cookie.value,
-          domain: cookie.domain,
-          path: cookie.path,
-        );
-      }
-    } catch (_) {
-      // The official SSO page remains available if campus session renewal fails.
+  Future<void> writeCookies(CookieProvider provider) async {
+    for (final cookie in webViewCookies(provider)) {
+      await inapp.CookieManager.instance().setCookie(
+        url: inapp.WebUri('https://${cookie.domain}/'),
+        name: cookie.name,
+        value: cookie.value,
+        domain: cookie.domain,
+        path: cookie.path,
+      );
     }
   }
 
@@ -104,43 +109,64 @@ $script
   @override
   Widget buildView() => inapp.InAppWebView(
         key: ValueKey(this),
-        onWebViewCreated: (controller) async {
+        onWebViewCreated: (controller) {
           if (_disposed) return;
           _controller = controller;
-          try {
-            await onReady();
-          } catch (_) {
-            if (!_disposed && identical(_controller, controller)) {
-              _controller = null;
+          _startupTimeout = Timer(const Duration(seconds: 30), () {
+            if (!_disposed) {
+              if (kDebugMode) debugPrint('[ELRC] Windows browser startup timed out');
               onFailed();
             }
-          }
+          });
+          unawaited(_initialize(controller));
         },
         onLoadStart: (controller, url) {
-          if (!_disposed && identical(_controller, controller) && url != null) {
+          if (!_disposed &&
+              _ownsController(controller) &&
+              url != null &&
+              url.toString() != 'about:blank') {
+            if (kDebugMode) debugPrint('[ELRC] Windows page started: ${url.host}${url.path}');
             onStarted(url.toString());
           }
         },
         onUpdateVisitedHistory: (controller, url, isReload) {
-          if (!_disposed && identical(_controller, controller) && url != null) {
+          if (!_disposed &&
+              _ownsController(controller) &&
+              url != null &&
+              url.toString() != 'about:blank') {
             onUrlChanged(url.toString());
           }
         },
         onLoadStop: (controller, url) {
-          if (!_disposed && identical(_controller, controller) && url != null) {
+          if (!_disposed &&
+              _ownsController(controller) &&
+              url != null &&
+              url.toString() != 'about:blank') {
+            _startupTimeout?.cancel();
+            if (kDebugMode) debugPrint('[ELRC] Windows page finished: ${url.host}${url.path}');
             onFinished(url.toString());
           }
         },
         onReceivedError: (controller, request, error) {
-          if (!_disposed && identical(_controller, controller) && request.isForMainFrame == true) {
-            onFailed();
+          if (_disposed || !_ownsController(controller) || request.isForMainFrame != true) {
+            return;
           }
+          // WebView2 cancels its initial blank document when ELRC navigation starts.
+          // It is not a failure of the requested campus page.
+          if (request.url.toString() == 'about:blank') return;
+          if (kDebugMode) {
+            final uri = Uri.tryParse(request.url.toString());
+            debugPrint(
+              '[ELRC] page load failed: type=${error.type} host=${uri?.host} path=${uri?.path}',
+            );
+          }
+          onFailed();
         },
         shouldOverrideUrlLoading: (controller, navigation) async {
-          if (_disposed || !identical(_controller, controller)) {
+          if (_disposed || !_ownsController(controller)) {
             return inapp.NavigationActionPolicy.CANCEL;
           }
-          final uri = Uri.tryParse(navigation.request.url?.toString() ?? '');
+          final uri = Uri.tryParse(navigation.request.url.toString());
           final decision = onNavigation(uri, (target) {
             unawaited(navigate(target).catchError((Object _) => onFailed()));
           });
@@ -154,8 +180,22 @@ $script
         ),
       );
 
+  Future<void> _initialize(inapp.InAppWebViewController controller) async {
+    try {
+      if (kDebugMode) debugPrint('[ELRC] Windows controller ready; opening ELRC');
+      await onReady().timeout(const Duration(seconds: 30));
+    } catch (_) {
+      if (!_disposed && _ownsController(controller)) {
+        _startupTimeout?.cancel();
+        _controller = null;
+        onFailed();
+      }
+    }
+  }
+
   @override
   void dispose() {
+    _startupTimeout?.cancel();
     _disposed = true;
     _controller = null;
   }

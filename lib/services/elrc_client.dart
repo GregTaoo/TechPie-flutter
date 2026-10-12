@@ -1,6 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'session/cookie_provider.dart';
+import 'session/session_tree.dart';
+import 'third_party_auth_service.dart';
+
 const _origin = 'https://elrc.shanghaitech.edu.cn';
 const _courseList = '/learn/v1/course/video/review/1';
 const _courseInfo = '/learn/v1/course/recording/video/info';
@@ -89,16 +93,23 @@ enum _EnvelopeKind { status, success }
 
 class ElrcClient {
   ElrcClient({
+    required ThirdPartyAuthService auth,
+    required Future<void> Function(CookieProvider) writeCookies,
     required Future<void> Function(void Function(String)) registerMessages,
     required Future<void> Function(String) runJavaScript,
-  })  : _registerMessages = registerMessages,
+  })  : _auth = auth,
+        _writeCookies = writeCookies,
+        _registerMessages = registerMessages,
         _runJavaScript = runJavaScript;
 
   final Future<void> Function(void Function(String)) _registerMessages;
   final Future<void> Function(String) _runJavaScript;
+  final ThirdPartyAuthService _auth;
+  final Future<void> Function(CookieProvider) _writeCookies;
   Completer<_Response>? _pending;
   var _requestId = 0;
   var _disposed = false;
+  String? _injectedCookie;
 
   Future<void> initialize() => _registerMessages(
         (message) {
@@ -349,6 +360,45 @@ class ElrcClient {
   }
 
   Future<Object?> _request(
+    String path, {
+    required _EnvelopeKind kind,
+    Map<String, String>? query,
+    Object? body,
+    Uri? referer,
+  }) async {
+    final result = await _auth.sessionTree.withCookie<Object?>(
+      _auth.elrcNode,
+      (provider) async {
+        if (_disposed) throw const ElrcException('ELRC 页面已关闭');
+        // The page may update its own cookies. Only inject when the session
+        // tree minted a different one, rather than undoing those updates.
+        if (_injectedCookie != provider.cookies) {
+          await _writeCookies(provider);
+          _injectedCookie = provider.cookies;
+        }
+        if (_disposed) throw const ElrcException('ELRC 页面已关闭');
+        try {
+          final data = await _requestOnce(
+            path,
+            kind: kind,
+            query: query,
+            body: body,
+            referer: referer,
+          );
+          return CookieAction(data, expired: false);
+        } on ElrcException catch (error) {
+          if (!error.needsLogin) rethrow;
+          return CookieAction(error, expired: true);
+        }
+      },
+    );
+    if (result == null || result is ElrcException) {
+      throw const ElrcException('ELRC 登录续期失败，请重试', needsLogin: true);
+    }
+    return result;
+  }
+
+  Future<Object?> _requestOnce(
     String path, {
     required _EnvelopeKind kind,
     Map<String, String>? query,

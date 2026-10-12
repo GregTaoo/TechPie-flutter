@@ -3,13 +3,14 @@ import 'package:flutter/widgets.dart';
 
 import 'elrc_webview_browser.dart';
 import 'elrc_windows_browser.dart';
+import 'session/cookie_provider.dart';
 import 'third_party_auth_service.dart';
 
 enum ElrcNavigationAction { allow, prevent, replace }
 
 abstract interface class ElrcBrowser {
   Future<void> prepare();
-  Future<void> refreshCampusCookies();
+  Future<void> writeCookies(CookieProvider provider);
   Future<void> navigate(Uri uri);
   Future<String?> mediaCookie();
   Future<void> registerMessages(void Function(String) onMessage);

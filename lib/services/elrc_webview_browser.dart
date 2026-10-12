@@ -6,6 +6,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 
 import '../pages/campus_session_handle.dart';
 import 'elrc_browser.dart';
+import 'session/cookie_provider.dart';
 import 'third_party_auth_service.dart';
 
 class ElrcWebViewBrowser implements ElrcBrowser {
@@ -39,7 +40,12 @@ class ElrcWebViewBrowser implements ElrcBrowser {
     final controller = WebViewController();
     _controller = controller;
     try {
-      await refreshCampusCookies();
+      final session = CampusSessionHandle(auth, auth.elrcNode);
+      await session.prepare();
+      final provider = auth.elrcNode.cookieProvider;
+      if (provider == null) throw StateError('ELRC session renewal failed');
+      await auth.campusWebSession.clearLocalStorageIfDue(controller);
+      await writeCookies(provider);
       if (_disposed) return;
       await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
       await controller.setNavigationDelegate(
@@ -89,18 +95,9 @@ class ElrcWebViewBrowser implements ElrcBrowser {
   }
 
   @override
-  Future<void> refreshCampusCookies() async {
-    final controller = _controller;
-    if (controller == null) return;
-    try {
-      final session = CampusSessionHandle(auth, auth.cpdailyNode);
-      await session.prepare();
-      await auth.campusWebSession.clearLocalStorageIfDue(controller);
-      for (final cookie in session.cookies) {
-        await WebViewCookieManager().setCookie(cookie);
-      }
-    } catch (_) {
-      // The official SSO page remains available if campus session renewal fails.
+  Future<void> writeCookies(CookieProvider provider) async {
+    for (final cookie in webViewCookies(provider)) {
+      await WebViewCookieManager().setCookie(cookie);
     }
   }
 

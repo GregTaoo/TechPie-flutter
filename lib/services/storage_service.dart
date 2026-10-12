@@ -140,7 +140,7 @@ class StorageService {
   }
 
   Future<void> clearAllDerivedCookies() async {
-    for (final id in const ['eams', 'elearning', 'egateApp']) {
+    for (final id in const ['eams', 'elearning', 'egateApp', 'elrc']) {
       await _secure.delete(key: '$_derivedCookieKeyPrefix$id');
     }
   }
