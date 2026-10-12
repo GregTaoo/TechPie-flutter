@@ -334,6 +334,31 @@ class ThirdPartyAuthService extends ChangeNotifier {
         _ => null,
       };
 
+  Future<bool>? _castgcRefresh;
+
+  /// CpDaily /auth/renew keeps its app token alive; it cannot renew CASTGC.
+  /// Reuse password binding to re-login to IDS, sharing concurrent 401s.
+  Future<bool> refreshCastgc() =>
+      _castgcRefresh ??= _refreshCastgc().whenComplete(() => _castgcRefresh = null);
+
+  Future<bool> _refreshCastgc() async {
+    final acc = cpdailyNode.account;
+    if (acc == null || !acc.autoRenew || acc.password?.isNotEmpty != true) return false;
+    try {
+      await bind(
+        platform: acc.platform,
+        account: acc.account,
+        password: acc.password!,
+        autoRenew: true,
+        forceSyncPush: true,
+        expectedAccount: acc,
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<ThirdPartyAccount> bind({
     required ThirdPartyPlatform platform,
     required String account,
@@ -345,6 +370,7 @@ class ThirdPartyAuthService extends ChangeNotifier {
     // [autoRenewIfNeeded] since a successful background auto-renew must not
     // wait for the next throttle window.
     bool forceSyncPush = false,
+    ThirdPartyAccount? expectedAccount,
   }) async {
     final body = <String, dynamic>{
       'account': account,
@@ -408,6 +434,9 @@ class ThirdPartyAuthService extends ChangeNotifier {
       password: autoRenew ? password : null,
     );
 
+    if (expectedAccount != null && !identical(_nodeAccount(platform), expectedAccount)) {
+      throw ThirdPartyBindException(platform, '账号已变化，请重试');
+    }
     final touched = _touch(acc);
     await _storage.saveThirdPartyAccount(touched);
     if (forceSyncPush) _pendingForcePush = true;

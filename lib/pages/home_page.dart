@@ -24,6 +24,7 @@ import '../widgets/app_shell/app_shell_metrics.dart';
 import '../widgets/blurred_app_bar.dart';
 import '../widgets/ios/ios_native_navigation_bar.dart';
 import 'generic_webview_page.dart';
+import 'live_player_page.dart';
 import 'login_page.dart';
 
 class HomePage extends StatefulWidget {
@@ -822,7 +823,21 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             color: theme.colorScheme.onSurfaceVariant,
           ),
         ),
-        trailing: _CourseBadge(status: status, theme: theme),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _CourseBadge(status: status, theme: theme),
+            if (isActive && course.location.trim().isNotEmpty) ...[
+              const SizedBox(width: 8),
+              TextButton(
+                onPressed: () => unawaited(
+                  enterCourseLive(context, course.name, course.location),
+                ),
+                child: const Text('进入直播'),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
