@@ -177,6 +177,42 @@ class _LivePlayerPageState extends State<LivePlayerPage> with WidgetsBindingObse
     super.dispose();
   }
 
+  Widget _buildVideo() {
+    final mobileTheme = MaterialVideoControlsThemeData(
+      displaySeekBar: false,
+      seekGesture: false,
+      seekOnDoubleTap: false,
+      visibleOnMount: true,
+      primaryButtonBar: const [],
+      bottomButtonBar: [
+        const MaterialPlayOrPauseButton(),
+        _LiveVolumeControl(player: _player!),
+        const Spacer(),
+        const MaterialFullscreenButton(),
+      ],
+    );
+    const desktopTheme = MaterialDesktopVideoControlsThemeData(
+      displaySeekBar: false,
+      visibleOnMount: true,
+      keyboardShortcuts: {},
+      bottomButtonBar: [
+        MaterialDesktopPlayOrPauseButton(),
+        MaterialDesktopVolumeButton(),
+        Spacer(),
+        MaterialDesktopFullscreenButton(),
+      ],
+    );
+    return MaterialVideoControlsTheme(
+      normal: mobileTheme,
+      fullscreen: mobileTheme,
+      child: MaterialDesktopVideoControlsTheme(
+        normal: desktopTheme,
+        fullscreen: desktopTheme,
+        child: Video(controller: _video!, controls: AdaptiveVideoControls),
+      ),
+    );
+  }
+
   Widget _cameraSelector() {
     final selected = _session?.camera;
     return Padding(
@@ -264,34 +300,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> with WidgetsBindingObse
                   if (_video != null && _blockedMessage == null)
                     ColoredBox(
                       color: Colors.black,
-                      child: MaterialDesktopVideoControlsTheme(
-                        normal: const MaterialDesktopVideoControlsThemeData(
-                          displaySeekBar: false,
-                          visibleOnMount: true,
-                          bottomButtonBar: [
-                            MaterialDesktopPlayOrPauseButton(),
-                            MaterialDesktopVolumeButton(),
-                            Spacer(),
-                            MaterialDesktopFullscreenButton(),
-                          ],
-                        ),
-                        fullscreen: const MaterialDesktopVideoControlsThemeData(
-                          displaySeekBar: false,
-                          visibleOnMount: true,
-                          bottomButtonBar: [
-                            MaterialDesktopPlayOrPauseButton(),
-                            MaterialDesktopVolumeButton(),
-                            Spacer(),
-                            MaterialDesktopFullscreenButton(),
-                          ],
-                        ),
-                        child: Video(
-                          controller: _video!,
-                          controls: defaultTargetPlatform == TargetPlatform.macOS
-                              ? MaterialDesktopVideoControls
-                              : null,
-                        ),
-                      ),
+                      child: _buildVideo(),
                     ),
                   if (_session?.loading == true && _blockedMessage == null)
                     const ColoredBox(
@@ -307,4 +316,41 @@ class _LivePlayerPageState extends State<LivePlayerPage> with WidgetsBindingObse
       ),
     );
   }
+}
+
+class _LiveVolumeControl extends StatelessWidget {
+  const _LiveVolumeControl({required this.player});
+
+  final Player player;
+
+  @override
+  Widget build(BuildContext context) => StreamBuilder<double>(
+        stream: player.stream.volume,
+        initialData: player.state.volume,
+        builder: (context, snapshot) {
+          final volume = (snapshot.data ?? 100).clamp(0.0, 100.0);
+          return Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                tooltip: volume == 0 ? '取消静音' : '静音',
+                color: Colors.white,
+                icon: Icon(volume == 0 ? Icons.volume_off : Icons.volume_up),
+                onPressed: () => unawaited(player.setVolume(volume == 0 ? 100 : 0)),
+              ),
+              SizedBox(
+                width: 88,
+                child: Slider(
+                  value: volume,
+                  min: 0,
+                  max: 100,
+                  activeColor: Colors.white,
+                  inactiveColor: Colors.white38,
+                  onChanged: (value) => unawaited(player.setVolume(value)),
+                ),
+              ),
+            ],
+          );
+        },
+      );
 }
