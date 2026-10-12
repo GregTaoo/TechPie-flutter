@@ -1,15 +1,13 @@
 import 'dart:async';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:webview_flutter/webview_flutter.dart';
 
 import '../services/auth_service.dart';
+import '../services/elrc_browser.dart';
 import '../services/elrc_client.dart';
 import '../services/service_provider.dart';
 import '../services/third_party_auth_service.dart';
 import '../widgets/adaptive_page_navigation.dart';
-import 'campus_session_handle.dart';
 import 'elrc_player_page.dart';
 
 class ElrcRecordingsPage extends StatefulWidget {
@@ -29,7 +27,8 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
     {'redirect_url': _reviewUri.toString()},
   );
 
-  WebViewController? _controller;
+  ElrcBrowser? _browser;
+  bool _browserReady = false;
   ElrcClient? _client;
   List<ElrcCourse>? _courses;
   ElrcCourse? _selectedCourse;
@@ -43,7 +42,6 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
   bool _reviewFinished = false;
   bool _sessionReloadRequired = false;
   bool _loginPresented = false;
-  var _expectedMainFrameCancellations = 0;
   ThirdPartyAuthService? _tpAuth;
   AuthService? _auth;
   String? _primaryUserId;
@@ -53,7 +51,13 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
   bool get _supported =>
       !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.iOS ||
-          defaultTargetPlatform == TargetPlatform.android);
+          defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.macOS ||
+          defaultTargetPlatform == TargetPlatform.windows);
+
+  bool get _desktop =>
+      defaultTargetPlatform == TargetPlatform.windows ||
+      defaultTargetPlatform == TargetPlatform.macOS;
 
   @override
   void didChangeDependencies() {
@@ -74,15 +78,16 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
     if (_supported) unawaited(_prepare());
   }
 
-  bool get _authorized =>
-      _auth!.isLoggedIn && _auth!.session?.userId == _primaryUserId;
+  bool get _authorized => _auth!.isLoggedIn && _auth!.session?.userId == _primaryUserId;
 
   void _primaryAccountChanged() {
     if (_authorized || !mounted) return;
     _request++;
+    _browser?.dispose();
     _client?.dispose();
     _client = null;
-    _controller = null;
+    _browser = null;
+    _browserReady = false;
     setState(() {
       _courses = null;
       _lessons = null;
@@ -101,9 +106,11 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
     _request++;
     _campusAttempted = false;
     _loginPresented = false;
+    _browser?.dispose();
     _client?.dispose();
     _client = null;
-    _controller = null;
+    _browser = null;
+    _browserReady = false;
     setState(() {
       _courses = null;
       _lessons = null;
@@ -115,103 +122,75 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
     if (_supported) unawaited(_prepare());
   }
 
-  /// Brings the shared store and the CpDaily session up to date, then writes the
-  /// session's cookies into the store the given controller will use: the hidden
-  /// webview below writes nothing itself, so it cannot answer a 401 either.
-  /// Best effort — both callers fall back to the SSO redirect.
-  Future<void> _writeCampusSession(WebViewController controller) async {
-    try {
-      final session = CampusSessionHandle(_tpAuth!, _tpAuth!.cpdailyNode);
-      await session.prepare();
-      await _tpAuth!.campusWebSession.clearLocalStorageIfDue(controller);
-      final cookieManager = WebViewCookieManager();
-      for (final cookie in session.cookies) {
-        await cookieManager.setCookie(cookie);
-      }
-    } catch (error) {
-      _trace('campus session pre-flight failed: $error');
-    }
-  }
-
   Future<void> _prepare() async {
     final generation = _bindingOwner;
-    final controller = WebViewController();
-    final client = ElrcClient(controller);
+    late final ElrcBrowser browser;
+    browser = createElrcBrowser(
+      auth: _tpAuth!,
+      onNavigation: (uri, replace) {
+        if (!_authorized || !identical(_browser, browser)) {
+          return ElrcNavigationAction.prevent;
+        }
+        _trace('navigation request ${_safeUri(uri)}');
+        if (uri?.toString() == 'about:blank') return ElrcNavigationAction.allow;
+        if (_isHttpElrc(uri)) {
+          final target = uri!.replace(scheme: 'https', port: 443);
+          replace(target);
+          return ElrcNavigationAction.replace;
+        }
+        if (_isLogin(uri) && !_campusAttempted && _tpAuth!.hasCpdailyBinding) {
+          unawaited(_openLogin());
+          return ElrcNavigationAction.replace;
+        }
+        return _isHttpsElrc(uri) || _isLogin(uri)
+            ? ElrcNavigationAction.allow
+            : ElrcNavigationAction.prevent;
+      },
+      onReady: () async {
+        if (!mounted || !_authorized || !identical(_browser, browser)) {
+          return;
+        }
+        final client = ElrcClient(
+          registerMessages: browser.registerMessages,
+          runJavaScript: browser.runJavaScript,
+        );
+        try {
+          await client.initialize();
+          if (!mounted || !_authorized || !identical(_browser, browser)) {
+            client.dispose();
+            return;
+          }
+          _client = client;
+          await browser.navigate(_reviewUri);
+        } catch (_) {
+          if (identical(_client, client)) _client = null;
+          client.dispose();
+          rethrow;
+        }
+      },
+      onStarted: (url) => _activate(url, pageStarted: true),
+      onUrlChanged: _activate,
+      onFinished: _navigationFinished,
+      onFailed: _pageLoadFailed,
+    );
+    _browser?.dispose();
+    _client?.dispose();
+    _client = null;
+    _browser = browser;
+    _campusAttempted = true;
+    if (_browserReady) setState(() => _browserReady = false);
     try {
-      await _writeCampusSession(controller);
-      _campusAttempted = true;
-      if (!mounted || !_authorized || generation != _bindingOwner) {
-        client.dispose();
+      await browser.prepare();
+      if (!mounted ||
+          !_authorized ||
+          generation != _bindingOwner ||
+          !identical(_browser, browser)) {
         return;
       }
-      await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
-      await client.initialize();
-      await controller.setNavigationDelegate(
-        NavigationDelegate(
-          onNavigationRequest: (request) {
-            if (!_authorized || !identical(_controller, controller)) {
-              return NavigationDecision.prevent;
-            }
-            final uri = Uri.tryParse(request.url);
-            _trace('navigation request ${_safeUri(uri)}');
-            if (request.url == 'about:blank') {
-              return NavigationDecision.navigate;
-            }
-            if (_isHttpElrc(uri)) {
-              final target = uri!.replace(scheme: 'https', port: 443);
-              _expectedMainFrameCancellations++;
-              _trace('upgrade navigation to ${_safeUri(target)}');
-              unawaited(
-                controller.loadRequest(target),
-              );
-              return NavigationDecision.prevent;
-            }
-            if (_isLogin(uri) &&
-                !_campusAttempted &&
-                _tpAuth!.hasCpdailyBinding) {
-              _expectedMainFrameCancellations++;
-              unawaited(_openLogin());
-              return NavigationDecision.prevent;
-            }
-            if (_isHttpsElrc(uri) || _isLogin(uri)) {
-              return NavigationDecision.navigate;
-            }
-            return NavigationDecision.prevent;
-          },
-          onPageStarted: (url) {
-            if (!identical(_controller, controller)) return;
-            _trace('page started ${_safeUri(Uri.tryParse(url))}');
-            _activate(url, pageStarted: true);
-          },
-          onUrlChange: (change) {
-            if (!identical(_controller, controller)) return;
-            _trace('URL changed ${_safeUri(Uri.tryParse(change.url ?? ''))}');
-            _activate(change.url);
-          },
-          onPageFinished: (url) {
-            if (!identical(_controller, controller)) return;
-            _trace('page finished ${_safeUri(Uri.tryParse(url))}');
-            _navigationFinished(url);
-          },
-          onWebResourceError: (error) {
-            if (identical(_controller, controller)) _webResourceFailed(error);
-          },
-        ),
-      );
-      if (!mounted || !_authorized || generation != _bindingOwner) {
-        client.dispose();
-        return;
-      }
-      _controller = controller;
-      _client = client;
-      setState(() {});
-      await controller.loadRequest(_reviewUri);
+      setState(() => _browserReady = true);
     } catch (_) {
-      client.dispose();
-      if (!mounted || generation != _bindingOwner) return;
-      if (identical(_client, client)) {
-        _client = null;
-        _controller = null;
+      if (!mounted || generation != _bindingOwner || !identical(_browser, browser)) {
+        return;
       }
       setState(() {
         _starting = false;
@@ -306,21 +285,6 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
     }
   }
 
-  void _webResourceFailed(WebResourceError error) {
-    _trace(
-      'resource error main=${error.isForMainFrame} '
-      'code=${error.errorCode} type=${error.errorType?.name} '
-      '${_safeUri(Uri.tryParse(error.url ?? ''))}',
-    );
-    if (error.isForMainFrame != true) return;
-    if (error.errorCode == 102 && _expectedMainFrameCancellations > 0) {
-      _expectedMainFrameCancellations--;
-      _trace('ignored expected replacement-navigation cancellation');
-      return;
-    }
-    _pageLoadFailed();
-  }
-
   void _pageLoadFailed() {
     if (!mounted) return;
     setState(() {
@@ -333,8 +297,7 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
   }
 
   Future<void> _reloadReview() async {
-    final controller = _controller;
-    if (controller == null) {
+    if (_browser?.isReady != true) {
       await _prepare();
       return;
     }
@@ -351,7 +314,7 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
       _sessionReloadRequired = false;
     });
     try {
-      await controller.loadRequest(_reviewUri);
+      await _browser!.navigate(_reviewUri);
     } catch (_) {
       if (!mounted || !_authorized || request != _request) return;
       setState(() {
@@ -363,8 +326,8 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
   }
 
   Future<void> _openLogin() async {
-    final controller = _controller;
-    if (controller == null) {
+    final browser = _browser;
+    if (browser?.isReady != true) {
       await _prepare();
       return;
     }
@@ -382,11 +345,11 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
     try {
       if (!_campusAttempted) {
         _campusAttempted = true;
-        await _writeCampusSession(controller);
+        await browser!.refreshCampusCookies();
         _trace('IDS cookie written; awaiting official SSO');
       }
       if (!mounted || request != _request) return;
-      await controller.loadRequest(_loginUri);
+      await browser!.navigate(_loginUri);
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -483,6 +446,15 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
       final sources = await client.sources(course, lesson);
       if (!mounted || request != _request) return;
       setState(() => _busy = false);
+      String? cookie;
+      if (_desktop) {
+        try {
+          cookie = await _browser!.mediaCookie();
+        } catch (_) {
+          // Signed media may still play without a readable browser cookie.
+        }
+      }
+      if (!mounted || request != _request) return;
       await pushAdaptivePage<void>(
         context,
         builder: (_) => ElrcPlayerPage(
@@ -490,6 +462,7 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
           lessonTitle: lesson.title,
           referer: course.referer,
           sources: sources,
+          cookie: cookie,
         ),
       );
     } on ElrcException catch (error) {
@@ -573,7 +546,7 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
 
   Widget _content() {
     if (!_supported) {
-      return const Center(child: Text('请在 iPhone 或 Android 手机中观看录播'));
+      return const Center(child: Text('当前平台暂不支持录播'));
     }
     if (_error != null && _courses == null && !_webVisible) {
       return _message(_error!, _retryCourses);
@@ -666,9 +639,10 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
     _auth?.removeListener(_primaryAccountChanged);
     _request++;
     _tpAuth?.removeListener(_bindingChanged);
+    _browser?.dispose();
     _client?.dispose();
     _client = null;
-    _controller = null;
+    _browser = null;
     super.dispose();
   }
 
@@ -705,11 +679,11 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
             child: Stack(
               children: [
                 Positioned.fill(child: _content()),
-                if (_controller != null)
+                if (_browserReady && _browser != null)
                   Positioned.fill(
                     child: Offstage(
                       offstage: !_webVisible,
-                      child: WebViewWidget(controller: _controller!),
+                      child: _browser!.buildView(),
                     ),
                   ),
                 if (_busy && (_courses != null || _lessons != null) && !_webVisible)

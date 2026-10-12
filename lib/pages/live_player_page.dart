@@ -11,6 +11,7 @@ import '../services/live_client.dart';
 import '../services/live_playback_session.dart';
 import '../services/service_provider.dart';
 import '../widgets/adaptive_page_navigation.dart';
+import '../widgets/media_player_scaffold.dart';
 
 bool get supportsLivePlayback =>
     !kIsWeb &&
@@ -126,7 +127,7 @@ class _LivePlayerPageState extends State<LivePlayerPage> with WidgetsBindingObse
       _session = session;
       session.addListener(_update);
       _errors = player.stream.error.listen((_) => session.playbackFailed());
-      unawaited(session.select(LiveCamera.screen));
+      unawaited(session.select(LiveCamera.panorama));
     } catch (_) {
       _blockedMessage = '播放器初始化失败，请重新进入直播';
     }
@@ -213,107 +214,21 @@ class _LivePlayerPageState extends State<LivePlayerPage> with WidgetsBindingObse
     );
   }
 
-  Widget _cameraSelector() {
-    final selected = _session?.camera;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          children: [
-            for (final camera in LiveCamera.values)
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.all(3),
-                  child: GestureDetector(
-                    onTap: _blockedMessage != null || _session == null || selected == camera
-                        ? null
-                        : () => unawaited(_session!.select(camera)),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 180),
-                      padding: const EdgeInsets.symmetric(vertical: 9),
-                      decoration: BoxDecoration(
-                        color: selected == camera
-                            ? Theme.of(context).colorScheme.surface
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(9),
-                      ),
-                      child: Text(
-                        camera.label,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: selected == camera ? FontWeight.w600 : FontWeight.w400,
-                          color: selected == camera
-                              ? Theme.of(context).colorScheme.onSurface
-                              : Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _errorPanel(String message) => ColoredBox(
-        color: Theme.of(context).colorScheme.surface,
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Text(message, textAlign: TextAlign.center),
-              ),
-              if (_blockedMessage == null && _session != null) ...[
-                const SizedBox(height: 16),
-                FilledButton(
-                  onPressed: () => unawaited(_session!.select(_session!.camera)),
-                  child: const Text('重试'),
-                ),
-              ],
-            ],
-          ),
-        ),
-      );
-
   @override
   Widget build(BuildContext context) {
     final message = !supportsLivePlayback ? '当前平台暂不支持直播播放' : _blockedMessage ?? _session?.error;
-    return Scaffold(
-      appBar: AppBar(title: Text(widget.title)),
-      body: SafeArea(
-        child: Column(
-          children: [
-            _cameraSelector(),
-            Expanded(
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  if (_video != null && _blockedMessage == null)
-                    ColoredBox(
-                      color: Colors.black,
-                      child: _buildVideo(),
-                    ),
-                  if (_session?.loading == true && _blockedMessage == null)
-                    const ColoredBox(
-                      color: Colors.black,
-                      child: Center(child: CircularProgressIndicator()),
-                    ),
-                  if (message != null) _errorPanel(message),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
+    return MediaPlayerScaffold(
+      title: widget.title,
+      sourceLabels: [for (final camera in LiveCamera.values) camera.label],
+      selectedSource: _session?.camera.index ?? 0,
+      sourceEnabled: _blockedMessage == null && _session != null && _session?.loading != true,
+      onSourceSelected: (index) => unawaited(_session!.select(LiveCamera.values[index])),
+      player: _video != null && _blockedMessage == null ? _buildVideo() : null,
+      loading: _session?.loading == true && _blockedMessage == null,
+      error: message,
+      onRetry: _blockedMessage == null && _session != null
+          ? () => unawaited(_session!.select(_session!.camera))
+          : null,
     );
   }
 }

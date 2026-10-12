@@ -16,7 +16,7 @@ class LivePlaybackSession extends ChangeNotifier {
   final Future<void> Function(Uri) open;
   final Future<void> Function() stop;
   final Future<void> Function() release;
-  LiveCamera camera = LiveCamera.screen;
+  LiveCamera camera = LiveCamera.panorama;
   bool loading = false;
   String? error;
   int _generation = 0;

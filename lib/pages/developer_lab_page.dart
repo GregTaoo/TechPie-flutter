@@ -296,20 +296,21 @@ final class _LiveProbeState extends State<_LiveProbe> {
   Widget build(BuildContext context) => _Section(
         key: const Key('lab-live'),
         header: 'Live',
-        footer: '手动输入教室 ID，使用校园登录态测试 FLV 直播。',
+        footer: 'Enter a classroom ID to play the live stream.',
         children: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Column(
+            child: Row(
               children: [
-                TextField(
-                  controller: _id,
-                  keyboardType: TextInputType.number,
-                  decoration:
-                      InputDecoration(labelText: '教室 ID', errorText: _error),
-                  onSubmitted: (_) => _play(),
+                Expanded(
+                  child: TextField(
+                    controller: _id,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(labelText: '教室 ID', errorText: _error),
+                    onSubmitted: (_) => _play(),
+                  ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(width: 12),
                 FilledButton.icon(
                   onPressed: _play,
                   icon: const Icon(Icons.live_tv),

@@ -7,9 +7,9 @@ import 'storage_service.dart';
 import 'third_party_auth_service.dart';
 
 enum LiveCamera {
-  screen('屏幕'),
-  panorama('全景'),
-  closeup('特写');
+  panorama('全景画面'),
+  screen('屏幕画面'),
+  closeup('教师画面');
 
   const LiveCamera(this.label);
 

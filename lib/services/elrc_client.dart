@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:webview_flutter/webview_flutter.dart';
-
 const _origin = 'https://elrc.shanghaitech.edu.cn';
 const _courseList = '/learn/v1/course/video/review/1';
 const _courseInfo = '/learn/v1/course/recording/video/info';
@@ -90,19 +88,23 @@ class ElrcException implements Exception {
 enum _EnvelopeKind { status, success }
 
 class ElrcClient {
-  ElrcClient(this.webView);
+  ElrcClient({
+    required Future<void> Function(void Function(String)) registerMessages,
+    required Future<void> Function(String) runJavaScript,
+  })  : _registerMessages = registerMessages,
+        _runJavaScript = runJavaScript;
 
-  final WebViewController webView;
+  final Future<void> Function(void Function(String)) _registerMessages;
+  final Future<void> Function(String) _runJavaScript;
   Completer<_Response>? _pending;
   var _requestId = 0;
   var _disposed = false;
 
-  Future<void> initialize() => webView.addJavaScriptChannel(
-        'TechPieElrc',
-        onMessageReceived: (message) {
-          if (_disposed || message.message.length > 5 * 1024 * 1024) return;
+  Future<void> initialize() => _registerMessages(
+        (message) {
+          if (_disposed || message.length > 5 * 1024 * 1024) return;
           try {
-            final Object? value = jsonDecode(message.message);
+            final Object? value = jsonDecode(message);
             final pending = _pending;
             if (value is! Map<String, dynamic> ||
                 value['id'] != _requestId ||
@@ -422,7 +424,7 @@ class ElrcClient {
     final pending = _pending = Completer<_Response>();
     final encodedBody = body == null ? null : jsonEncode(body);
     try {
-      await webView.runJavaScript('''
+      await _runJavaScript('''
 (async () => {
   const id = $id;
   if (location.origin !== ${jsonEncode(_origin)}) {

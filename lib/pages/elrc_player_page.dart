@@ -3,13 +3,49 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:media_kit/media_kit.dart';
+import 'package:media_kit_video/media_kit_video.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../services/elrc_client.dart';
+import '../widgets/media_player_scaffold.dart';
 
-class ElrcPlayerPage extends StatefulWidget {
+class ElrcPlayerPage extends StatelessWidget {
   const ElrcPlayerPage({
     super.key,
+    required this.courseName,
+    required this.lessonTitle,
+    required this.referer,
+    required this.sources,
+    this.cookie,
+  });
+
+  final String courseName;
+  final String lessonTitle;
+  final Uri referer;
+  final List<ElrcSource> sources;
+  final String? cookie;
+
+  @override
+  Widget build(BuildContext context) => defaultTargetPlatform == TargetPlatform.macOS ||
+          defaultTargetPlatform == TargetPlatform.windows
+      ? _ElrcDesktopPlayerPage(
+          courseName: courseName,
+          lessonTitle: lessonTitle,
+          referer: referer,
+          sources: sources,
+          cookie: cookie,
+        )
+      : _ElrcMobilePlayerPage(
+          courseName: courseName,
+          lessonTitle: lessonTitle,
+          referer: referer,
+          sources: sources,
+        );
+}
+
+class _ElrcMobilePlayerPage extends StatefulWidget {
+  const _ElrcMobilePlayerPage({
     required this.courseName,
     required this.lessonTitle,
     required this.referer,
@@ -22,10 +58,10 @@ class ElrcPlayerPage extends StatefulWidget {
   final List<ElrcSource> sources;
 
   @override
-  State<ElrcPlayerPage> createState() => _ElrcPlayerPageState();
+  State<_ElrcMobilePlayerPage> createState() => _ElrcMobilePlayerState();
 }
 
-class _ElrcPlayerPageState extends State<ElrcPlayerPage> {
+class _ElrcMobilePlayerState extends State<_ElrcMobilePlayerPage> {
   late final WebViewController _controller;
   var _selected = 0;
   var _loading = true;
@@ -302,85 +338,124 @@ document.querySelectorAll('video, audio').forEach(media => {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(
-          leading: BackButton(onPressed: _close),
-          title: Text(widget.courseName),
+  Widget build(BuildContext context) => MediaPlayerScaffold(
+        title: widget.courseName,
+        subtitle: widget.lessonTitle,
+        sourceLabels: [for (final source in widget.sources) source.label],
+        selectedSource: _selected,
+        sourceEnabled: !_loading,
+        onSourceSelected: (index) => unawaited(_load(index)),
+        player: WebViewWidget(controller: _controller),
+        loading: _loading,
+        error: _error,
+        onRetry: _error == null ? null : () => unawaited(_load(_selected)),
+        onBack: () => unawaited(_close()),
+      );
+}
+
+class _ElrcDesktopPlayerPage extends StatefulWidget {
+  const _ElrcDesktopPlayerPage({
+    required this.courseName,
+    required this.lessonTitle,
+    required this.referer,
+    required this.sources,
+    this.cookie,
+  });
+
+  final String courseName;
+  final String lessonTitle;
+  final Uri referer;
+  final List<ElrcSource> sources;
+  final String? cookie;
+
+  @override
+  State<_ElrcDesktopPlayerPage> createState() => _ElrcDesktopPlayerState();
+}
+
+class _ElrcDesktopPlayerState extends State<_ElrcDesktopPlayerPage> with WidgetsBindingObserver {
+  late final Player _player;
+  late final VideoController _video;
+  StreamSubscription<String>? _errors;
+  int _selected = 0;
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    MediaKit.ensureInitialized();
+    _player = Player(configuration: const PlayerConfiguration(logLevel: MPVLogLevel.error));
+    _video = VideoController(_player);
+    _errors = _player.stream.error.listen((_) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = '视频播放失败';
+        });
+      }
+    });
+    unawaited(_load(0, preservePlayback: false));
+  }
+
+  Future<void> _load(int index, {bool preservePlayback = true}) async {
+    if (!mounted || index < 0 || index >= widget.sources.length) return;
+    final position = preservePlayback ? _player.state.position : Duration.zero;
+    final playing = !preservePlayback || _player.state.playing;
+    setState(() {
+      _selected = index;
+      _loading = true;
+      _error = null;
+    });
+    try {
+      await _player.open(
+        Media(
+          widget.sources[index].uri.toString(),
+          httpHeaders: {
+            'Referer': widget.referer.toString(),
+            if (widget.cookie != null && widget.cookie!.isNotEmpty) 'Cookie': widget.cookie!,
+          },
         ),
-        body: SafeArea(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                child: Text(
-                  widget.lessonTitle,
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-              ),
-              if (widget.sources.length > 1)
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                  child: Row(
-                    children: [
-                      for (var index = 0; index < widget.sources.length; index++) ...[
-                        if (index > 0) const SizedBox(width: 8),
-                        ChoiceChip(
-                          label: Text(widget.sources[index].label),
-                          selected: index == _selected,
-                          onSelected: _loading ? null : (_) => unawaited(_load(index)),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              Expanded(
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    ColoredBox(
-                      color: Colors.black,
-                      child: WebViewWidget(controller: _controller),
-                    ),
-                    if (_loading)
-                      ColoredBox(
-                        color: Theme.of(context).colorScheme.surface,
-                        child: const Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              CircularProgressIndicator(),
-                              SizedBox(height: 16),
-                              Text('正在加载视频'),
-                            ],
-                          ),
-                        ),
-                      ),
-                    if (_error != null)
-                      ColoredBox(
-                        color: Theme.of(context).colorScheme.surface,
-                        child: Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.error_outline, size: 40),
-                              const SizedBox(height: 12),
-                              Text(_error!),
-                              const SizedBox(height: 16),
-                              FilledButton(
-                                onPressed: () => unawaited(_load(_selected)),
-                                child: const Text('重新加载'),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
+        play: playing,
+      );
+      if (position > Duration.zero) await _player.seek(position);
+      if (mounted) setState(() => _loading = false);
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = '视频加载失败';
+        });
+      }
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
+      unawaited(_player.pause());
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    unawaited(_errors?.cancel());
+    unawaited(_player.dispose());
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => MediaPlayerScaffold(
+        title: widget.courseName,
+        subtitle: widget.lessonTitle,
+        sourceLabels: [for (final source in widget.sources) source.label],
+        selectedSource: _selected,
+        sourceEnabled: !_loading,
+        onSourceSelected: (index) => unawaited(_load(index)),
+        player: Video(controller: _video, controls: MaterialDesktopVideoControls),
+        loading: _loading,
+        error: _error,
+        onRetry: _error == null ? null : () => unawaited(_load(_selected)),
       );
 }
