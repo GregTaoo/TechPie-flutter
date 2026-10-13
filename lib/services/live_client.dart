@@ -51,16 +51,11 @@ class LiveClient {
     if (owner == null) throw const LiveException('请先绑定校园账号');
     final generation = storage.liveCacheGeneration;
     final baseUrl = apiBaseUrl(storage);
-    bool current() =>
-        _owner == owner &&
-        storage.liveCacheGeneration == generation &&
-        apiBaseUrl(storage) == baseUrl;
     try {
       final id = await LiveClassroomCache(storage).resolve(
         scope: jsonEncode([baseUrl, owner, semesterId, generation]),
         fingerprint: fingerprint,
         classroom: classroom,
-        isCurrent: current,
         fetch: () async {
           final data = await _requestClassrooms({'semesterId': semesterId});
           final raw = data['classrooms'];
@@ -73,7 +68,6 @@ class LiveClient {
         },
       );
       if (id == null) throw const LiveException('暂未找到该课程对应的直播教室');
-      if (!current()) throw const LiveException('账号已变化，请重新进入直播');
       return await byId(id, camera);
     } on StateError catch (error) {
       throw LiveException(error.message);
@@ -143,10 +137,8 @@ class LiveClient {
   // Stream signing no longer consumes ELRC credentials. In particular, do not
   // mint a derived cookie just to switch cameras in an existing live session.
   Future<Map<String, dynamic>> _requestUrl(int id, LiveCamera camera) async {
-    final owner = _owner;
-    final generation = storage.liveCacheGeneration;
     final baseUrl = apiBaseUrl(storage);
-    if (owner == null) throw const LiveException('请先绑定校园账号');
+    if (_owner == null) throw const LiveException('请先绑定校园账号');
     final response = await http
         .post(
           Uri.parse('$baseUrl/live/url'),
@@ -155,62 +147,31 @@ class LiveClient {
           tag: 'liveRequest',
         )
         .timeout(const Duration(seconds: 30));
-    if (_owner != owner ||
-        storage.liveCacheGeneration != generation ||
-        apiBaseUrl(storage) != baseUrl) {
-      throw const LiveException('账号已变化，请重新进入直播');
-    }
     return _readResponse(response);
   }
 
   Future<Map<String, dynamic>> _requestClassrooms(Map<String, Object> input) async {
-    final owner = _owner;
-    final generation = storage.liveCacheGeneration;
     final baseUrl = apiBaseUrl(storage);
-    if (owner == null) throw const LiveException('请先绑定校园账号');
-    void checkCurrent() {
-      if (_owner != owner ||
-          storage.liveCacheGeneration != generation ||
-          apiBaseUrl(storage) != baseUrl) {
-        throw const LiveException('账号已变化，请重新进入直播');
-      }
-    }
+    if (_owner == null) throw const LiveException('请先绑定校园账号');
 
-    final initialTgc = auth.cpdailyNode.rawFields['tgc'];
-    final initialElrcRenew = auth.elrcNode.lastRenewAt;
-    Future<http_pkg.Response?> send() =>
-        auth.sessionTree.withCookie<http_pkg.Response>(auth.elrcNode, (provider) async {
-          checkCurrent();
-          final response = await http
-              .post(
-                Uri.parse('$baseUrl/live/classrooms'),
-                headers: {'Content-Type': 'application/json; charset=UTF-8'},
-                body: jsonEncode({
-                  ...input,
-                  'cookie': provider.cookies,
-                  'tgc': auth.cpdailyNode.rawFields['tgc'],
-                }),
-                tag: 'liveRequest',
-              )
-              .timeout(const Duration(seconds: 65));
-          checkCurrent();
-          return CookieAction(response, expired: response.statusCode == 401);
-        });
-    var response = await send();
-    // The ELRC cookie retry cannot repair an expired parent CASTGC: /auth/renew
-    // refreshes CpDaily but does not log back in to IDS. Restore the password
-    // rebind fallback for a genuine 401, then mint ELRC from the new CASTGC.
-    if (response?.statusCode == 401 ||
-        (response == null &&
-            auth.elrcNode.lastRenewAt != initialElrcRenew &&
-            auth.elrcNode.lastRenewSucceeded == false &&
-            auth.elrcNode.lastRenewWasCredentialError)) {
-      checkCurrent();
-      final recovered = await auth.recoverElrcSession(initialTgc);
-      checkCurrent();
-      if (recovered) response = await send();
-    }
-    checkCurrent();
+    final response = await auth.sessionTree.withCookie<http_pkg.Response>(
+      auth.elrcNode,
+      (provider) async {
+        final result = await http
+            .post(
+              Uri.parse('$baseUrl/live/classrooms'),
+              headers: {'Content-Type': 'application/json; charset=UTF-8'},
+              body: jsonEncode({
+                ...input,
+                'cookie': provider.cookies,
+                'tgc': auth.cpdailyNode.rawFields['tgc'],
+              }),
+              tag: 'liveRequest',
+            )
+            .timeout(const Duration(seconds: 65));
+        return CookieAction(result, expired: result.statusCode == 401);
+      },
+    );
     if (response == null) throw const LiveException('直播服务暂不可用，请重试');
     if (response.statusCode == 401) {
       throw const LiveException('ELRC 登录续期失败，请重试');

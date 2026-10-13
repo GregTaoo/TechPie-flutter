@@ -43,7 +43,6 @@ class LiveClassroomCache {
     required String fingerprint,
     required String classroom,
     required Future<Map<String, Object>> Function() fetch,
-    required bool Function() isCurrent,
   }) async {
     final key = sha256.convert(utf8.encode(scope)).toString();
     final name = normalizeLiveClassroom(classroom);
@@ -66,10 +65,8 @@ class LiveClassroomCache {
           throw StateError('直播教室信息暂不可用，请稍后重试');
         }
         final future = () async {
-          if (!isCurrent()) throw StateError('账号已变化，请重新进入直播');
           await storage.saveLiveClassrooms(key, {...?entry, 'attemptedAt': now});
           final result = await fetch();
-          if (!isCurrent()) throw StateError('账号已变化，请重新进入直播');
           final normalized = <String, Object>{};
           for (final item in result.entries) {
             final normalizedName = normalizeLiveClassroom(item.key);
@@ -100,7 +97,6 @@ class LiveClassroomCache {
       }
       rooms = _rooms(entry);
     }
-    if (!isCurrent()) throw StateError('账号已变化，请重新进入直播');
     if (!rooms.containsKey(name)) {
       // A successful complete response omitted this name. Remember that result.
       rooms[name] = 'unknown';
