@@ -205,6 +205,11 @@ class ThirdPartyAuthService extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> _clearElrcCookie() async {
+    _tree.setDerivedCookie('elrc', null);
+    await _storage.clearDerivedCookie('elrc');
+  }
+
   Future<void> _persistRenewTimestamp(
     String nodeId,
     DateTime? timestamp,
@@ -348,6 +353,13 @@ class ThirdPartyAuthService extends ChangeNotifier {
   Future<bool> refreshCastgc() =>
       _castgcRefresh ??= _refreshCastgc().whenComplete(() => _castgcRefresh = null);
 
+  /// Call only after an ELRC credential rejection, never for a service error.
+  Future<bool> recoverElrcSession(Object? previousTgc) async {
+    final refreshed = cpdailyNode.rawFields['tgc'] != previousTgc ||
+        await refreshCastgc();
+    return refreshed && await elrcNode.renew();
+  }
+
   Future<bool> _refreshCastgc() async {
     final acc = cpdailyNode.account;
     if (acc == null || !acc.autoRenew || acc.password?.isNotEmpty != true) return false;
@@ -445,6 +457,7 @@ class ThirdPartyAuthService extends ChangeNotifier {
       throw ThirdPartyBindException(platform, '账号已变化，请重试');
     }
     final touched = _touch(acc);
+    if (platform == ThirdPartyPlatform.cpdaily) await _clearElrcCookie();
     await _storage.saveThirdPartyAccount(touched);
     if (forceSyncPush) _pendingForcePush = true;
     _tree.setAccount(platform, touched);
@@ -456,7 +469,7 @@ class ThirdPartyAuthService extends ChangeNotifier {
     await _storage.clearThirdPartyAccount(platform);
     // Unbinding cpdaily invalidates all downstream derived cookies.
     if (platform == ThirdPartyPlatform.cpdaily) {
-      for (final id in const ['eams', 'elearning', 'egateApp']) {
+      for (final id in const ['eams', 'elearning', 'egateApp', 'elrc']) {
         _tree.setDerivedCookie(id, null);
         await _storage.clearDerivedCookie(id);
       }
@@ -482,7 +495,7 @@ class ThirdPartyAuthService extends ChangeNotifier {
       await _storage.clearThirdPartyAccount(p);
     }
     // Downstream derived cookies are invalidated when bindings are replaced.
-    for (final id in const ['eams', 'elearning', 'egateApp']) {
+    for (final id in const ['eams', 'elearning', 'egateApp', 'elrc']) {
       _tree.setDerivedCookie(id, null);
       await _storage.clearDerivedCookie(id);
     }
@@ -520,17 +533,16 @@ class ThirdPartyAuthService extends ChangeNotifier {
         // (same token, same updatedAt), don't touch storage or fire notifies.
         if (next != null && cur != null && _accountEqual(cur, next)) continue;
         if (next == null && cur == null) continue;
+        if (p == ThirdPartyPlatform.cpdaily) {
+          for (final id in const ['eams', 'elearning', 'egateApp', 'elrc']) {
+            _tree.setDerivedCookie(id, null);
+            await _storage.clearDerivedCookie(id);
+          }
+        }
         if (next != null) {
           await _storage.saveThirdPartyAccount(next);
           _tree.setAccount(p, next);
         } else {
-          // Clearing cpdaily invalidates downstream derived cookies.
-          if (p == ThirdPartyPlatform.cpdaily && cur != null) {
-            for (final id in const ['eams', 'elearning', 'egateApp']) {
-              _tree.setDerivedCookie(id, null);
-              await _storage.clearDerivedCookie(id);
-            }
-          }
           _tree.setAccount(p, null);
           await _storage.clearThirdPartyAccount(p);
         }
@@ -562,6 +574,9 @@ class ThirdPartyAuthService extends ChangeNotifier {
   ) async {
     final acc = _nodeAccount(platform);
     if (acc == null) return;
+    if (platform == ThirdPartyPlatform.cpdaily && acc.raw['tgc'] != newRaw['tgc']) {
+      await _clearElrcCookie();
+    }
     final touched = _touch(acc.copyWith(raw: newRaw));
     await _storage.saveThirdPartyAccount(touched);
     _tree.setAccount(platform, touched);
@@ -655,6 +670,7 @@ class ThirdPartyAuthService extends ChangeNotifier {
     );
 
     final touched = _touch(acc);
+    await _clearElrcCookie();
     await _storage.saveThirdPartyAccount(touched);
     _tree.setAccount(ThirdPartyPlatform.cpdaily, touched);
     _cpdailySmsContext = null;

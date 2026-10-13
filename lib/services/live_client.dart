@@ -175,8 +175,11 @@ class LiveClient {
         throw const LiveException('账号已变化，请重新进入直播');
       }
     }
+
     final initialTgc = auth.cpdailyNode.rawFields['tgc'];
-    Future<http_pkg.Response?> send() => auth.sessionTree.withCookie<http_pkg.Response>(auth.elrcNode, (provider) async {
+    final initialElrcRenew = auth.elrcNode.lastRenewAt;
+    Future<http_pkg.Response?> send() =>
+        auth.sessionTree.withCookie<http_pkg.Response>(auth.elrcNode, (provider) async {
           checkCurrent();
           final response = await http
               .post(
@@ -197,18 +200,19 @@ class LiveClient {
     // The ELRC cookie retry cannot repair an expired parent CASTGC: /auth/renew
     // refreshes CpDaily but does not log back in to IDS. Restore the password
     // rebind fallback for a genuine 401, then mint ELRC from the new CASTGC.
-    if (response == null || response.statusCode == 401) {
+    if (response?.statusCode == 401 ||
+        (response == null &&
+            auth.elrcNode.lastRenewAt != initialElrcRenew &&
+            auth.elrcNode.lastRenewSucceeded == false &&
+            auth.elrcNode.lastRenewWasCredentialError)) {
       checkCurrent();
-      final refreshed = auth.cpdailyNode.rawFields['tgc'] != initialTgc ||
-          await auth.refreshCastgc();
+      final recovered = await auth.recoverElrcSession(initialTgc);
       checkCurrent();
-      if (refreshed && await auth.elrcNode.renew()) {
-        checkCurrent();
-        response = await send();
-      }
+      if (recovered) response = await send();
     }
     checkCurrent();
-    if (response == null || response.statusCode == 401) {
+    if (response == null) throw const LiveException('直播服务暂不可用，请重试');
+    if (response.statusCode == 401) {
       throw const LiveException('ELRC 登录续期失败，请重试');
     }
     return _readResponse(response);

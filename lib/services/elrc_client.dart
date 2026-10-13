@@ -354,28 +354,51 @@ class ElrcClient {
     Object? body,
     Uri? referer,
   }) async {
-    final result = await _auth.sessionTree.withCookie<Object?>(
-      _auth.elrcNode,
-      (provider) async {
-        if (_disposed) throw const ElrcException('ELRC 页面已关闭');
-        try {
-          final data = await _requestOnce(
-            path,
-            kind: kind,
-            query: query,
-            body: body,
-            referer: referer,
-            provider: provider,
-          );
-          return CookieAction(data, expired: false);
-        } on ElrcException catch (error) {
-          if (!error.needsLogin) rethrow;
-          return CookieAction(error, expired: true);
-        }
-      },
-    );
+    final node = _auth.elrcNode;
+    final initialTgc = _auth.cpdailyNode.rawFields['tgc'];
+    final initialRenew = node.lastRenewAt;
+    Future<Object?> send() => _auth.sessionTree.withCookie<Object?>(
+          node,
+          (provider) async {
+            if (_disposed) throw const ElrcException('ELRC 页面已关闭');
+            try {
+              final data = await _requestOnce(
+                path,
+                kind: kind,
+                query: query,
+                body: body,
+                referer: referer,
+                provider: provider,
+              );
+              return CookieAction(data, expired: false);
+            } on ElrcException catch (error) {
+              if (!error.needsLogin) rethrow;
+              return CookieAction(error, expired: true);
+            }
+          },
+        );
+    var result = await send();
+    if (_disposed) throw const ElrcException('ELRC 页面已关闭');
+    final credentialRejected = result is ElrcException ||
+        (result == null &&
+            node.lastRenewAt != initialRenew &&
+            node.lastRenewSucceeded == false &&
+            node.lastRenewWasCredentialError);
+    if (credentialRejected) {
+      final recovered = await _auth.recoverElrcSession(initialTgc);
+      if (_disposed) throw const ElrcException('ELRC 页面已关闭');
+      if (recovered) result = await send();
+    }
     if (result == null || result is ElrcException) {
-      throw const ElrcException('ELRC 登录续期失败，请重试', needsLogin: true);
+      final account = _auth.cpdailyNode.account;
+      if (credentialRejected &&
+          (account?.autoRenew != true || account?.password?.isNotEmpty != true)) {
+        throw const ElrcException('校园登录已失效，请重新登录校园账号', needsLogin: true);
+      }
+      throw ElrcException(
+        credentialRejected ? 'ELRC 登录续期失败，请重试' : 'ELRC 服务暂不可用，请重试',
+        needsLogin: credentialRejected,
+      );
     }
     return result;
   }

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../models/third_party_account.dart';
 import '../services/auth_service.dart';
 import '../services/debug_logger.dart';
 import '../services/elrc_client.dart';
@@ -9,6 +10,7 @@ import '../services/service_provider.dart';
 import '../services/third_party_auth_service.dart';
 import '../widgets/adaptive_page_navigation.dart';
 import 'elrc_player_page.dart';
+import 'third_party_bind_page.dart';
 
 class ElrcRecordingsPage extends StatefulWidget {
   const ElrcRecordingsPage({super.key});
@@ -23,6 +25,7 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
   ElrcCourse? _selectedCourse;
   List<ElrcLesson>? _lessons;
   String? _error;
+  bool _needsLogin = false;
   int _request = 0;
   bool _starting = true;
   bool _busy = false;
@@ -70,6 +73,7 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
       _courses = null;
       _lessons = null;
       _selectedCourse = null;
+      _needsLogin = false;
       _starting = false;
       _error = '请先登录 TechPie';
     });
@@ -87,6 +91,7 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
       _courses = null;
       _lessons = null;
       _selectedCourse = null;
+      _needsLogin = false;
       _busy = false;
       _starting = true;
     });
@@ -109,23 +114,12 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
       _courses = null;
       _selectedCourse = null;
       _lessons = null;
+      _needsLogin = false;
       _error = null;
       _starting = true;
       _busy = false;
     });
-    try {
-      if (!await _tpAuth!.elrcNode.renew()) {
-        throw const ElrcException('ELRC 登录续期失败，请重试');
-      }
-      if (!mounted || !_authorized || request != _request) return;
-      await _loadCourses();
-    } catch (_) {
-      if (!mounted || !_authorized || request != _request) return;
-      setState(() {
-        _starting = false;
-        _error = 'ELRC 登录续期失败，请重试';
-      });
-    }
+    if (mounted && _authorized && request == _request) await _loadCourses();
   }
 
   Future<void> _loadCourses() async {
@@ -136,6 +130,7 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
       _busy = true;
       _starting = false;
       _error = null;
+      _needsLogin = false;
     });
     try {
       final courses = await client.courses();
@@ -149,6 +144,7 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
       if (!mounted || request != _request) return;
       setState(() {
         _error = error.message;
+        _needsLogin = error.needsLogin;
       });
     } catch (_) {
       if (!mounted || request != _request) return;
@@ -166,6 +162,7 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
       _selectedCourse = course;
       _lessons = null;
       _error = null;
+      _needsLogin = false;
       _busy = true;
     });
     try {
@@ -176,6 +173,7 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
       if (!mounted || request != _request) return;
       setState(() {
         _error = error.message;
+        _needsLogin = error.needsLogin;
       });
     } catch (_) {
       if (!mounted || request != _request) return;
@@ -193,6 +191,7 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
     setState(() {
       _busy = true;
       _error = null;
+      _needsLogin = false;
     });
     try {
       final sources = await client.sources(course, lesson);
@@ -214,6 +213,7 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
       if (!mounted || request != _request) return;
       setState(() {
         _error = error.message;
+        _needsLogin = error.needsLogin;
       });
     } catch (_) {
       if (!mounted || request != _request) return;
@@ -240,6 +240,13 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
     unawaited(_loadLessons(course));
   }
 
+  void _openCampusLogin() => unawaited(
+        pushAdaptivePage<void>(
+          context,
+          builder: (_) => const ThirdPartyBindPage(platform: ThirdPartyPlatform.cpdaily),
+        ),
+      );
+
   Widget _message(String text, VoidCallback retry) => Center(
         child: Padding(
           padding: const EdgeInsets.all(28),
@@ -254,6 +261,11 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
                 onPressed: _busy ? null : retry,
                 child: const Text('重新加载'),
               ),
+              if (_needsLogin)
+                TextButton(
+                  onPressed: _openCampusLogin,
+                  child: const Text('重新登录校园账号'),
+                ),
             ],
           ),
         ),
@@ -274,6 +286,11 @@ class _ElrcRecordingsPageState extends State<ElrcRecordingsPage> {
                 onPressed: _busy ? null : retry,
                 child: const Text('重试'),
               ),
+              if (_needsLogin)
+                TextButton(
+                  onPressed: _openCampusLogin,
+                  child: const Text('重新登录'),
+                ),
             ],
           ),
         ),

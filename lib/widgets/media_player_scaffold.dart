@@ -13,7 +13,6 @@ class MediaPlayerScaffold extends StatelessWidget {
     this.subtitle,
     this.error,
     this.onRetry,
-    this.onBack,
   });
 
   final String title;
@@ -26,7 +25,6 @@ class MediaPlayerScaffold extends StatelessWidget {
   final bool loading;
   final String? error;
   final VoidCallback? onRetry;
-  final VoidCallback? onBack;
 
   Widget _sourceSelector() => SingleChildScrollView(
         scrollDirection: Axis.horizontal,
@@ -51,7 +49,6 @@ class MediaPlayerScaffold extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(
           title: Text(title),
-          leading: onBack == null ? null : BackButton(onPressed: onBack),
         ),
         body: SafeArea(
           child: Column(

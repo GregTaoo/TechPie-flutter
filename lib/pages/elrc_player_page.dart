@@ -51,8 +51,6 @@ class _ElrcPlayerPageState extends State<ElrcPlayerPage> with WidgetsBindingObse
         });
       }
     });
-    final panorama = widget.sources.indexWhere((source) => source.label == '全景画面');
-    _selected = panorama < 0 ? 0 : panorama;
     unawaited(_load(_selected, preservePlayback: false));
   }
 

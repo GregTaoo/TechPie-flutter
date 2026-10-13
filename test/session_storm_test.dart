@@ -416,9 +416,6 @@ void main() {
 class _CountingClient extends http.BaseClient {
   int renewCalls = 0;
   int eamsCalls = 0;
-  int elrcCalls = 0;
-  List<int> elrcStatuses = const [];
-  Map<String, dynamic>? lastElrcBody;
   int fetchCalls = 0;
   List<int> fetchStatuses = const [];
   List<String> fetchBodies = const [];
@@ -448,20 +445,6 @@ class _CountingClient extends http.BaseClient {
         'cookies': 'JSESSIONID=js-v$_renewVersion',
       });
       return _resp(resp, 200);
-    }
-
-    if (url.endsWith('/auth/third-party/elrc')) {
-      elrcCalls++;
-      lastElrcBody = jsonDecode((request as http.Request).body) as Map<String, dynamic>;
-      final index = elrcCalls - 1;
-      final status = index < elrcStatuses.length ? elrcStatuses[index] : 200;
-      return _resp(
-        jsonEncode({
-          'success': status == 200,
-          'data': {'token': 'token=elrc-v$elrcCalls'},
-        }),
-        status,
-      );
     }
 
     if (url.endsWith('/auth/third-party/eams')) {

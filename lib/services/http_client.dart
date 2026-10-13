@@ -45,12 +45,13 @@ class LoggingHttpClient {
     Encoding? encoding,
     String? tag,
   }) async {
-    final isAuth = url.path.contains('/auth/');
+    final sensitive = url.path.contains('/live/') || url.path.contains('/auth/');
+    final logUrl = sensitive ? '${url.origin}${url.path}' : url.toString();
     final bodyStr = body is String ? body : (body != null ? jsonEncode(body) : null);
     _logger.log(
       method: 'POST',
-      url: url.toString(),
-      requestBody: isAuth ? '[redacted]' : bodyStr,
+      url: logUrl,
+      requestBody: sensitive ? '[redacted]' : bodyStr,
       tag: tag,
     );
     try {
@@ -62,17 +63,17 @@ class LoggingHttpClient {
       );
       _logger.log(
         method: 'POST',
-        url: url.toString(),
+        url: logUrl,
         statusCode: response.statusCode,
-        responseBody: isAuth ? '[redacted]' : _truncate(response.body),
+        responseBody: sensitive ? '[redacted]' : _truncate(response.body),
         tag: tag,
       );
       return response;
     } catch (e) {
       _logger.log(
         method: 'POST',
-        url: url.toString(),
-        error: isAuth ? 'Request failed' : e.toString(),
+        url: logUrl,
+        error: sensitive ? 'Request failed' : e.toString(),
         tag: tag,
       );
       rethrow;

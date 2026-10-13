@@ -28,7 +28,7 @@ class CampusSessionHandle {
   final SessionNode node;
 
   /// The cookies to inject, as of the last [prepare].
-  List<WebViewCookie> get cookies => webViewCookies(node.cookieProvider);
+  List<WebViewCookie> get cookies => _webViewCookies(node.cookieProvider);
 
   /// Brings the shared store and this node up to date before a page loads: the
   /// account-switch wipe first, so nothing the page injects is collateral, then
@@ -66,7 +66,7 @@ SessionNode _nodeFor(ThirdPartyAuthService tpAuth, CookieType cookieType) =>
 
 /// Rebuilds a session's cookie string into webview cookie objects, one per
 /// `name=value` pair, scoped to the provider's campus host.
-List<WebViewCookie> webViewCookies(CookieProvider? provider) {
+List<WebViewCookie> _webViewCookies(CookieProvider? provider) {
   if (provider == null || provider.isEmpty) return const <WebViewCookie>[];
   final domain =
       provider.domain.isNotEmpty ? provider.domain : 'ids.shanghaitech.edu.cn';
